@@ -17,7 +17,7 @@ class Assembly(Base):
     __tablename__ = "assembly"
     
     id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
-    organism_tax_id = Column("organism_tax_id", ForeignKey("organism.tax_id"), nullable=False)
+    organism_key = Column("organism_key", ForeignKey("organism.grouping_key"), nullable=False)
     sample_id = Column(UUID(as_uuid=True), ForeignKey("sample.id"), nullable=False)
     project_id = Column(UUID(as_uuid=True), ForeignKey("project.id"), nullable=True)
     
@@ -53,8 +53,8 @@ class AssemblySubmission(Base):
     assembly_id = Column(UUID(as_uuid=True), ForeignKey("assembly.id"), nullable=True)
     assembly_name = Column(Text, nullable=False)
     authority = Column(SQLAlchemyEnum("ENA", "NCBI", "DDBJ", name="authority_type"), nullable=False, default="ENA")
-    accession = Column(String(255), nullable=True)
-    organism_id = Column(UUID(as_uuid=True), ForeignKey("organism.id"), nullable=False)
+    accession = Column(Text, nullable=True)
+    organism_key = Column(Text, ForeignKey("organism.grouping_key"), nullable=False)
     sample_id = Column(UUID(as_uuid=True), ForeignKey("sample.id"), nullable=False)
     
     internal_json = Column(JSONB, nullable=True)

@@ -17,10 +17,10 @@ CREATE TYPE bioproject_type AS ENUM ('organism', 'genomic_data', 'assembly');
 
 CREATE TABLE users (
     id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
-    username VARCHAR(255) NOT NULL UNIQUE,
-    email VARCHAR(255) UNIQUE,
-    hashed_password VARCHAR(255) NOT NULL,
-    full_name VARCHAR(255),
+    username TEXT NOT NULL UNIQUE,
+    email TEXT UNIQUE,
+    hashed_password TEXT NOT NULL,
+    full_name TEXT,
     roles TEXT[] NOT NULL DEFAULT '{}',
     is_active BOOLEAN NOT NULL DEFAULT TRUE,
     is_superuser BOOLEAN NOT NULL DEFAULT FALSE,
@@ -34,7 +34,7 @@ CREATE TABLE users (
 
 CREATE TABLE refresh_token (
     id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
-    token_hash VARCHAR(255) NOT NULL,
+    token_hash TEXT NOT NULL,
     user_id UUID REFERENCES users(id) NOT NULL,
     expires_at TIMESTAMP WITHOUT TIME ZONE NOT NULL,
     revoked BOOLEAN NOT NULL DEFAULT FALSE,
@@ -76,8 +76,8 @@ CREATE TABLE organism (
 CREATE TABLE accession_registry (
     id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
     authority authority_type NOT NULL,
-    accession VARCHAR(255) NOT NULL UNIQUE,
-    secondary_accession VARCHAR(255),
+    accession TEXT NOT NULL UNIQUE,
+    secondary_accession TEXT,
     entity_type entity_type NOT NULL,
     entity_id BIGINT NOT NULL,
     accepted_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
@@ -94,8 +94,8 @@ CREATE TABLE accession_registry (
 -- Main sample table
 CREATE TABLE sample (
     id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
-    organism_grouping_key int REFERENCES organism(grouping_key) NOT NULL,
-    bpa_sample_id VARCHAR(255) UNIQUE NOT NULL,
+    organism_key int REFERENCES organism(grouping_key) NOT NULL,
+    bpa_sample_id TEXT UNIQUE NOT NULL,
     bpa_json JSONB NOT NULL,
     created_at TIMESTAMP NOT NULL DEFAULT NOW(),
     updated_at TIMESTAMP NOT NULL DEFAULT NOW()
@@ -109,25 +109,27 @@ CREATE TABLE sample_submission (
     status submittion_status NOT NULL DEFAULT 'draft',
     prepared_payload JSONB NOT NULL,
     response_payload JSONB,
-    accession VARCHAR(255),
-    biosample_accession VARCHAR(255),
+    accession TEXT,
+    biosample_accession TEXT,
     -- TODO undecided whether to keep biosample_accession here or rely on the accession_registry table
     status submission_status NOT NULL DEFAULT 'draft',
     submitted_at TIMESTAMP,
     created_at TIMESTAMP NOT NULL DEFAULT NOW(),
     updated_at TIMESTAMP NOT NULL DEFAULT NOW(),
 
-    UNIQUE (sample_id, authority)
-    WHERE (status = 'accepted' AND accession IS NOT NULL),
+    -- constant to help the composite FK
+    entity_type_const TEXT NOT NULL DEFAULT 'sample' CHECK (entity_type_const = 'sample'),
+
+    CONSTRAINT fk_self_accession
+    FOREIGN KEY (accession, authority, entity_type_const, sample_id)
+    REFERENCES accession_registry (accession, authority, entity_type, entity_id)
+    DEFERRABLE INITIALLY DEFERRED,
+
+    UNIQUE (sample_id, authority) WHERE (status = 'accepted' AND accession IS NOT NULL),
     -- TODO uniqueness constraint above?
     -- TODO consider if we want to keep track of former submissions that have been replaced/modified
 );
 -- UNIQUE (sample_id, authority) WHERE status = 'accepted' AND accession IS NOT NULL
-
-ALTER TABLE sample_submission
-  ADD CONSTRAINT fk_samp_acc_registry
-  FOREIGN KEY (accession, authority)
-  REFERENCES accession_registry(accession, authority);
 
 -- ==========================================
 -- Experiment tables
@@ -137,8 +139,8 @@ ALTER TABLE sample_submission
 CREATE TABLE experiment (
     id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
     sample_id UUID REFERENCES sample(id) NOT NULL,
-    bpa_package_id VARCHAR(255) UNIQUE NOT NULL,
-    -- bpa_dataset_id VARCHAR(255) UNIQUE NOT NULL,
+    bpa_package_id TEXT UNIQUE NOT NULL,
+    -- bpa_dataset_id TEXT UNIQUE NOT NULL,
     bpa_json JSONB NOT NULL,
     created_at TIMESTAMP NOT NULL DEFAULT NOW(),
     updated_at TIMESTAMP NOT NULL DEFAULT NOW()
@@ -154,12 +156,17 @@ CREATE TABLE experiment_submission (
     sample_id UUID REFERENCES sample(id) NOT NULL, -- nullable if sample doesn't exst yet? or are we happy to have the constraint that a sample & project needs to exist before we create an experiment, probs
     bioproject_id UUID REFERENCES bioproject(id) NOT NULL,
 
-    project_accession VARCHAR(255),
-    sample_accession VARCHAR(255),
+    project_accession TEXT,
+    sample_accession TEXT,
 
     prepared_payload JSONB,
     response_payload JSONB,
-    accession VARCHAR(255),
+
+    accession TEXT,
+
+    -- constant to help the composite FK
+  entity_type_const TEXT NOT NULL DEFAULT 'experiment' CHECK (entity_type_const = 'experiment'),
+
     submitted_at TIMESTAMP,
     created_at TIMESTAMP NOT NULL DEFAULT NOW(),
     updated_at TIMESTAMP NOT NULL DEFAULT NOW(),
@@ -178,8 +185,7 @@ CREATE TABLE experiment_submission (
     FOREIGN KEY (sample_accession, authority)
     REFERENCES accession_registry (accession, authority)
 
-    UNIQUE (experiment_id, authority)
-    WHERE (status = 'accepted' AND accession IS NOT NULL),
+    UNIQUE (experiment_id, authority) WHERE (status = 'accepted' AND accession IS NOT NULL),
      -- TODO consider if we want to keep track of former submissions that have been replaced/modified
 
 );
@@ -200,7 +206,7 @@ CREATE TABLE experiment_submission (
 CREATE TABLE read (
     id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
     experiment_id UUID REFERENCES experiment(id) NOT NULL,
-    bpa_resource_id VARCHAR(15) UNIQUE NOT NULL,
+    bpa_resource_id TEXT UNIQUE NOT NULL,
     bpa_json JSONB NOT NULL,
     created_at TIMESTAMP NOT NULL DEFAULT NOW(),
     updated_at TIMESTAMP NOT NULL DEFAULT NOW()
@@ -214,38 +220,34 @@ CREATE TABLE read_submission (
 
     prepared_payload JSONB NOT NULL,
     response_payload JSONB,
-    
+
     experiment_id UUID REFERENCES experiment(id) NOT NULL,
     project_id UUID REFERENCES project(id) NOT NULL,
 
-    experiment_accession VARCHAR(255),
-    project_accession VARCHAR(255),
-    
-    accession VARCHAR(255),
+    experiment_accession TEXT,
+
+    accession TEXT,
 
     created_at TIMESTAMP NOT NULL DEFAULT NOW(),
     updated_at TIMESTAMP NOT NULL DEFAULT NOW(),
-    UNIQUE (read_id, authority)
-        WHERE (status = 'accepted' AND accession IS NOT NULL),
 
-        -- When status >= queued, both upstream accessions must be present
-        CONSTRAINT chk_ready_to_send
-        CHECK (
-            status IN ('draft','ready', 'submitted', 'rejected')
-            OR (project_accession IS NOT NULL AND experiment_accession IS NOT NULL)
-        )
+    -- constant to help the composite FK
+    entity_type_const TEXT NOT NULL DEFAULT 'read' CHECK (entity_type_const = 'read'),
+
+    -- When accession is present, it must exist in the registry AND map to this same experiment:
+  CONSTRAINT fk_self_accession
+    FOREIGN KEY (accession, authority, entity_type_const, read_id)
+    REFERENCES accession_registry (accession, authority, entity_type, entity_id)
+    DEFERRABLE INITIALLY DEFERRED,
+
+  -- Upstream accessions also validated (drafts allowed to be NULL):
+  CONSTRAINT fk_exp_acc
+    FOREIGN KEY (experiment_accession, authority)
+    REFERENCES accession_registry (accession, authority)
+
+    UNIQUE (read_id, authority) WHERE (status = 'accepted' AND accession IS NOT NULL),
 );
 
--- Existence/authority checks (null-safe: skipped in draft/waiting)
-ALTER TABLE read_submission
-  ADD CONSTRAINT fk_proj_acc_registry
-  FOREIGN KEY (project_accession, authority)
-  REFERENCES accession_registry(accession, authority);
-
-ALTER TABLE read_submission
-  ADD CONSTRAINT fk_samp_acc_registry
-  FOREIGN KEY (experiment_accession, authority)
-  REFERENCES accession_registry(accession, authority);
 
 -- ==========================================
 -- Assembly tables
@@ -254,7 +256,7 @@ ALTER TABLE read_submission
 -- Main assembly table
 CREATE TABLE assembly (
     id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
-    organism_tax_id int REFERENCES organism(tax_id) NOT NULL,
+    organism_key TEXT REFERENCES organism(grouping_key) NOT NULL,
     sample_id UUID REFERENCES sample(id) NOT NULL,
     project_id UUID REFERENCES project(id),
     -- metadata fields for manifest file
@@ -295,8 +297,8 @@ CREATE TABLE assembly_submission (
     assembly_id UUID REFERENCES assembly(id),
     assembly_name TEXT NOT NULL, -- Do we need this for versioning?
     authority authority_type NOT NULL DEFAULT 'ENA',
-    accession VARCHAR(255),
-    organism_id UUID REFERENCES organism(id) NOT NULL,
+    accession TEXT,
+    organism_key TEXT REFERENCES organism(grouping_key) NOT NULL,
     sample_id UUID REFERENCES sample(id) NOT NULL,
 
     internal_json JSONB,
@@ -324,8 +326,8 @@ CREATE TABLE assembly_read (
 CREATE TABLE genome_note (
     id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
     genome_note_assembly_id UUID REFERENCES assembly(id) UNIQUE,
-    tax_id int REFERENCES organism(tax_id) NOT NULL,
-    -- Unique constraint on (is_published = TRUE, tax_id) to ensure only one published note per organism
+    organism_key TEXT REFERENCES organism(grouping_key) NOT NULL,
+    -- Unique constraint on (is_published = TRUE, organism_key) to ensure only one published note per organism
     is_published BOOLEAN NOT NULL DEFAULT FALSE,
     title TEXT NOT NULL,
     created_at TIMESTAMP NOT NULL DEFAULT NOW(),
@@ -333,7 +335,7 @@ CREATE TABLE genome_note (
 );
 
 CREATE UNIQUE INDEX uq_genome_note_one_published_per_organism
-ON genome_note (tax_id)
+ON genome_note (organism_key)
 WHERE is_published = TRUE;
 
 -- Genome note assembly table
@@ -348,7 +350,7 @@ CREATE TABLE genome_note_assembly (
 -- ==========================================
 
 CREATE TABLE bpa_initiative (
-    project_code VARCHAR(255) PRIMARY KEY,
+    project_code TEXT PRIMARY KEY,
     title TEXT NOT NULL,
     url TEXT,
     created_at TIMESTAMP NOT NULL DEFAULT NOW(),

@@ -2,7 +2,7 @@ import uuid
 from datetime import datetime, timezone
 
 from app.models.enums import SubmissionStatusEnum
-from sqlalchemy import Column, DateTime, ForeignKey, String, Text, Enum as SQLAlchemyEnum
+from sqlalchemy import Column, DateTime, ForeignKey, ForeignKeyConstraint, String, Text, Enum as SQLAlchemyEnum
 from sqlalchemy.dialects.postgresql import JSONB, UUID
 from sqlalchemy.orm import relationship
 
@@ -19,7 +19,7 @@ class Experiment(Base):
     
     id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     sample_id = Column(UUID(as_uuid=True), ForeignKey("sample.id"), nullable=False)
-    bpa_package_id = Column(String(255), unique=True, nullable=False)
+    bpa_package_id = Column(Text, unique=True, nullable=False)
     bpa_json = Column(JSONB, nullable=False)
     created_at = Column(DateTime, nullable=False, default=datetime.now(timezone.utc))
     updated_at = Column(DateTime, nullable=False, default=datetime.now(timezone.utc), onupdate=datetime.now(timezone.utc))
@@ -44,12 +44,15 @@ class ExperimentSubmission(Base):
     sample_id = Column(UUID(as_uuid=True), ForeignKey("sample.id"), nullable=False)
     bioproject_id = Column(UUID(as_uuid=True), ForeignKey("bioproject.id"), nullable=False)
     
-    project_accession = Column(String(255), nullable=True)
-    sample_accession = Column(String(255), nullable=True)
+    project_accession = Column(Text, nullable=True)
+    sample_accession = Column(Text, nullable=True)
     
     prepared_payload = Column(JSONB, nullable=True)
     response_payload = Column(JSONB, nullable=True)
-    accession = Column(String(255), nullable=True)
+    accession = Column(Text, nullable=True)
+    
+    # Constant to help the composite FK
+    entity_type_const = Column(Text, nullable=False, default="experiment", server_default="experiment")
     submitted_at = Column(DateTime, nullable=True)
     created_at = Column(DateTime, nullable=False, default=datetime.now(timezone.utc))
     updated_at = Column(DateTime, nullable=False, default=datetime.now(timezone.utc), onupdate=datetime.now(timezone.utc))
@@ -61,6 +64,26 @@ class ExperimentSubmission(Base):
     
     # Table constraints
     __table_args__ = (
+        # Foreign key constraint for accession registry (self)
+        ForeignKeyConstraint(
+            ['accession', 'authority', 'entity_type_const', 'experiment_id'],
+            ['accession_registry.accession', 'accession_registry.authority', 'accession_registry.entity_type', 'accession_registry.entity_id'],
+            name='fk_self_accession',
+            deferrable=True,
+            initially='DEFERRED'
+        ),
+        # Foreign key constraint for project accession
+        ForeignKeyConstraint(
+            ['project_accession', 'authority'],
+            ['accession_registry.accession', 'accession_registry.authority'],
+            name='fk_proj_acc'
+        ),
+        # Foreign key constraint for sample accession
+        ForeignKeyConstraint(
+            ['sample_accession', 'authority'],
+            ['accession_registry.accession', 'accession_registry.authority'],
+            name='fk_samp_acc'
+        ),
         # This is a simplified version of the SQL constraint:
         # UNIQUE (experiment_id, authority) WHERE (status = 'accepted' AND accession IS NOT NULL)
         # SQLAlchemy doesn't directly support WHERE clauses in constraints, so this would need custom SQL

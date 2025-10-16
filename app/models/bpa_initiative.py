@@ -15,7 +15,7 @@ class BPAInitiative(Base):
     """
     __tablename__ = "bpa_initiative"
     
-    project_code = Column(String(255), primary_key=True)
+    project_code = Column(Text, primary_key=True)
     title = Column(Text, nullable=False)
     url = Column(Text, nullable=True)
     created_at = Column(DateTime, nullable=False, default=datetime.now(timezone.utc))

@@ -18,7 +18,7 @@ class GenomeNote(Base):
     
     id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     genome_note_assembly_id = Column(UUID(as_uuid=True), ForeignKey("assembly.id"), unique=True, nullable=True)
-    tax_id = Column(Integer, ForeignKey("organism.tax_id"), nullable=False)
+    organism_key = Column(Text, ForeignKey("organism.grouping_key"), nullable=False)
     is_published = Column(Boolean, nullable=False, default=False)
     title = Column(Text, nullable=False)
     created_at = Column(DateTime, nullable=False, default=datetime.now(timezone.utc))
@@ -30,7 +30,7 @@ class GenomeNote(Base):
     # Table constraints
     __table_args__ = (
         # This is a simplified version of the SQL constraint:
-        # CREATE UNIQUE INDEX uq_genome_note_one_published_per_organism ON genome_note (tax_id) WHERE is_published = TRUE;
+        # CREATE UNIQUE INDEX uq_genome_note_one_published_per_organism ON genome_note (organism_key) WHERE is_published = TRUE;
         # SQLAlchemy doesn't directly support WHERE clauses in constraints, so this would need custom SQL
     )
 
