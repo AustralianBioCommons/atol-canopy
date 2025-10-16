@@ -1,6 +1,7 @@
 import uuid
 from datetime import datetime, timezone
 
+from app.models.enums import SubmissionStatusEnum
 from sqlalchemy import Column, DateTime, ForeignKey, String, Text, Enum as SQLAlchemyEnum
 from sqlalchemy.dialects.postgresql import JSONB, UUID
 from sqlalchemy.orm import relationship
@@ -10,20 +11,16 @@ from app.db.session import Base
 
 class Experiment(Base):
     """
-    Experiment model for storing experiment information with 1:1 mapping to ENA runs.
+    Experiment model for storing experiment information.
     
     This model corresponds to the 'experiment' table in the database.
     """
     __tablename__ = "experiment"
     
     id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
-    sample_id = Column(UUID(as_uuid=True), ForeignKey("sample.id"), nullable=True)
-    experiment_accession = Column(Text, unique=True)
-    run_accession = Column(Text, unique=True)
-    bpa_package_id = Column(Text, unique=True)
-    source_json = Column(JSONB, nullable=True)
-    synced_at = Column(DateTime, nullable=True)
-    last_checked_at = Column(DateTime, nullable=True)
+    sample_id = Column(UUID(as_uuid=True), ForeignKey("sample.id"), nullable=False)
+    bpa_package_id = Column(String(255), unique=True, nullable=False)
+    bpa_json = Column(JSONB, nullable=False)
     created_at = Column(DateTime, nullable=False, default=datetime.now(timezone.utc))
     updated_at = Column(DateTime, nullable=False, default=datetime.now(timezone.utc), onupdate=datetime.now(timezone.utc))
     
@@ -41,39 +38,33 @@ class ExperimentSubmission(Base):
     
     id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     experiment_id = Column(UUID(as_uuid=True), ForeignKey("experiment.id"), nullable=True)
-    experiment_accession = Column(Text, nullable=True)
-    run_accession = Column(Text, nullable=True)
-    sample_id = Column(UUID(as_uuid=True), ForeignKey("sample.id"), nullable=True)
-    internal_json = Column(JSONB, nullable=True)
-    submission_json = Column(JSONB, nullable=True)
-    submission_at = Column(DateTime, nullable=True)
-    status = Column(SQLAlchemyEnum("draft", "ready", "submission", "rejected", name="submission_status"), nullable=False, default="draft")
+    authority = Column(SQLAlchemyEnum("ENA", "NCBI", "DDBJ", name="authority_type"), nullable=False, default="ENA")
+    status = Column(SQLAlchemyEnum("draft", "ready", "submitted", "accepted", "rejected", "replaced", name="submission_status"), nullable=False, default="draft")
+    
+    sample_id = Column(UUID(as_uuid=True), ForeignKey("sample.id"), nullable=False)
+    bioproject_id = Column(UUID(as_uuid=True), ForeignKey("bioproject.id"), nullable=False)
+    
+    project_accession = Column(String(255), nullable=True)
+    sample_accession = Column(String(255), nullable=True)
+    
+    prepared_payload = Column(JSONB, nullable=True)
+    response_payload = Column(JSONB, nullable=True)
+    accession = Column(String(255), nullable=True)
+    submitted_at = Column(DateTime, nullable=True)
     created_at = Column(DateTime, nullable=False, default=datetime.now(timezone.utc))
     updated_at = Column(DateTime, nullable=False, default=datetime.now(timezone.utc), onupdate=datetime.now(timezone.utc))
     
     # Relationships
     experiment = relationship("Experiment", backref="submission_records")
     sample = relationship("Sample")
+    bioproject = relationship("Bioproject")
+    
+    # Table constraints
+    __table_args__ = (
+        # This is a simplified version of the SQL constraint:
+        # UNIQUE (experiment_id, authority) WHERE (status = 'accepted' AND accession IS NOT NULL)
+        # SQLAlchemy doesn't directly support WHERE clauses in constraints, so this would need custom SQL
+    )
 
 
-class ExperimentFetched(Base):
-    """
-    ExperimentFetched model for storing immutable history of experiment data from ENA.
-    
-    This model corresponds to the 'experiment_fetched' table in the database.
-    """
-    __tablename__ = "experiment_fetched"
-    
-    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
-    experiment_id = Column(UUID(as_uuid=True), ForeignKey("experiment.id"), nullable=True)
-    experiment_accession = Column(Text, nullable=False)
-    run_accession = Column(Text, nullable=False)
-    sample_id = Column(UUID(as_uuid=True), ForeignKey("sample.id"), nullable=True)
-    raw_json = Column(JSONB, nullable=True)
-    fetched_at = Column(DateTime, nullable=False)
-    created_at = Column(DateTime, nullable=False, default=datetime.now(timezone.utc))
-    updated_at = Column(DateTime, nullable=False, default=datetime.now(timezone.utc), onupdate=datetime.now(timezone.utc))
-    
-    # Relationships
-    experiment = relationship("Experiment", backref="fetched_records")
-    sample = relationship("Sample")
+# ExperimentFetched table is no longer in the schema.sql, so we're removing this model

@@ -1,7 +1,7 @@
 import uuid
 from datetime import datetime, timezone
 
-from sqlalchemy import Column, DateTime, ForeignKey, Text, BigInteger, Enum as SQLAlchemyEnum
+from sqlalchemy import Column, DateTime, ForeignKey, Text, BigInteger, String, Enum as SQLAlchemyEnum
 from sqlalchemy.dialects.postgresql import UUID, JSONB
 from sqlalchemy.orm import relationship
 
@@ -18,20 +18,50 @@ class Read(Base):
     
     id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     experiment_id = Column(UUID(as_uuid=True), ForeignKey("experiment.id"), nullable=False)
-    bpa_dataset_id = Column(Text, nullable=False)
-    bpa_resource_id = Column(Text, nullable=False)
-    file_name = Column(Text, nullable=True)
-    file_format = Column(Text, nullable=True)
-    file_size = Column(BigInteger, nullable=True)
-    file_submission_date = Column(Text, nullable=True)
-    file_checksum = Column(Text, nullable=True)
-    read_access_date = Column(Text, nullable=True)
-    bioplatforms_url = Column(Text, nullable=True)
-    internal_json = Column(JSONB, nullable=True)
-    submission_json = Column(JSONB, nullable=True)
-    status = Column(SQLAlchemyEnum("draft", "submission", "rejected", name="read_submission_status"), nullable=False, default="draft")
+    bpa_resource_id = Column(String(15), unique=True, nullable=False)
+    bpa_json = Column(JSONB, nullable=False)
     created_at = Column(DateTime, nullable=False, default=datetime.now(timezone.utc))
     updated_at = Column(DateTime, nullable=False, default=datetime.now(timezone.utc), onupdate=datetime.now(timezone.utc))
     
     # Relationships
     experiment = relationship("Experiment", backref="reads")
+
+
+class ReadSubmission(Base):
+    """
+    ReadSubmission model for storing read data staged for submission to ENA.
+    
+    This model corresponds to the 'read_submission' table in the database.
+    """
+    __tablename__ = "read_submission"
+    
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    read_id = Column(UUID(as_uuid=True), ForeignKey("read.id"), nullable=False)
+    authority = Column(SQLAlchemyEnum("ENA", "NCBI", "DDBJ", name="authority_type"), nullable=False, default="ENA")
+    status = Column(SQLAlchemyEnum("draft", "ready", "submitted", "accepted", "rejected", "replaced", name="submission_status"), nullable=False, default="draft")
+    
+    prepared_payload = Column(JSONB, nullable=False)
+    response_payload = Column(JSONB, nullable=True)
+    
+    experiment_id = Column(UUID(as_uuid=True), ForeignKey("experiment.id"), nullable=False)
+    project_id = Column(UUID(as_uuid=True), ForeignKey("project.id"), nullable=False)
+    
+    experiment_accession = Column(String(255), nullable=True)
+    project_accession = Column(String(255), nullable=True)
+    
+    accession = Column(String(255), nullable=True)
+    
+    created_at = Column(DateTime, nullable=False, default=datetime.now(timezone.utc))
+    updated_at = Column(DateTime, nullable=False, default=datetime.now(timezone.utc), onupdate=datetime.now(timezone.utc))
+    
+    # Relationships
+    read = relationship("Read", backref="submission_records")
+    experiment = relationship("Experiment")
+    project = relationship("Project")
+    
+    # Table constraints
+    __table_args__ = (
+        # This is a simplified version of the SQL constraint:
+        # UNIQUE (read_id, authority) WHERE (status = 'accepted' AND accession IS NOT NULL)
+        # SQLAlchemy doesn't directly support WHERE clauses in constraints, so this would need custom SQL
+    )

@@ -17,12 +17,9 @@ class Sample(Base):
     __tablename__ = "sample"
     
     id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
-    organism_id = Column(UUID(as_uuid=True), ForeignKey("organism.id"), nullable=True)
-    sample_accession = Column(Text, unique=True, nullable=True)
-    bpa_sample_id = Column(Text, unique=True, nullable=False)
-    source_json = Column(JSONB, nullable=True)
-    synced_at = Column(DateTime, nullable=True)
-    last_checked_at = Column(DateTime, nullable=True)
+    organism_grouping_key = Column("organism_grouping_key", ForeignKey("organism.grouping_key"), nullable=False)
+    bpa_sample_id = Column(String(255), unique=True, nullable=False)
+    bpa_json = Column(JSONB, nullable=False)
     created_at = Column(DateTime, nullable=False, default=datetime.now(timezone.utc))
     updated_at = Column(DateTime, nullable=False, default=datetime.now(timezone.utc), onupdate=datetime.now(timezone.utc))
     
@@ -40,37 +37,26 @@ class SampleSubmission(Base):
     
     id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     sample_id = Column(UUID(as_uuid=True), ForeignKey("sample.id"), nullable=True)
-    organism_id = Column(UUID(as_uuid=True), ForeignKey("organism.id"), nullable=True)
-    internal_json = Column(JSONB, nullable=True)
-    submission_json = Column(JSONB, nullable=True)
-    submission_at = Column(DateTime, nullable=True)
-    status = Column(SQLAlchemyEnum("draft", "ready", "submission", "rejected", name="submission_status"), nullable=False, default="draft")
+    authority = Column(SQLAlchemyEnum("ENA", "NCBI", "DDBJ", name="authority_type"), nullable=False, default="ENA")
+    status = Column(SQLAlchemyEnum("draft", "ready", "submitted", "accepted", "rejected", "replaced", name="submission_status"), nullable=False, default="draft")
+    prepared_payload = Column(JSONB, nullable=False)
+    response_payload = Column(JSONB, nullable=True)
+    accession = Column(String(255), nullable=True)
+    biosample_accession = Column(String(255), nullable=True)
+    submitted_at = Column(DateTime, nullable=True)
     created_at = Column(DateTime, nullable=False, default=datetime.now(timezone.utc))
     updated_at = Column(DateTime, nullable=False, default=datetime.now(timezone.utc), onupdate=datetime.now(timezone.utc))
     
     # Relationships
     sample = relationship("Sample", backref="submission_records")
-    organism = relationship("Organism")
+    
+    # Table constraints
+    __table_args__ = (
+        # This is a simplified version of the SQL constraint:
+        # UNIQUE (sample_id, authority) WHERE (status = 'accepted' AND accession IS NOT NULL)
+        # SQLAlchemy doesn't directly support WHERE clauses in constraints, so this would need custom SQL
+    )
 
 
-class SampleFetched(Base):
-    """
-    SampleFetched model for storing immutable history of sample data from ENA.
-    
-    This model corresponds to the 'sample_fetched' table in the database.
-    """
-    __tablename__ = "sample_fetched"
-    
-    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
-    sample_id = Column(UUID(as_uuid=True), ForeignKey("sample.id"), nullable=True)
-    sample_accession = Column(Text, nullable=False)
-    organism_id = Column(UUID(as_uuid=True), ForeignKey("organism.id"), nullable=True)
-    raw_json = Column(JSONB, nullable=True)
-    fetched_at = Column(DateTime, nullable=False)
-    created_at = Column(DateTime, nullable=False, default=datetime.now(timezone.utc))
-    updated_at = Column(DateTime, nullable=False, default=datetime.now(timezone.utc), onupdate=datetime.now(timezone.utc))
-    
-    # Relationships
-    sample = relationship("Sample", backref="fetched_records")
-    organism = relationship("Organism")
+# SampleFetched table is no longer in the schema.sql, so we're removing this model
 
