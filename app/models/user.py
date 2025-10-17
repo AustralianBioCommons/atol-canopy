@@ -2,7 +2,7 @@ import uuid
 from datetime import datetime, timezone
 from typing import List
 
-from sqlalchemy import Boolean, Column, DateTime, String, ARRAY
+from sqlalchemy import Boolean, Column, DateTime, String, ARRAY, Text
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import relationship
 
@@ -22,7 +22,7 @@ class User(Base):
     email = Column(Text, unique=True, nullable=True)
     hashed_password = Column(Text, nullable=False)
     full_name = Column(Text, nullable=True)
-    roles = Column(ARRAY(String), nullable=False, default=[])
+    roles = Column(ARRAY(Text), nullable=False, default=[])
     is_active = Column(Boolean, nullable=False, default=True)
     is_superuser = Column(Boolean, nullable=False, default=False)
     created_at = Column(DateTime, nullable=False, default=datetime.now(timezone.utc))

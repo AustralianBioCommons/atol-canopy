@@ -1,7 +1,6 @@
 import uuid
 from datetime import datetime, timezone
 
-from app.models.enums import SubmissionStatusEnum
 from sqlalchemy import Column, DateTime, ForeignKey, ForeignKeyConstraint, String, Text, Enum as SQLAlchemyEnum
 from sqlalchemy.dialects.postgresql import JSONB, UUID
 from sqlalchemy.orm import relationship
@@ -42,7 +41,7 @@ class ExperimentSubmission(Base):
     status = Column(SQLAlchemyEnum("draft", "ready", "submitted", "accepted", "rejected", "replaced", name="submission_status"), nullable=False, default="draft")
     
     sample_id = Column(UUID(as_uuid=True), ForeignKey("sample.id"), nullable=False)
-    bioproject_id = Column(UUID(as_uuid=True), ForeignKey("bioproject.id"), nullable=False)
+    project_id = Column(UUID(as_uuid=True), ForeignKey("project.id"), nullable=False)
     
     project_accession = Column(Text, nullable=True)
     sample_accession = Column(Text, nullable=True)
@@ -60,7 +59,7 @@ class ExperimentSubmission(Base):
     # Relationships
     experiment = relationship("Experiment", backref="submission_records")
     sample = relationship("Sample")
-    bioproject = relationship("Bioproject")
+    project = relationship("Project")
     
     # Table constraints
     __table_args__ = (

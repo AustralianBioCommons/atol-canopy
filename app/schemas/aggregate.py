@@ -8,7 +8,7 @@ class SampleSubmissionJson(BaseModel):
     """Schema for sample submission_json data with sample ID"""
     sample_id: UUID
     bpa_sample_id: Optional[str] = None
-    submission_json: Optional[Dict[str, Any]] = None
+    prepared_payload: Optional[Dict[str, Any]] = None
     status: Optional[str] = None
 
 
@@ -16,7 +16,7 @@ class ExperimentSubmissionJson(BaseModel):
     """Schema for experiment submission_json data with experiment ID"""
     experiment_id: UUID
     bpa_package_id: Optional[str] = None
-    submission_json: Optional[Dict[str, Any]] = None
+    prepared_payload: Optional[Dict[str, Any]] = None
     status: Optional[str] = None
 
 
@@ -25,14 +25,14 @@ class ReadSubmissionJson(BaseModel):
     read_id: UUID
     experiment_id: UUID
     file_name: Optional[str] = None
-    submission_json: Optional[Dict[str, Any]] = None
+    prepared_payload: Optional[Dict[str, Any]] = None
     status: Optional[str] = None
 
 
 class OrganismSubmissionJsonResponse(BaseModel):
     """Schema for returning all submission_json data related to an organism"""
-    organism_id: UUID
-    organism_grouping_key: str
+    grouping_key: str
+    tax_id: int
     scientific_name: Optional[str] = None
     common_name: Optional[str] = None
     samples: List[SampleSubmissionJson] = []

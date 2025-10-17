@@ -10,7 +10,7 @@ from app.core.dependencies import (
     get_db,
     require_role,
 )
-from app.models.read import Read
+from app.models.read import Read, ReadSubmission
 from app.models.user import User
 from app.schemas.read import (
     Read as ReadSchema,
@@ -57,15 +57,8 @@ def create_read(
     
     read = Read(
         experiment_id=read_in.experiment_id,
-        bpa_dataset_id=read_in.bpa_dataset_id,
         bpa_resource_id=read_in.bpa_resource_id,
-        file_name=read_in.file_name,
-        file_format=read_in.file_format,
-        file_size=read_in.file_size,
-        file_submission_date=read_in.file_submission_date,
-        file_checksum=read_in.file_checksum,
-        read_access_date=read_in.read_access_date,
-        bioplatforms_url=read_in.bioplatforms_url,
+        bpa_json=read_in.bpa_json,
     )
     db.add(read)
     db.commit()
@@ -73,28 +66,28 @@ def create_read(
     return read
 
 
-@router.get("/{read_id}/submission-json", response_model=SubmissionJsonResponse)
-def get_read_submission_json(
+@router.get("/{read_id}/prepared-payload", response_model=SubmissionJsonResponse)
+def get_read_prepared_payload(
     *,
     db: Session = Depends(get_db),
     read_id: UUID,
     current_user: User = Depends(get_current_active_user),
 ) -> Any:
     """
-    Get submission_json for a specific read.
+    Get prepared_payload for a specific read submission.
     """
-    read = db.query(Read).filter(Read.id == read_id).first()
-    if not read:
+    read_submission = db.query(ReadSubmission).filter(ReadSubmission.read_id == read_id).first()
+    if not read_submission:
         raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="Read not found",
+            status_code=404,
+            detail="Read submission not found",
         )
-    if not read.submission_json:
+    if not read_submission.prepared_payload:
         raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="Submission JSON not found for this read",
+            status_code=404,
+            detail="Prepared payload not found for this read submission",
         )
-    return {"submission_json": read.submission_json}
+    return {"submission_json": read_submission.prepared_payload}
 
 
 @router.get("/{read_id}", response_model=ReadSchema)

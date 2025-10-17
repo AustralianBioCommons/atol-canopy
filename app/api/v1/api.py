@@ -3,7 +3,7 @@ from fastapi import APIRouter
 from app.api.v1.endpoints import (
     assemblies,
     auth,
-    bioprojects,
+    projects,
     bpa_initiatives,
     experiments,
     genome_notes,
@@ -27,7 +27,7 @@ api_router.include_router(samples.router, prefix="/samples", tags=["samples"])
 api_router.include_router(experiments.router, prefix="/experiments", tags=["experiments"])
 api_router.include_router(assemblies.router, prefix="/assemblies", tags=["assemblies"])
 api_router.include_router(bpa_initiatives.router, prefix="/bpa-initiatives", tags=["bpa-initiatives"])
-api_router.include_router(bioprojects.router, prefix="/bioprojects", tags=["bioprojects"])
+api_router.include_router(projects.router, prefix="/projects", tags=["projects"])
 api_router.include_router(reads.router, prefix="/reads", tags=["reads"])
 api_router.include_router(genome_notes.router, prefix="/genome-notes", tags=["genome-notes"])
 

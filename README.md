@@ -10,7 +10,7 @@ This system manages metadata for core biological entities:
 - Experiment
 - Assembly
 - BPA Initiative
-- Bioproject
+- Project
 - Reads
 - Genome Note
 
@@ -46,7 +46,7 @@ app/
 │       ├── endpoints/
 │       │   ├── assemblies.py
 │       │   ├── auth.py
-│       │   ├── bioprojects.py
+│       │   ├── projects.py
 │       │   ├── bpa_initiatives.py
 │       │   ├── experiments.py
 │       │   ├── genome_notes.py
@@ -63,7 +63,7 @@ app/
 │   └── session.py
 ├── models/
 │   ├── assembly.py
-│   ├── bioproject.py
+│   ├── project.py
 │   ├── bpa_initiative.py
 │   ├── experiment.py
 │   ├── genome_note.py
@@ -73,7 +73,7 @@ app/
 │   └── user.py
 ├── schemas/
 │   ├── assembly.py
-│   ├── bioproject.py
+│   ├── project.py
 │   ├── bpa_initiative.py
 │   ├── experiment.py
 │   ├── genome_note.py

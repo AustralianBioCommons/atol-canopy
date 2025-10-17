@@ -10,6 +10,7 @@ from sqlalchemy.orm import Session
 
 from app.core.dependencies import get_current_active_user, get_current_superuser, get_db, require_role
 from app.models.experiment import Experiment, ExperimentSubmission
+from app.models.project import Project
 from app.models.read import Read
 from app.models.sample import Sample
 from app.models.user import User
@@ -19,8 +20,6 @@ from app.schemas.experiment import (
     Experiment as ExperimentSchema,
     ExperimentUpdate,
     ExperimentSubmission as ExperimentSubmissionSchema,
-    ExperimentFetched as ExperimentFetchedSchema,
-    ExperimentFetchedCreate,
     ExperimentSubmissionCreate,
     ExperimentSubmissionUpdate,
     SubmissionStatus as SchemaSubmissionStatus,
@@ -65,9 +64,8 @@ def create_experiment(
     
     experiment = Experiment(
         sample_id=experiment_in.sample_id,
-        experiment_accession=experiment_in.experiment_accession,
-        run_accession=experiment_in.run_accession,
-        source_json=experiment_in.source_json,
+        bpa_package_id=experiment_in.bpa_package_id,
+        bpa_json=experiment_in.bpa_json,
     )
     db.add(experiment)
     db.commit()
@@ -75,20 +73,20 @@ def create_experiment(
     return experiment
 
 
-@router.get("/{experiment_id}/submission-json", response_model=ExperimentSubmissionSchema)
-def get_experiment_submission_json(
+@router.get("/{experiment_id}/prepared-payload", response_model=ExperimentSubmissionSchema)
+def get_experiment_prepared_payload(
     *,
     db: Session = Depends(get_db),
     experiment_id: UUID,
     current_user: User = Depends(get_current_active_user),
 ) -> Any:
     """
-    Get submission_json for a specific experiment.
+    Get prepared_payload for a specific experiment.
     """
     experiment_submission = db.query(ExperimentSubmission).filter(ExperimentSubmission.experiment_id == experiment_id).first()
     if not experiment_submission:
         raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
+            status_code=404,
             detail="Experiment submission data not found",
         )
     return experiment_submission
@@ -196,12 +194,16 @@ def create_experiment_submission(
     submission = ExperimentSubmission(
         experiment_id=submission_in.experiment_id,
         sample_id=submission_in.sample_id,
-        experiment_accession=submission_in.experiment_accession,
-        run_accession=submission_in.run_accession,
-        submission_json=submission_in.submission_json,
-        internal_json=submission_in.internal_json,
+        project_id=submission_in.project_id,
+        authority=submission_in.authority,
+        entity_type_const=submission_in.entity_type_const,
+        project_accession=submission_in.project_accession,
+        sample_accession=submission_in.sample_accession,
+        prepared_payload=submission_in.prepared_payload,
+        response_payload=submission_in.response_payload,
+        accession=submission_in.accession,
         status=submission_in.status,
-        submission_at=submission_in.submission_at,
+        submitted_at=submission_in.submitted_at,
     )
     db.add(submission)
     db.commit()
@@ -237,47 +239,7 @@ def update_experiment_submission(
     return submission
 
 
-# Experiment Fetched endpoints
-@router.get("/fetched/", response_model=List[ExperimentFetchedSchema])
-def read_experiment_fetches(
-    db: Session = Depends(get_db),
-    skip: int = 0,
-    limit: int = 100,
-    current_user: User = Depends(get_current_active_user),
-) -> Any:
-    """
-    Retrieve experiment fetch records.
-    """
-    # All users can read experiment fetch records
-    fetches = db.query(ExperimentFetched).offset(skip).limit(limit).all()
-    return fetches
-
-
-@router.post("/fetched/", response_model=ExperimentFetchedSchema)
-def create_experiment_fetch(
-    *,
-    db: Session = Depends(get_db),
-    fetch_in: ExperimentFetchedCreate,
-    current_user: User = Depends(get_current_active_user),
-) -> Any:
-    """
-    Create new experiment fetch record.
-    """
-    # Only users with 'curator' or 'admin' role can create experiment fetch records
-    require_role(current_user, ["curator", "admin"])
-    
-    fetch = ExperimentFetched(
-        experiment_id=fetch_in.experiment_id,
-        experiment_accession=fetch_in.experiment_accession,
-        run_accession=fetch_in.run_accession,
-        sample_id=fetch_in.sample_id,
-        raw_json=fetch_in.raw_json,
-        fetched_at=fetch_in.fetched_at,
-    )
-    db.add(fetch)
-    db.commit()
-    db.refresh(fetch)
-    return fetch
+# Experiment Fetched endpoints have been removed as they are no longer in the schema
 
 
 @router.post("/bulk-import", response_model=BulkImportResponse)
@@ -354,23 +316,31 @@ def bulk_import_experiments(
                 id=experiment_id,
                 sample_id=sample_id,
                 bpa_package_id=package_id,
-                source_json=experiment_data
+                bpa_json=experiment_data
             )
             db.add(experiment)
             
-            # Create submission_json based on the mapping
-            submission_json = {}
+            # Find a project for this experiment
+            project_id = None
+            project = db.query(Project).first()  # Get any project for now, ideally we'd have proper association
+            if project:
+                project_id = project.id
+            
+            # Create prepared_payload based on the mapping
+            prepared_payload = {}
             for ena_key, atol_key in experiment_mapping.items():
                 if atol_key in experiment_data:
-                    submission_json[ena_key] = experiment_data[atol_key]
+                    prepared_payload[ena_key] = experiment_data[atol_key]
             
             # Create experiment_submission record
             experiment_submission = ExperimentSubmission(
                 id=uuid.uuid4(),
                 experiment_id=experiment_id,
                 sample_id=sample_id,
-                internal_json=experiment_data,
-                submission_json=submission_json
+                project_id=project_id,
+                authority="ENA",
+                entity_type_const="experiment",
+                prepared_payload=prepared_payload
             )
             db.add(experiment_submission)
             
@@ -378,27 +348,18 @@ def bulk_import_experiments(
             if "runs" in experiment_data and isinstance(experiment_data["runs"], list):
                 for run in experiment_data["runs"]:
                     try:
-                        # Create submission_json for run based on the mapping
-                        run_submission_json = {}
+                        # Create prepared_payload for run based on the mapping
+                        run_prepared_payload = {}
                         for ena_key, atol_key in run_mapping.items():
                             if atol_key in run:
-                                run_submission_json[ena_key] = run[atol_key]
+                                run_prepared_payload[ena_key] = run[atol_key]
                         
                         # Create read entity for each run
                         read = Read(
                             id=uuid.uuid4(),
                             experiment_id=experiment_id,
-                            bpa_dataset_id=run.get("bpa_dataset_id", None),
-                            bpa_resource_id=run.get("bpa_resource_id", None),
-                            file_name=run.get("file_name", None),
-                            file_format=run.get("file_format", None),
-                            file_size=run.get("file_size", None),
-                            file_submission_date=run.get("file_submission_date", None),
-                            file_checksum=run.get("file_checksum", None),
-                            read_access_date=run.get("read_access_date", None),
-                            bioplatforms_url=run.get("bioplatforms_url", None),
-                            submission_json=run_submission_json,
-                            status="draft"
+                            bpa_resource_id=run.get("bpa_resource_id", ""),
+                            bpa_json=run
                         )
                         db.add(read)
                         created_reads_count += 1

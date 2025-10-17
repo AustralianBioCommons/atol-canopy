@@ -10,7 +10,7 @@ from app.core.dependencies import (
     get_db,
     require_role,
 )
-from app.models.assembly import Assembly, AssemblyFetched, AssemblySubmission
+from app.models.assembly import Assembly, AssemblySubmission
 from app.models.organism import Organism
 from app.models.sample import Sample
 from app.models.experiment import Experiment
@@ -21,8 +21,6 @@ from app.services.organism_service import organism_service
 from app.schemas.assembly import (
     Assembly as AssemblySchema,
     AssemblyCreate,
-    AssemblyFetched as AssemblyFetchedSchema,
-    AssemblyFetchedCreate,
     AssemblySubmission as AssemblySubmissionSchema,
     AssemblySubmissionCreate,
     AssemblySubmissionUpdate,
@@ -358,50 +356,4 @@ def update_assembly_submission(
     db.commit()
     db.refresh(submission)
     return submission
-
-
-# Assembly Fetched endpoints
-@router.get("/fetched/", response_model=List[AssemblyFetchedSchema])
-def read_assembly_fetches(
-    db: Session = Depends(get_db),
-    skip: int = 0,
-    limit: int = 100,
-    current_user: User = Depends(get_current_active_user),
-) -> Any:
-    """
-    Retrieve assembly fetch records.
-    """
-    # All users can read assembly fetch records
-    fetches = db.query(AssemblyFetched).offset(skip).limit(limit).all()
-    return fetches
-
-
-@router.post("/fetched/", response_model=AssemblyFetchedSchema)
-def create_assembly_fetch(
-    *,
-    db: Session = Depends(get_db),
-    fetch_in: AssemblyFetchedCreate,
-    current_user: User = Depends(get_current_active_user),
-) -> Any:
-    """
-    Create new assembly fetch record.
-    """
-    # Only users with 'curator' or 'admin' role can create assembly fetch records
-    require_role(current_user, ["curator", "admin"])
-    
-    fetch = AssemblyFetched(
-        assembly_id=fetch_in.assembly_id,
-        assembly_accession=fetch_in.assembly_accession,
-        organism_id=fetch_in.organism_id,
-        sample_id=fetch_in.sample_id,
-        experiment_id=fetch_in.experiment_id,
-        fetched_json=fetch_in.fetched_json,
-        fetched_at=fetch_in.fetched_at,
-    )
-    db.add(fetch)
-    db.commit()
-    db.refresh(fetch)
-    return fetch
-
-
 

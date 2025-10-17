@@ -42,37 +42,36 @@ def read_organisms(
     return organisms
 
 
-@router.get("/grouping-key/{organism_grouping_key}/submission-json", response_model=OrganismSubmissionJsonResponse)
+@router.get("/grouping-key/{grouping_key}/submission-json", response_model=OrganismSubmissionJsonResponse)
 def get_organism_submission_json(
     *,
     db: Session = Depends(get_db),
-    organism_grouping_key: str,
+    grouping_key: str,
     current_user: User = Depends(get_current_active_user),
 ) -> Any:
     """
-    Get all submission_json data for samples, experiments, and reads related to a specific organism_grouping_key.
+    Get all submission_json data for samples, experiments, and reads related to a specific grouping_key.
     """
     # Find the organism by grouping key
-    organism = db.query(Organism).filter(Organism.organism_grouping_key == organism_grouping_key).first()
+    organism = db.query(Organism).filter(Organism.grouping_key == grouping_key).first()
     if not organism:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
-            detail=f"Organism with grouping key '{organism_grouping_key}' not found",
+            detail=f"Organism with grouping key '{grouping_key}' not found",
         )
     
     # Initialize response object
     response = OrganismSubmissionJsonResponse(
-        organism_id=organism.id,
-        organism_grouping_key=organism.organism_grouping_key,
+        grouping_key=organism.grouping_key,
+        tax_id=organism.tax_id,
         scientific_name=organism.scientific_name,
         common_name=organism.common_name,
         samples=[],
-        experiments=[],
-        reads=[]
+        experiments=[]
     )
     
     # Get samples for this organism
-    samples = db.query(Sample).filter(Sample.organism_id == organism.id).all()
+    samples = db.query(Sample).filter(Sample.organism_key == organism.grouping_key).all()
     sample_ids = [sample.id for sample in samples]
     
     # Get sample submission data
@@ -86,7 +85,7 @@ def get_organism_submission_json(
             response.samples.append(SampleSubmissionJson(
                 sample_id=record.sample_id,
                 bpa_sample_id=bpa_sample_id,
-                submission_json=record.submission_json,
+                prepared_payload=record.prepared_payload,
                 status=record.status
             ))
     
@@ -106,21 +105,11 @@ def get_organism_submission_json(
                 response.experiments.append(ExperimentSubmissionJson(
                     experiment_id=record.experiment_id,
                     bpa_package_id=bpa_package_id,
-                    submission_json=record.submission_json,
+                    prepared_payload=record.prepared_payload,
                     status=record.status
                 ))
             
-            # Get reads for these experiments
-            reads = db.query(Read).filter(Read.experiment_id.in_(experiment_ids)).all()
-            for read in reads:
-                if read.submission_json:  # Only include reads that have submission_json
-                    response.reads.append(ReadSubmissionJson(
-                        read_id=read.id,
-                        experiment_id=read.experiment_id,
-                        file_name=read.file_name,
-                        submission_json=read.submission_json,
-                        status=read.status
-                    ))
+            # No longer need to append reads to response as the schema has changed
     
     return response
 
@@ -139,6 +128,7 @@ def create_organism(
     require_role(current_user, ["curator", "admin"])
     
     organism = Organism(
+        grouping_key=str(uuid.uuid4()),  # Generate a new grouping key if not provided
         tax_id=organism_in.tax_id,
         scientific_name=organism_in.scientific_name,
         common_name=organism_in.common_name,
@@ -251,7 +241,7 @@ def bulk_import_organisms(
             continue
         
         # Check if organism already exists by grouping key
-        existing = db.query(Organism).filter(Organism.organism_grouping_key == organism_grouping_key).first()
+        existing = db.query(Organism).filter(Organism.grouping_key == organism_grouping_key).first()
         if existing:
             skipped_count += 1
             continue
@@ -265,8 +255,7 @@ def bulk_import_organisms(
         try:
             # Create new organism
             organism = Organism(
-                id=uuid.uuid4(),
-                organism_grouping_key=organism_grouping_key,
+                grouping_key=organism_grouping_key,
                 tax_id=tax_id,
                 scientific_name=scientific_name,
                 bpa_json=organism_data

@@ -8,17 +8,17 @@ from sqlalchemy.orm import relationship
 from app.db.session import Base
 
 
-class Bioproject(Base):
+class Project(Base):
     """
-    Bioproject model for storing project information linked to experiments.
+    Project model for storing project information linked to experiments.
     
-    This model corresponds to the 'bioproject' table in the database.
+    This model corresponds to the 'project' table in the database.
     """
-    __tablename__ = "bioproject"
+    __tablename__ = "project"
     
     id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
-    project_type = Column(SQLAlchemyEnum("organism", "genomic_data", "assembly", name="bioproject_type"), nullable=False)
-    bioproject_accession = Column(Text, unique=True, nullable=True)
+    project_type = Column(SQLAlchemyEnum("organism", "genomic_data", "assembly", name="project_type"), nullable=False)
+    project_accession = Column(Text, unique=True, nullable=True)
     study_type = Column(Text, nullable=False)
     alias = Column(Text, nullable=False)
     title = Column(Text, nullable=False)
@@ -32,18 +32,18 @@ class Bioproject(Base):
     updated_at = Column(DateTime, nullable=False, default=datetime.now(timezone.utc), onupdate=datetime.now(timezone.utc))
 
 
-class BioprojectExperiment(Base):
+class ProjectExperiment(Base):
     """
-    BioprojectExperiment model for linking bioprojects to experiments.
+    ProjectExperiment model for linking projects to experiments.
     
-    This model corresponds to the 'bioproject_experiment' table in the database.
+    This model corresponds to the 'project_experiment' table in the database.
     """
-    __tablename__ = "bioproject_experiment"
+    __tablename__ = "project_experiment"
     
     # Composite primary key fields
-    bioproject_id = Column(UUID(as_uuid=True), ForeignKey("bioproject.id"), nullable=False, primary_key=True)
+    project_id = Column(UUID(as_uuid=True), ForeignKey("project.id"), nullable=False, primary_key=True)
     experiment_id = Column(UUID(as_uuid=True), ForeignKey("experiment.id"), nullable=False, primary_key=True)
     
     # Relationships
-    bioproject = relationship("Bioproject", backref="bioproject_experiments")
-    experiment = relationship("Experiment", backref="bioproject_experiments")
+    project = relationship("Project", backref="project_experiments")
+    experiment = relationship("Experiment", backref="project_experiments")

@@ -103,7 +103,6 @@ class AssemblyRead(Base):
     """
     __tablename__ = "assembly_read"
     
-    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     assembly_id = Column(UUID(as_uuid=True), ForeignKey("assembly.id"), nullable=False)
     read_id = Column(UUID(as_uuid=True), ForeignKey("read.id"), nullable=False)
     

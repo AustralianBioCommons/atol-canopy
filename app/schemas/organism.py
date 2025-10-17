@@ -12,6 +12,7 @@ from app.schemas.common import SubmissionStatus
 # Base Organism schema
 class OrganismBase(BaseModel):
     """Base Organism schema with common attributes."""
+    grouping_key: str
     tax_id: int
     scientific_name: str
     common_name: Optional[str] = None

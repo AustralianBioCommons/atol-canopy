@@ -9,8 +9,8 @@ CREATE TYPE submission_status AS ENUM ('draft', 'ready', 'submitted', 'accepted'
 CREATE TYPE authority_type AS ENUM ('ENA', 'NCBI', 'DDBJ');
 CREATE TYPE molecule_type AS ENUM ('genomic DNA', 'genomic RNA');
 CREATE TYPE assembly_output_file_type AS ENUM ('QC', 'Other'); -- TODO define more specific types as needed
-CREATE TYPE entity_type AS ENUM ('organism', 'sample', 'experiment', 'read', 'assembly', 'bioproject');
-CREATE TYPE bioproject_type AS ENUM ('organism', 'genomic_data', 'assembly');
+CREATE TYPE entity_type AS ENUM ('organism', 'sample', 'experiment', 'read', 'assembly', 'project');
+CREATE TYPE project_type AS ENUM ('organism', 'genomic_data', 'assembly');
 -- ==========================================
 -- Users and Authentication
 -- ==========================================
@@ -79,12 +79,39 @@ CREATE TABLE accession_registry (
     accession TEXT NOT NULL UNIQUE,
     secondary_accession TEXT,
     entity_type entity_type NOT NULL,
-    entity_id BIGINT NOT NULL,
+    entity_id UUID NOT NULL,
     accepted_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     created_at TIMESTAMP NOT NULL DEFAULT NOW(),
     updated_at TIMESTAMP NOT NULL DEFAULT NOW(),
     UNIQUE (authority, entity_type, entity_id),
     UNIQUE (authority, accession)
+);
+
+CREATE UNIQUE INDEX uq_registry_full
+  ON accession_registry (accession, authority, entity_type, entity_id);
+
+-- ==========================================
+-- project tables
+-- ==========================================
+
+-- Main project table
+CREATE TABLE project (
+    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    project_type project_type NOT NULL,
+    project_accession TEXT UNIQUE,
+    study_type TEXT NOT NULL,
+    alias TEXT NOT NULL,
+    title TEXT NOT NULL,
+    description TEXT NOT NULL,
+    centre_name TEXT,
+    study_attributes JSONB,
+    submitted_at TIMESTAMP,
+    status submission_status NOT NULL DEFAULT 'draft',
+    authority authority_type NOT NULL DEFAULT 'ENA',
+    -- TODO consider if we want to track status of project submission
+    -- TODO confirm if we want study attributes, and enforece schema for json (or include as seperate table)
+    created_at TIMESTAMP NOT NULL DEFAULT NOW(),
+    updated_at TIMESTAMP NOT NULL DEFAULT NOW()
 );
 
 -- ==========================================
@@ -94,7 +121,7 @@ CREATE TABLE accession_registry (
 -- Main sample table
 CREATE TABLE sample (
     id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
-    organism_key int REFERENCES organism(grouping_key) NOT NULL,
+    organism_key TEXT REFERENCES organism(grouping_key) NOT NULL,
     bpa_sample_id TEXT UNIQUE NOT NULL,
     bpa_json JSONB NOT NULL,
     created_at TIMESTAMP NOT NULL DEFAULT NOW(),
@@ -106,7 +133,6 @@ CREATE TABLE sample_submission (
     id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
     sample_id UUID REFERENCES sample(id),
     authority authority_type NOT NULL DEFAULT 'ENA',
-    status submittion_status NOT NULL DEFAULT 'draft',
     prepared_payload JSONB NOT NULL,
     response_payload JSONB,
     accession TEXT,
@@ -118,17 +144,20 @@ CREATE TABLE sample_submission (
     updated_at TIMESTAMP NOT NULL DEFAULT NOW(),
 
     -- constant to help the composite FK
-    entity_type_const TEXT NOT NULL DEFAULT 'sample' CHECK (entity_type_const = 'sample'),
+    entity_type_const entity_type NOT NULL DEFAULT 'sample' CHECK (entity_type_const = 'sample'),
 
     CONSTRAINT fk_self_accession
     FOREIGN KEY (accession, authority, entity_type_const, sample_id)
     REFERENCES accession_registry (accession, authority, entity_type, entity_id)
-    DEFERRABLE INITIALLY DEFERRED,
-
-    UNIQUE (sample_id, authority) WHERE (status = 'accepted' AND accession IS NOT NULL),
-    -- TODO uniqueness constraint above?
-    -- TODO consider if we want to keep track of former submissions that have been replaced/modified
+    DEFERRABLE INITIALLY DEFERRED
 );
+
+CREATE UNIQUE INDEX uq_sample_one_accepted
+  ON sample_submission (sample_id, authority)
+  WHERE status = 'accepted' AND accession IS NOT NULL;
+  -- TODO uniqueness constraint above?
+    -- TODO consider if we want to keep track of former submissions that have been replaced/modified
+
 -- UNIQUE (sample_id, authority) WHERE status = 'accepted' AND accession IS NOT NULL
 
 -- ==========================================
@@ -154,7 +183,8 @@ CREATE TABLE experiment_submission (
     status submission_status NOT NULL DEFAULT 'draft',
 
     sample_id UUID REFERENCES sample(id) NOT NULL, -- nullable if sample doesn't exst yet? or are we happy to have the constraint that a sample & project needs to exist before we create an experiment, probs
-    bioproject_id UUID REFERENCES bioproject(id) NOT NULL,
+    project_id UUID REFERENCES project(id),
+    -- TO DO do we even need this ? I don't think so
 
     project_accession TEXT,
     sample_accession TEXT,
@@ -165,7 +195,7 @@ CREATE TABLE experiment_submission (
     accession TEXT,
 
     -- constant to help the composite FK
-  entity_type_const TEXT NOT NULL DEFAULT 'experiment' CHECK (entity_type_const = 'experiment'),
+    entity_type_const entity_type NOT NULL DEFAULT 'experiment' CHECK (entity_type_const = 'experiment'),
 
     submitted_at TIMESTAMP,
     created_at TIMESTAMP NOT NULL DEFAULT NOW(),
@@ -184,11 +214,12 @@ CREATE TABLE experiment_submission (
   CONSTRAINT fk_samp_acc
     FOREIGN KEY (sample_accession, authority)
     REFERENCES accession_registry (accession, authority)
-
-    UNIQUE (experiment_id, authority) WHERE (status = 'accepted' AND accession IS NOT NULL),
-     -- TODO consider if we want to keep track of former submissions that have been replaced/modified
-
 );
+     
+-- TODO consider if we want to keep track of former submissions that have been replaced/modified
+CREATE UNIQUE INDEX uq_exp_one_accepted
+  ON experiment_submission (experiment_id, authority)
+  WHERE status = 'accepted' AND accession IS NOT NULL;
 
 /*
     -- When status = accepted, both upstream accessions must be present
@@ -198,6 +229,13 @@ CREATE TABLE experiment_submission (
         OR (project_accession IS NOT NULL AND sample_accession IS NOT NULL AND accession IS NOT NULL)
     )
 */
+
+-- project experiment table
+CREATE TABLE project_experiment (
+    project_id UUID REFERENCES project(id) NOT NULL,
+    experiment_id UUID REFERENCES experiment(id) NOT NULL,
+    PRIMARY KEY (project_id, experiment_id)
+);
 
 -- ==========================================
 -- Read tables
@@ -222,7 +260,7 @@ CREATE TABLE read_submission (
     response_payload JSONB,
 
     experiment_id UUID REFERENCES experiment(id) NOT NULL,
-    project_id UUID REFERENCES project(id) NOT NULL,
+    project_id UUID REFERENCES project(id),
 
     experiment_accession TEXT,
 
@@ -232,7 +270,7 @@ CREATE TABLE read_submission (
     updated_at TIMESTAMP NOT NULL DEFAULT NOW(),
 
     -- constant to help the composite FK
-    entity_type_const TEXT NOT NULL DEFAULT 'read' CHECK (entity_type_const = 'read'),
+    entity_type_const entity_type NOT NULL DEFAULT 'read' CHECK (entity_type_const = 'read'),
 
     -- When accession is present, it must exist in the registry AND map to this same experiment:
   CONSTRAINT fk_self_accession
@@ -244,10 +282,11 @@ CREATE TABLE read_submission (
   CONSTRAINT fk_exp_acc
     FOREIGN KEY (experiment_accession, authority)
     REFERENCES accession_registry (accession, authority)
-
-    UNIQUE (read_id, authority) WHERE (status = 'accepted' AND accession IS NOT NULL),
 );
 
+CREATE UNIQUE INDEX uq_read_one_accepted
+  ON read_submission (read_id, authority)
+  WHERE status = 'accepted' AND accession IS NOT NULL;
 
 -- ==========================================
 -- Assembly tables
@@ -263,14 +302,12 @@ CREATE TABLE assembly (
     assembly_name TEXT NOT NULL,
     assembly_type text NOT NULL default 'clone or isolate',
     coverage float NOT NULL,
-    program varchar(255) NOT NULL,
+    program TEXT NOT NULL,
     mingaplength float,
     moleculetype molecule_type NOT NULL DEFAULT 'genomic DNA',
-    fasta varchar(255) NOT NULL,
-    -- table to track many-to-many relationship between assembly and read
-    assembly_read_id UUID REFERENCES assembly_read(id),
+    fasta TEXT NOT NULL,
 
-    version varchar(255) NOT NULL,
+    version TEXT NOT NULL,
     created_at TIMESTAMP NOT NULL DEFAULT NOW(),
     updated_at TIMESTAMP NOT NULL DEFAULT NOW()
 );
@@ -312,7 +349,6 @@ CREATE TABLE assembly_submission (
 );
 
 CREATE TABLE assembly_read (
-    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
     assembly_id UUID REFERENCES assembly(id) NOT NULL,
     read_id UUID REFERENCES read(id) NOT NULL,
     PRIMARY KEY (assembly_id, read_id)
@@ -357,42 +393,9 @@ CREATE TABLE bpa_initiative (
     updated_at TIMESTAMP NOT NULL DEFAULT NOW()
 );
 
--- ==========================================
--- Bioproject tables
--- ==========================================
-
--- Main bioproject table
-CREATE TABLE bioproject (
-    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
-    project_type project_type NOT NULL,
-    bioproject_accession TEXT UNIQUE,
-    study_type TEXT NOT NULL,
-    alias TEXT NOT NULL,
-    title TEXT NOT NULL,
-    description TEXT NOT NULL,
-    centre_name TEXT,
-    study_attributes JSONB,
-    submitted_at TIMESTAMP,
-    status submission_status NOT NULL DEFAULT 'draft',
-    authority authority_type NOT NULL DEFAULT 'ENA',
-    -- TODO consider if we want to track status of bioproject submission
-    -- TODO confirm if we want study attributes, and enforece schema for json (or include as seperate table)
-    created_at TIMESTAMP NOT NULL DEFAULT NOW(),
-    updated_at TIMESTAMP NOT NULL DEFAULT NOW()
-);
-
--- Bioproject experiment table
-CREATE TABLE bioproject_experiment (
-    bioproject_id UUID REFERENCES bioproject(id) NOT NULL,
-    experiment_id UUID REFERENCES experiment(id) NOT NULL,
-    PRIMARY KEY (bioproject_id, experiment_id)
-);
-
-
 -- Create indexes for common query patterns
-CREATE INDEX idx_organism_id ON organism(id);
-CREATE INDEX idx_sample_organism_id ON sample(organism_id);
+CREATE INDEX idx_tax_id ON organism(tax_id);
+CREATE INDEX idx_sample_organism_key ON sample(organism_key);
 CREATE INDEX idx_experiment_sample_id ON experiment(sample_id);
 CREATE INDEX idx_assembly_sample_id ON assembly(sample_id);
-CREATE INDEX idx_assembly_organism_id ON assembly(organism_id);
-CREATE INDEX idx_assembly_experiment_id ON assembly(experiment_id);
+CREATE INDEX idx_assembly_organism_key ON assembly(organism_key);

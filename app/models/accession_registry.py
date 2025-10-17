@@ -20,7 +20,7 @@ class AccessionRegistry(Base):
     authority = Column(SQLAlchemyEnum("ENA", "NCBI", "DDBJ", name="authority_type"), nullable=False)
     accession = Column(Text, nullable=False, unique=True)
     secondary_accession = Column(Text, nullable=True)
-    entity_type = Column(SQLAlchemyEnum("organism", "sample", "experiment", "read", "assembly", "bioproject", name="entity_type"), nullable=False)
+    entity_type = Column(SQLAlchemyEnum("organism", "sample", "experiment", "read", "assembly", "project", name="entity_type"), nullable=False)
     entity_id = Column(BigInteger, nullable=False)
     accepted_at = Column(DateTime(timezone=True), nullable=False, default=datetime.now(timezone.utc))
     created_at = Column(DateTime, nullable=False, default=datetime.now(timezone.utc))

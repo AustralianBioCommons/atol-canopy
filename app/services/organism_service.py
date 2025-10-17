@@ -19,9 +19,9 @@ class OrganismService(BaseService[Organism, OrganismCreate, OrganismUpdate]):
         """Get organism by taxon ID."""
         return db.query(Organism).filter(Organism.tax_id == tax_id).first()
     
-    def get_by_organism_grouping_key(self, db: Session, organism_grouping_key: str) -> Optional[Organism]:
-        """Get organism by organism_grouping_key."""
-        return db.query(Organism).filter(Organism.organism_grouping_key == organism_grouping_key).first()
+    def get_by_grouping_key(self, db: Session, grouping_key: str) -> Optional[Organism]:
+        """Get organism by grouping_key."""
+        return db.query(Organism).filter(Organism.grouping_key == grouping_key).first()
     
     def get_multi_with_filters(
         self, 
@@ -30,7 +30,8 @@ class OrganismService(BaseService[Organism, OrganismCreate, OrganismUpdate]):
         skip: int = 0, 
         limit: int = 100,
         scientific_name: Optional[str] = None,
-        tax_id: Optional[str] = None
+        tax_id: Optional[str] = None,
+        grouping_key: Optional[str] = None
     ) -> List[Organism]:
         """Get organisms with filters."""
         query = db.query(Organism)
@@ -38,6 +39,8 @@ class OrganismService(BaseService[Organism, OrganismCreate, OrganismUpdate]):
             query = query.filter(Organism.scientific_name.ilike(f"%{scientific_name}%"))
         if tax_id:
             query = query.filter(Organism.tax_id == tax_id)
+        if grouping_key:
+            query = query.filter(Organism.grouping_key == grouping_key)
         return query.offset(skip).limit(limit).all()
 
 

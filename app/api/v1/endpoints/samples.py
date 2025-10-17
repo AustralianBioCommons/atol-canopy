@@ -12,15 +12,13 @@ from app.core.dependencies import (
     get_db,
     require_role,
 )
-from app.models.sample import Sample, SampleFetched, SampleSubmission
+from app.models.sample import Sample, SampleSubmission
 from app.models.organism import Organism
 from app.models.experiment import Experiment
 from app.models.user import User
 from app.schemas.sample import (
     Sample as SampleSchema,
     SampleCreate,
-    SampleFetched as SampleFetchedSchema,
-    SampleFetchedCreate,
     SampleSubmission as SampleSubmissionSchema,
     SampleSubmissionCreate,
     SampleSubmissionUpdate,
@@ -39,7 +37,7 @@ def read_samples(
     db: Session = Depends(get_db),
     skip: int = 0,
     limit: int = 100,
-    organism_id: Optional[UUID] = Query(None, description="Filter by organism ID"),
+    organism_key: Optional[str] = Query(None, description="Filter by organism key"),
     current_user: User = Depends(get_current_active_user),
 ) -> Any:
     """
@@ -47,8 +45,8 @@ def read_samples(
     """
     # All users can read samples
     query = db.query(Sample)
-    if organism_id:
-        query = query.filter(Sample.organism_id == organism_id)
+    if organism_key:
+        query = query.filter(Sample.organism_key == organism_key)
     
     samples = query.offset(skip).limit(limit).all()
     return samples
@@ -68,10 +66,9 @@ def create_sample(
     require_role(current_user, ["curator", "admin"])
     
     sample = Sample(
-        organism_id=sample_in.organism_id,
+        organism_key=sample_in.organism_key,
         bpa_sample_id=sample_in.bpa_sample_id,
-        sample_accession=sample_in.sample_accession,
-        source_json=sample_in.source_json,
+        bpa_json=sample_in.bpa_json,
     )
     db.add(sample)
     db.commit()
@@ -79,15 +76,15 @@ def create_sample(
     return sample
 
 
-@router.get("/{sample_id}/submission-json", response_model=SubmissionJsonResponse)
-def get_sample_submission_json(
+@router.get("/{sample_id}/prepared-payload", response_model=SubmissionJsonResponse)
+def get_sample_prepared_payload(
     *,
     db: Session = Depends(get_db),
     sample_id: UUID,
     current_user: User = Depends(get_current_active_user),
 ) -> Any:
     """
-    Get submission_json for a specific sample.
+    Get prepared_payload for a specific sample.
     """
     sample_submission = db.query(SampleSubmission).filter(SampleSubmission.sample_id == sample_id).first()
     if not sample_submission:
@@ -95,7 +92,7 @@ def get_sample_submission_json(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="Sample submission data not found",
         )
-    return {"submission_json": sample_submission.submission_json}
+    return {"submission_json": sample_submission.prepared_payload}
 
 
 @router.get("/{sample_id}", response_model=SampleSchema)
@@ -199,13 +196,14 @@ def create_sample_submission(
     
     submission = SampleSubmission(
         sample_id=submission_in.sample_id,
-        organism_id=submission_in.organism_id,
-        bpa_sample_id=submission_in.bpa_sample_id,
-        sample_accession=submission_in.sample_accession,
-        submission_json=submission_in.submission_json,
-        internal_json=submission_in.internal_json,
+        authority=submission_in.authority,
+        entity_type_const=submission_in.entity_type_const,
+        prepared_payload=submission_in.prepared_payload,
+        response_payload=submission_in.response_payload,
+        accession=submission_in.accession,
+        biosample_accession=submission_in.biosample_accession,
         status=submission_in.status,
-        submission_at=submission_in.submission_at,
+        submitted_at=submission_in.submitted_at,
     )
     db.add(submission)
     db.commit()
@@ -241,46 +239,7 @@ def update_sample_submission(
     return submission
 
 
-# Sample Fetched endpoints
-@router.get("/fetched/", response_model=List[SampleFetchedSchema])
-def read_sample_fetches(
-    db: Session = Depends(get_db),
-    skip: int = 0,
-    limit: int = 100,
-    current_user: User = Depends(get_current_active_user),
-) -> Any:
-    """
-    Retrieve sample fetch records.
-    """
-    # All users can read sample fetch records
-    fetches = db.query(SampleFetched).offset(skip).limit(limit).all()
-    return fetches
-
-
-@router.post("/fetched/", response_model=SampleFetchedSchema)
-def create_sample_fetch(
-    *,
-    db: Session = Depends(get_db),
-    fetch_in: SampleFetchedCreate,
-    current_user: User = Depends(get_current_active_user),
-) -> Any:
-    """
-    Create new sample fetch record.
-    """
-    # Only users with 'curator' or 'admin' role can create sample fetch records
-    require_role(current_user, ["curator", "admin"])
-    
-    fetch = SampleFetched(
-        sample_id=fetch_in.sample_id,
-        sample_accession=fetch_in.sample_accession,
-        organism_id=fetch_in.organism_id,
-        raw_json=fetch_in.raw_json,
-        fetched_at=fetch_in.fetched_at,
-    )
-    db.add(fetch)
-    db.commit()
-    db.refresh(fetch)
-    return fetch
+# Sample Fetched endpoints have been removed as they are no longer in the schema
 
 @router.post("/bulk-import", response_model=BulkImportResponse)
 def bulk_import_samples(
@@ -318,19 +277,17 @@ def bulk_import_samples(
             continue
         
         # Get organism reference from sample data
-        organism_id = None
+        organism_key = None
         if "organism_grouping_key" in sample_data:
-            organism_grouping_key = sample_data["organism_grouping_key"]
-            # Look up the organism ID by grouping key
-            organism = db.query(Organism).filter(Organism.organism_grouping_key == organism_grouping_key).first()
-            if organism:
-                organism_id = organism.id
+            organism_key = sample_data["organism_grouping_key"]
+            # Look up the organism by grouping key
+            organism = db.query(Organism).filter(Organism.grouping_key == organism_key).first()
         else:
             print(f"Organism not found for sample {bpa_sample_id}, Skipping")
             skipped_count += 1
             continue
         if not organism:
-            print(f"Organism not found with organism_grouping_key {organism_grouping_key}, Skipping")
+            print(f"Organism not found with grouping_key {organism_key}, Skipping")
             skipped_count += 1
             continue
         try:
@@ -338,25 +295,25 @@ def bulk_import_samples(
             sample_id = uuid.uuid4()
             sample = Sample(
                 id=sample_id,
-                organism_id=organism_id,
+                organism_key=organism_key,
                 bpa_sample_id=bpa_sample_id,
-                source_json=sample_data
+                bpa_json=sample_data
             )
             db.add(sample)
             
-            # Create submission_json based on the mapping
-            submission_json = {}
+            # Create prepared_payload based on the mapping
+            prepared_payload = {}
             for ena_key, atol_key in sample_mapping.items():
                 if atol_key in sample_data:
-                    submission_json[ena_key] = sample_data[atol_key]
+                    prepared_payload[ena_key] = sample_data[atol_key]
             
             # Create sample_submission record
             sample_submission = SampleSubmission(
                 id=uuid.uuid4(),
                 sample_id=sample_id,
-                organism_id=organism_id,
-                internal_json=sample_data,
-                submission_json=submission_json
+                authority="ENA",
+                entity_type_const="sample",
+                prepared_payload=prepared_payload
             )
             db.add(sample_submission)
             
