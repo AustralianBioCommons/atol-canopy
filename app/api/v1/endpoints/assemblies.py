@@ -155,22 +155,22 @@ def get_pipeline_inputs_by_tax_id(
     
     # Process each organism
     for organism in organisms:
-        print(f"Found organism {organism.id} with tax ID '{tax_id}'")
-        organism_key = organism.organism_grouping_key
+        print(f"Found organism {organism.grouping_key} with tax ID '{tax_id}'")
+        organism_key = organism.grouping_key
         result[tax_id][organism_key] = {
             "scientific_name": organism.scientific_name,
             "files": {}
         }
         
         # Get all samples for this organism
-        samples = db.query(Sample).filter(Sample.organism_id == organism.id).all()
+        samples = db.query(Sample).filter(Sample.organism_key == organism.grouping_key).all()
         if not samples:
-            print(f"No samples found for organism with ID {organism.id}")
+            print(f"No samples found for organism with ID {organism.grouping_key}")
             continue
         
         # Collect all reads for this organism through the sample->experiment->read relationship
         for sample in samples:
-            print(f"Sample {sample.id} found for organism {organism.id}")
+            print(f"Sample {sample.id} found for organism {organism.grouping_key}")
             # Get experiments for this sample
             experiments = db.query(Experiment).filter(Experiment.sample_id == sample.id).all()
             
