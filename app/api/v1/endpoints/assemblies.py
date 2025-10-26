@@ -79,13 +79,13 @@ def get_pipeline_inputs(
     if db is None:
         raise HTTPException(status_code=422, detail="database session is required")
     # Get the organism by organism_grouping_key
-    organism = organism_service.get_by_organism_grouping_key(db, organism_grouping_key)
+    organism = organism_service.get_by_grouping_key(db, organism_grouping_key)
     if not organism:
         print(f"Organism with grouping key '{organism_grouping_key}' not found")
         raise HTTPException(status_code=404, detail=f"Organism with grouping key '{organism_grouping_key}' not found")
     
     # Get all samples for this organism
-    samples = db.query(Sample).filter(Sample.organism_id == organism.id).all()
+    samples = db.query(Sample).filter(Sample.organism_key == organism.grouping_key).all()
     if not samples:
         print(f"No samples found for organism with grouping key '{organism_grouping_key}'")
         return [{

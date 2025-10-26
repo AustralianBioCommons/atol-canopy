@@ -50,6 +50,7 @@ CREATE TABLE refresh_token (
 CREATE TABLE organism (
     grouping_key TEXT PRIMARY KEY,
     tax_id int UNIQUE NOT NULL,
+    -- We need to check that the scientific name = the tax id level, because we have a bunch of tax_ids that are the same for organisms which should have a more granular taxid level
     scientific_name TEXT,
     common_name TEXT,
     common_name_source TEXT,
@@ -244,7 +245,20 @@ CREATE TABLE project_experiment (
 CREATE TABLE read (
     id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
     experiment_id UUID REFERENCES experiment(id) NOT NULL,
-    bpa_resource_id TEXT UNIQUE NOT NULL,
+    file_name TEXT NOT NULL,
+    file_checksum TEXT NOT NULL,
+    file_format TEXT NOT NULL,
+    file_submission_date TEXT,
+    optional_file TEXT,
+    bioplatforms_url TEXT,
+    reads_access_date TEXT,
+    read_number TEXT,
+    lane_number TEXT,
+    sra_run_accession TEXT,
+    run_read_count TEXT,
+    run_base_count TEXT,
+
+    bpa_resource_id TEXT UNIQUE,
     bpa_json JSONB NOT NULL,
     created_at TIMESTAMP NOT NULL DEFAULT NOW(),
     updated_at TIMESTAMP NOT NULL DEFAULT NOW()

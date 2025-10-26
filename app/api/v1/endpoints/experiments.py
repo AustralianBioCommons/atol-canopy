@@ -358,7 +358,19 @@ def bulk_import_experiments(
                         read = Read(
                             id=uuid.uuid4(),
                             experiment_id=experiment_id,
-                            bpa_resource_id=run.get("bpa_resource_id", ""),
+                            file_name=run.get("file_name", None),
+                            file_format=run.get("file_format", None),
+                            file_submission_date=run.get("file_submission_date", None),
+                            file_checksum=run.get("file_checksum", None),
+                            optional_file=run.get("optional_file", False),
+                            bioplatforms_url=run.get("bioplatforms_url", ""),
+                            reads_access_date=run.get("reads_access_date", None),
+                            read_number=run.get("read_number", None),
+                            lane_number=run.get("lane_number", None),
+                            sra_run_accession=run.get("sra_run_accession", None),
+                            run_read_count=run.get("run_read_count", None),
+                            run_base_count=run.get("run_base_count", None),
+                            bpa_resource_id=run.get("bpa_resource_id", None),
                             bpa_json=run
                         )
                         db.add(read)

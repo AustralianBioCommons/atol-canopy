@@ -11,6 +11,18 @@ class ReadBase(BaseModel):
     experiment_id: UUID
     bpa_resource_id: str
     bpa_json: Dict[str, Any]
+    file_name: str
+    file_checksum : str
+    file_format : str
+    file_submission_date : Optional[str]
+    optional_file : Optional[str]
+    bioplatforms_url : Optional[str]
+    reads_access_date : Optional[str]
+    read_number : Optional[str]
+    lane_number : Optional[str]
+    sra_run_accession : Optional[str]
+    run_read_count : Optional[str]
+    run_base_count : Optional[str]
 
 
 # Schema for creating a new Read
@@ -25,6 +37,18 @@ class ReadUpdate(BaseModel):
     experiment_id: Optional[UUID] = None
     bpa_resource_id: Optional[str] = None
     bpa_json: Optional[Dict[str, Any]] = None
+    file_name: Optional[str]  = None
+    file_checksum : Optional[str]  = None
+    file_format : Optional[str]  = None
+    file_submission_date : Optional[str]  = None
+    optional_file : Optional[str] = None
+    bioplatforms_url : Optional[str] = None
+    reads_access_date : Optional[str] = None
+    read_number : Optional[str] = None
+    lane_number : Optional[str] = None
+    sra_run_accession : Optional[str] = None
+    run_read_count : Optional[str] = None
+    run_base_count : Optional[str] = None
 
 
 # Schema for Read in DB
