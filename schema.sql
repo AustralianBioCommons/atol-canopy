@@ -132,7 +132,7 @@ CREATE TABLE sample (
 -- Sample submission table
 CREATE TABLE sample_submission (
     id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
-    sample_id UUID REFERENCES sample(id),
+    sample_id UUID REFERENCES sample(id) NOT NULL,
     authority authority_type NOT NULL DEFAULT 'ENA',
     prepared_payload JSONB NOT NULL,
     response_payload JSONB,
@@ -183,7 +183,7 @@ CREATE TABLE experiment_submission (
     authority authority_type NOT NULL DEFAULT 'ENA',
     status submission_status NOT NULL DEFAULT 'draft',
 
-    sample_id UUID REFERENCES sample(id) NOT NULL, -- nullable if sample doesn't exst yet? or are we happy to have the constraint that a sample & project needs to exist before we create an experiment, probs
+    sample_id UUID REFERENCES sample(id) NOT NULL, -- nullable if sample doesn't exist yet? or are we happy to have the constraint that a sample & project needs to exist before we create an experiment, probs
     project_id UUID REFERENCES project(id),
     -- TO DO do we even need this ? I don't think so
 
