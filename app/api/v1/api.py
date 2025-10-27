@@ -9,6 +9,7 @@ from app.api.v1.endpoints import (
     genome_notes,
     organisms,
     reads,
+    sample_submissions,
     samples,
     users,
     xml_export
@@ -24,6 +25,7 @@ api_router.include_router(users.router, prefix="/users", tags=["users"])
 # Core entity routers
 api_router.include_router(organisms.router, prefix="/organisms", tags=["organisms"])
 api_router.include_router(samples.router, prefix="/samples", tags=["samples"])
+api_router.include_router(sample_submissions.router, prefix="/sample-submissions", tags=["sample-submissions"])
 api_router.include_router(experiments.router, prefix="/experiments", tags=["experiments"])
 api_router.include_router(assemblies.router, prefix="/assemblies", tags=["assemblies"])
 api_router.include_router(bpa_initiatives.router, prefix="/bpa-initiatives", tags=["bpa-initiatives"])

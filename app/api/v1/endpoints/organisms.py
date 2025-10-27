@@ -42,7 +42,7 @@ def read_organisms(
     return organisms
 
 
-@router.get("/grouping-key/{grouping_key}/submission-json", response_model=OrganismSubmissionJsonResponse)
+@router.get("/submissions/{grouping_key}", response_model=OrganismSubmissionJsonResponse)
 def get_organism_submission_json(
     *,
     db: Session = Depends(get_db),

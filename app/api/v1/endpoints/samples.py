@@ -99,7 +99,6 @@ def create_sample(
     db.refresh(sample_submission)
     return sample
 
-
 @router.get("/{sample_id}/prepared-payload", response_model=SubmissionJsonResponse)
 def get_sample_prepared_payload(
     *,
@@ -110,6 +109,8 @@ def get_sample_prepared_payload(
     """
     Get prepared_payload for a specific sample.
     """
+    # Admin, curator, broker and genome_launcher can get submission data
+    require_role(current_user, ["admin", "curator", "broker", "genome_launcher"])
     sample_submission = db.query(SampleSubmission).filter(SampleSubmission.sample_id == sample_id).first()
     if not sample_submission:
         raise HTTPException(
@@ -259,86 +260,6 @@ def delete_sample(
     db.delete(sample)
     db.commit()
     return sample
-
-
-# Sample Submission endpoints
-@router.get("/submission/", response_model=List[SampleSubmissionSchema])
-def read_sample_submissions(
-    db: Session = Depends(get_db),
-    skip: int = 0,
-    limit: int = 100,
-    status: Optional[SchemaSubmissionStatus] = Query(None, description="Filter by submission status"),
-    current_user: User = Depends(get_current_active_user),
-) -> Any:
-    """
-    Retrieve sample submissions.
-    """
-    # All users can read sample submissions
-    query = db.query(SampleSubmission)
-    if status:
-        query = query.filter(SampleSubmission.status == status)
-    
-    submissions = query.offset(skip).limit(limit).all()
-    return submissions
-
-
-@router.post("/submission/", response_model=SampleSubmissionSchema)
-def create_sample_submission(
-    *,
-    db: Session = Depends(get_db),
-    submission_in: SampleSubmissionCreate,
-    current_user: User = Depends(get_current_active_user),
-) -> Any:
-    """
-    Create new sample submission.
-    """
-    # Only users with 'curator' or 'admin' role can create sample submissions
-    require_role(current_user, ["curator", "admin"])
-    
-    submission = SampleSubmission(
-        sample_id=submission_in.sample_id,
-        authority=submission_in.authority,
-        entity_type_const=submission_in.entity_type_const,
-        prepared_payload=submission_in.prepared_payload,
-        response_payload=submission_in.response_payload,
-        accession=submission_in.accession,
-        biosample_accession=submission_in.biosample_accession,
-        status=submission_in.status,
-        submitted_at=submission_in.submitted_at,
-    )
-    db.add(submission)
-    db.commit()
-    db.refresh(submission)
-    return submission
-
-
-@router.put("/submission/{submission_id}", response_model=SampleSubmissionSchema)
-def update_sample_submission(
-    *,
-    db: Session = Depends(get_db),
-    submission_id: UUID,
-    submission_in: SampleSubmissionUpdate,
-    current_user: User = Depends(get_current_active_user),
-) -> Any:
-    """
-    Update a sample submission.
-    """
-    # Only users with 'curator' or 'admin' role can update sample submissions
-    require_role(current_user, ["curator", "admin"])
-    
-    submission = db.query(SampleSubmission).filter(SampleSubmission.id == submission_id).first()
-    if not submission:
-        raise HTTPException(status_code=404, detail="Sample submission not found")
-    
-    update_data = submission_in.dict(exclude_unset=True)
-    for field, value in update_data.items():
-        setattr(submission, field, value)
-    
-    db.add(submission)
-    db.commit()
-    db.refresh(submission)
-    return submission
-
 
 # Sample Fetched endpoints have been removed as they are no longer in the schema
 
