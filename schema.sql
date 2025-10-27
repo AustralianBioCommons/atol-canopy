@@ -35,7 +35,7 @@ CREATE TABLE users (
 CREATE TABLE refresh_token (
     id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
     token_hash TEXT NOT NULL,
-    user_id UUID REFERENCES users(id) NOT NULL,
+    user_id UUID NOT NULL REFERENCES users(id),
     expires_at TIMESTAMP WITHOUT TIME ZONE NOT NULL,
     revoked BOOLEAN NOT NULL DEFAULT FALSE,
     created_at TIMESTAMP NOT NULL DEFAULT NOW(),
@@ -122,7 +122,7 @@ CREATE TABLE project (
 -- Main sample table
 CREATE TABLE sample (
     id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
-    organism_key TEXT REFERENCES organism(grouping_key) NOT NULL,
+    organism_key TEXT NOT NULL REFERENCES organism(grouping_key),
     bpa_sample_id TEXT UNIQUE NOT NULL,
     bpa_json JSONB NOT NULL,
     created_at TIMESTAMP NOT NULL DEFAULT NOW(),
@@ -350,7 +350,7 @@ CREATE TABLE assembly_submission (
     authority authority_type NOT NULL DEFAULT 'ENA',
     accession TEXT,
     organism_key TEXT REFERENCES organism(grouping_key) NOT NULL,
-    sample_id UUID REFERENCES sample(id) NOT NULL,
+    sample_id UUID NOT NULL REFERENCES sample(id),
 
     internal_json JSONB,
     prepared_payload JSONB,
@@ -363,8 +363,8 @@ CREATE TABLE assembly_submission (
 );
 
 CREATE TABLE assembly_read (
-    assembly_id UUID REFERENCES assembly(id) NOT NULL,
-    read_id UUID REFERENCES read(id) NOT NULL,
+    assembly_id UUID NOT NULL REFERENCES assembly(id),
+    read_id UUID NOT NULL REFERENCES read(id),
     PRIMARY KEY (assembly_id, read_id)
 );
 
@@ -390,8 +390,8 @@ WHERE is_published = TRUE;
 
 -- Genome note assembly table
 CREATE TABLE genome_note_assembly (
-    genome_note_id UUID REFERENCES genome_note(id) NOT NULL,
-    assembly_id UUID REFERENCES assembly(id) NOT NULL,
+    genome_note_id UUID NOT NULL REFERENCES genome_note(id),
+    assembly_id UUID NOT NULL REFERENCES assembly(id),
     PRIMARY KEY (genome_note_id, assembly_id)
 );
 
