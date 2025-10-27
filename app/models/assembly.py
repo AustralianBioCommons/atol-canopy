@@ -29,7 +29,6 @@ class Assembly(Base):
     mingaplength = Column(Float, nullable=True)
     moleculetype = Column(SQLAlchemyEnum("genomic DNA", "genomic RNA", name="molecule_type"), nullable=False, default="genomic DNA")
     fasta = Column(String(255), nullable=False)
-    assembly_read_id = Column(UUID(as_uuid=True), ForeignKey("assembly_read.id"), nullable=True)
     version = Column(String(255), nullable=False)
     
     created_at = Column(DateTime, nullable=False, default=datetime.now(timezone.utc))

@@ -19,15 +19,109 @@ class SampleBase(BaseModel):
 # Schema for creating a new sample
 class SampleCreate(SampleBase):
     """Schema for creating a new sample."""
-    pass
+    scientific_name: Optional[str] = None
+    genus: Optional[str] = None
+    species: Optional[str] = None
+    infraspecific_epithet: Optional[str] = None
+    isolate: Optional[str] = None
+    family: Optional[str] = None
+    order_or_group: Optional[str] = None
+    class_name: Optional[str] = None
+    phylum: Optional[str] = None
+    authority: Optional[str] = None
+    taxon_id: Optional[str] = None
+    common_name: Optional[str] = None
+    voucher_id: Optional[str] = None
+    voucher_institution: Optional[str] = None
+    identified_by: Optional[str] = None
+    identifier_institute: Optional[str] = None
+    taxon_remarks: Optional[str] = None
+    specimen_custodian: Optional[str] = None
+    sample_custodian: Optional[str] = None
+    lifestage: Optional[str] = None
+    sex: Optional[str] = None
+    organism_part: Optional[str] = None
+    host_scientific_name: Optional[str] = None
+    collection_location: Optional[str] = None
+    decimal_latitude: Optional[str] = None
+    decimal_longitude: Optional[str] = None
+    elevation: Optional[str] = None
+    depth: Optional[str] = None
+    habitat: Optional[str] = None
+    description_of_collection_method: Optional[str] = None
+    date_of_collection: Optional[str] = None
+    collected_by: Optional[str] = None
+    collector_institute: Optional[str] = None
+    collection_permit: Optional[str] = None
+    atol_sample_id: Optional[str] = None
+    sample_name: Optional[str] = None
+    specimen_id: Optional[str] = None
+    material_extracted_by: Optional[str] = None
+    material_extraction_date: Optional[str] = None
+    sample_submitter: Optional[str] = None
+    sample_submission_date: Optional[str] = None
+    sequencing_facility: Optional[str] = None
+    data_context: Optional[str] = None
+    bioplatforms_project_code: Optional[str] = None
+    sample_access_date: Optional[str] = None
+    bioplatforms_project: Optional[str] = None
+    bioplatforms_project_id: Optional[str] = None
+    bioplatforms_project_description: Optional[str] = None
+    bioplatforms_project_url: Optional[str] = None
 
 
 # Schema for updating an existing sample
 class SampleUpdate(BaseModel):
     """Schema for updating an existing sample."""
-    organism_key: Optional[str] = None
-    bpa_sample_id: Optional[str] = None
-    bpa_json: Optional[Dict] = None
+    scientific_name: Optional[str] = None
+    genus: Optional[str] = None
+    species: Optional[str] = None
+    infraspecific_epithet: Optional[str] = None
+    isolate: Optional[str] = None
+    family: Optional[str] = None
+    order_or_group: Optional[str] = None
+    class_name: Optional[str] = None
+    phylum: Optional[str] = None
+    authority: Optional[str] = None
+    taxon_id: Optional[str] = None
+    common_name: Optional[str] = None
+    voucher_id: Optional[str] = None
+    voucher_institution: Optional[str] = None
+    identified_by: Optional[str] = None
+    identifier_institute: Optional[str] = None
+    taxon_remarks: Optional[str] = None
+    specimen_custodian: Optional[str] = None
+    sample_custodian: Optional[str] = None
+    lifestage: Optional[str] = None
+    sex: Optional[str] = None
+    organism_part: Optional[str] = None
+    host_scientific_name: Optional[str] = None
+    collection_location: Optional[str] = None
+    decimal_latitude: Optional[str] = None
+    decimal_longitude: Optional[str] = None
+    elevation: Optional[str] = None
+    depth: Optional[str] = None
+    habitat: Optional[str] = None
+    description_of_collection_method: Optional[str] = None
+    date_of_collection: Optional[str] = None
+    collected_by: Optional[str] = None
+    collector_institute: Optional[str] = None
+    collection_permit: Optional[str] = None
+    atol_sample_id: Optional[str] = None
+    sample_name: Optional[str] = None
+    specimen_id: Optional[str] = None
+    material_extracted_by: Optional[str] = None
+    material_extraction_date: Optional[str] = None
+    sample_submitter: Optional[str] = None
+    sample_submission_date: Optional[str] = None
+    sequencing_facility: Optional[str] = None
+    data_context: Optional[str] = None
+    bioplatforms_project_code: Optional[str] = None
+    sample_access_date: Optional[str] = None
+    bioplatforms_project: Optional[str] = None
+    bioplatforms_project_id: Optional[str] = None
+    bioplatforms_project_description: Optional[str] = None
+    bioplatforms_project_url: Optional[str] = None
 
 # Schema for sample in DB
 class SampleInDBBase(SampleBase):

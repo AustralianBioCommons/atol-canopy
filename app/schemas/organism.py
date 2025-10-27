@@ -34,7 +34,6 @@ class OrganismUpdate(BaseModel):
     scientific_name: Optional[str] = None
     common_name: Optional[str] = None
     common_name_source: Optional[str] = None
-    bpa_json: Optional[Dict] = None
     taxonomy_lineage_json: Optional[Dict] = None
 
 

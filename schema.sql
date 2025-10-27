@@ -5,7 +5,7 @@
 CREATE EXTENSION IF NOT EXISTS "uuid-ossp";
 
 -- Create ENUM types
-CREATE TYPE submission_status AS ENUM ('draft', 'ready', 'submitted', 'accepted', 'rejected', 'replaced');
+CREATE TYPE submission_status AS ENUM ('draft', 'ready', 'submitting', 'rejected', 'accepted', 'replaced');
 CREATE TYPE authority_type AS ENUM ('ENA', 'NCBI', 'DDBJ');
 CREATE TYPE molecule_type AS ENUM ('genomic DNA', 'genomic RNA');
 CREATE TYPE assembly_output_file_type AS ENUM ('QC', 'Other'); -- TODO define more specific types as needed

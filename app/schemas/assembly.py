@@ -20,7 +20,6 @@ class AssemblyBase(BaseModel):
     mingaplength: Optional[int] = None
     moleculetype: Optional[str] = None
     fasta: Optional[str] = None
-    assembly_read_id: Optional[UUID] = None
     version: Optional[int] = None
 
 
@@ -43,7 +42,6 @@ class AssemblyUpdate(BaseModel):
     mingaplength: Optional[int] = None
     moleculetype: Optional[str] = None
     fasta: Optional[str] = None
-    assembly_read_id: Optional[UUID] = None
     version: Optional[int] = None
 
 
