@@ -11,7 +11,7 @@ from sqlalchemy.orm import Session
 from app.core.dependencies import get_current_active_user, get_current_superuser, get_db, require_role
 from app.models.experiment import Experiment, ExperimentSubmission
 from app.models.project import Project
-from app.models.read import Read
+from app.models.read import Read, ReadSubmission
 from app.models.sample import Sample
 from app.models.user import User
 from app.schemas.bulk_import import BulkImportResponse
@@ -348,12 +348,6 @@ def bulk_import_experiments(
             if "runs" in experiment_data and isinstance(experiment_data["runs"], list):
                 for run in experiment_data["runs"]:
                     try:
-                        # Create prepared_payload for run based on the mapping
-                        run_prepared_payload = {}
-                        for ena_key, atol_key in run_mapping.items():
-                            if atol_key in run:
-                                run_prepared_payload[ena_key] = run[atol_key]
-                        
                         # Create read entity for each run
                         read = Read(
                             id=uuid.uuid4(),
@@ -375,6 +369,25 @@ def bulk_import_experiments(
                         )
                         db.add(read)
                         created_reads_count += 1
+
+                        # Create prepared_payload for run based on the mapping
+                        run_prepared_payload = {}
+                        for ena_key, atol_key in run_mapping.items():
+                            if atol_key in run:
+                                run_prepared_payload[ena_key] = run[atol_key]
+                        
+                        # Create read submission record
+                        read_submission = ReadSubmission(
+                            id=uuid.uuid4(),
+                            read_id=read.id,
+                            experiment_id=experiment_id,
+                            project_id=project_id,
+                            authority="ENA",
+                            entity_type_const="read",
+                            prepared_payload=run_prepared_payload
+                        )
+                        db.add(read_submission)
+                        created_submission_count += 1
                     except Exception as e:
                         print(f"Error creating read for experiment: {experiment_id}, file: {run.get('file_name')}")
                         print(e)

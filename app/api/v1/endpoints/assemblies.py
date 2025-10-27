@@ -30,7 +30,7 @@ from app.schemas.assembly import (
 
 router = APIRouter()
 
-
+"""
 @router.get("/", response_model=List[AssemblySchema])
 def read_assemblies(
     db: Session = Depends(get_db),
@@ -41,9 +41,7 @@ def read_assemblies(
     experiment_id: Optional[UUID] = Query(None, description="Filter by experiment ID"),
     current_user: User = Depends(get_current_active_user),
 ) -> Any:
-    """
     Retrieve assemblies.
-    """
     # All users can read assemblies
     query = db.query(Assembly)
     if organism_id:
@@ -55,7 +53,7 @@ def read_assemblies(
     
     assemblies = query.offset(skip).limit(limit).all()
     return assemblies
-
+"""
 
 @router.get("/pipeline-inputs")
 def get_pipeline_inputs(
@@ -186,7 +184,7 @@ def get_pipeline_inputs_by_tax_id(
     
     return result
 
-
+"""
 @router.post("/", response_model=AssemblySchema)
 def create_assembly(
     *,
@@ -194,9 +192,7 @@ def create_assembly(
     assembly_in: AssemblyCreate,
     current_user: User = Depends(get_current_active_user),
 ) -> Any:
-    """
-    Create new assembly.
-    """
+    # Create new assembly.
     # Only users with 'curator' or 'admin' role can create assemblies
     require_role(current_user, ["curator", "admin"])
     
@@ -221,9 +217,7 @@ def read_assembly(
     assembly_id: UUID,
     current_user: User = Depends(get_current_active_user),
 ) -> Any:
-    """
-    Get assembly by ID.
-    """
+    # Get assembly by ID.
     # All users can read assembly details
     assembly = db.query(Assembly).filter(Assembly.id == assembly_id).first()
     if not assembly:
@@ -239,9 +233,7 @@ def update_assembly(
     assembly_in: AssemblyUpdate,
     current_user: User = Depends(get_current_active_user),
 ) -> Any:
-    """
-    Update an assembly.
-    """
+    # Update an assembly.
     # Only users with 'curator' or 'admin' role can update assemblies
     require_role(current_user, ["curator", "admin"])
     
@@ -266,9 +258,7 @@ def delete_assembly(
     assembly_id: UUID,
     current_user: User = Depends(get_current_superuser),
 ) -> Any:
-    """
-    Delete an assembly.
-    """
+    # Delete an assembly.
     # Only superusers can delete assemblies
     assembly = db.query(Assembly).filter(Assembly.id == assembly_id).first()
     if not assembly:
@@ -288,9 +278,7 @@ def read_assembly_submissions(
     status: Optional[SchemaSubmissionStatus] = Query(None, description="Filter by submission status"),
     current_user: User = Depends(get_current_active_user),
 ) -> Any:
-    """
-    Retrieve assembly submissions.
-    """
+    # Retrieve assembly submissions.
     # All users can read assembly submissions
     query = db.query(AssemblySubmission)
     if status:
@@ -307,9 +295,7 @@ def create_assembly_submission(
     submission_in: AssemblySubmissionCreate,
     current_user: User = Depends(get_current_active_user),
 ) -> Any:
-    """
-    Create new assembly submission.
-    """
+    # Create new assembly submission.
     # Only users with 'curator' or 'admin' role can create assembly submissions
     require_role(current_user, ["curator", "admin"])
     
@@ -338,9 +324,7 @@ def update_assembly_submission(
     submission_in: AssemblySubmissionUpdate,
     current_user: User = Depends(get_current_active_user),
 ) -> Any:
-    """
-    Update an assembly submission.
-    """
+    # Update an assembly submission.
     # Only users with 'curator' or 'admin' role can update assembly submissions
     require_role(current_user, ["curator", "admin"])
     
@@ -357,3 +341,4 @@ def update_assembly_submission(
     db.refresh(submission)
     return submission
 
+"""

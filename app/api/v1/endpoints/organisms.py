@@ -14,7 +14,7 @@ from app.core.dependencies import (
 from app.models.organism import Organism
 from app.models.sample import Sample, SampleSubmission
 from app.models.experiment import Experiment, ExperimentSubmission
-from app.models.read import Read
+from app.models.read import Read, ReadSubmission
 from app.models.user import User
 from app.schemas.organism import (
     Organism as OrganismSchema,
@@ -52,6 +52,9 @@ def get_organism_submission_json(
     """
     Get all submission_json data for samples, experiments, and reads related to a specific grouping_key.
     """
+    # Admin, curator, broker and genome_launcher can get submission_json data
+    require_role(current_user, ["admin", "curator", "broker", "genome_launcher"])
+    
     # Find the organism by grouping key
     organism = db.query(Organism).filter(Organism.grouping_key == grouping_key).first()
     if not organism:
@@ -66,8 +69,10 @@ def get_organism_submission_json(
         tax_id=organism.tax_id,
         scientific_name=organism.scientific_name,
         common_name=organism.common_name,
+        common_name_source=organism.common_name_source,
         samples=[],
-        experiments=[]
+        experiments=[],
+        reads=[]
     )
     
     # Get samples for this organism
@@ -108,9 +113,28 @@ def get_organism_submission_json(
                     prepared_payload=record.prepared_payload,
                     status=record.status
                 ))
-            
-            # No longer need to append reads to response as the schema has changed
-    
+
+                reads = db.query(Read).filter(Read.experiment_id.in_(experiment_ids)).all()
+                read_ids = [read.id for read in reads]
+                print("reads: ",read_ids)
+                
+                # Get read submission data
+                if read_ids:
+                    read_submission_records = db.query(ReadSubmission).filter(ReadSubmission.read_id.in_(read_ids)).all()
+                    for record in read_submission_records:
+                        print("record: ",record)
+                        # Find the corresponding read to get the file_name
+                        read = next((r for r in reads if r.id == record.read_id), None)
+                        file_name = read.file_name if read else None
+                        
+                        response.reads.append(ReadSubmissionJson(
+                            read_id=record.read_id,
+                            experiment_id=record.experiment_id,
+                            file_name=file_name,
+                            prepared_payload=record.prepared_payload,
+                            status=record.status
+                        ))
+        # TO DO append reads    
     return response
 
 
@@ -126,15 +150,18 @@ def create_organism(
     """
     # Only users with 'curator' or 'admin' role can create organisms
     require_role(current_user, ["curator", "admin"])
-    
+    common_name = organism_in.common_name
+    common_name_source = organism_in.common_name_source
+    if common_name and not common_name_source:
+        common_name_source = "BPA"
     organism = Organism(
-        grouping_key=str(uuid.uuid4()),  # Generate a new grouping key if not provided
+        grouping_key=organism_in.grouping_key,
         tax_id=organism_in.tax_id,
         scientific_name=organism_in.scientific_name,
-        common_name=organism_in.common_name,
-        common_name_source=organism_in.common_name_source,
+        common_name=common_name,
+        common_name_source=common_name_source,
         taxonomy_lineage_json=organism_in.taxonomy_lineage_json,
-        bpa_json=organism_in.bpa_json,
+        bpa_json=organism_in.dict(exclude_unset=True),
     )
     db.add(organism)
     db.commit()
@@ -142,28 +169,28 @@ def create_organism(
     return organism
 
 
-@router.get("/{organism_id}", response_model=OrganismSchema)
+@router.get("/{grouping_key}", response_model=OrganismSchema)
 def read_organism(
     *,
     db: Session = Depends(get_db),
-    organism_id: UUID,
+    grouping_key: str,
     current_user: User = Depends(get_current_active_user),
 ) -> Any:
     """
-    Get organism by ID.
+    Get organism by grouping_key.
     """
     # All users can read organism details
-    organism = db.query(Organism).filter(Organism.id == organism_id).first()
+    organism = db.query(Organism).filter(Organism.grouping_key == grouping_key).first()
     if not organism:
         raise HTTPException(status_code=404, detail="Organism not found")
     return organism
 
 
-@router.put("/{organism_id}", response_model=OrganismSchema)
+@router.patch("/{grouping_key}", response_model=OrganismSchema)
 def update_organism(
     *,
     db: Session = Depends(get_db),
-    organism_id: UUID,
+    grouping_key: str,
     organism_in: OrganismUpdate,
     current_user: User = Depends(get_current_active_user),
 ) -> Any:
@@ -173,32 +200,40 @@ def update_organism(
     # Only users with 'curator' or 'admin' role can update organisms
     require_role(current_user, ["curator", "admin"])
     
-    organism = db.query(Organism).filter(Organism.id == organism_id).first()
+    organism = db.query(Organism).filter(Organism.grouping_key == grouping_key).first()
     if not organism:
         raise HTTPException(status_code=404, detail="Organism not found")
-    
+    new_bpa_json = organism.bpa_json
     update_data = organism_in.dict(exclude_unset=True)
     for field, value in update_data.items():
         setattr(organism, field, value)
+        if field == "common_name_source":
+            continue
+        setattr(new_bpa_json, field, value)
     
+    setattr(organism, "bpa_json", new_bpa_json)
     db.add(organism)
     db.commit()
     db.refresh(organism)
     return organism
 
 
-@router.delete("/{organism_id}", response_model=OrganismSchema)
+@router.delete("/{grouping_key}", response_model=OrganismSchema)
 def delete_organism(
     *,
     db: Session = Depends(get_db),
-    organism_id: UUID,
+    grouping_key: str,
     current_user: User = Depends(get_current_superuser),
 ) -> Any:
     """
     Delete an organism.
     """
-    # Only superusers can delete organisms
-    organism = db.query(Organism).filter(Organism.id == organism_id).first()
+    # Only users with 'superuser' or 'admin' role can delete organisms
+    require_role(current_user, ["admin", "superuser"])
+
+    print("deleting organism with grouping key: ", grouping_key)
+    
+    organism = db.query(Organism).filter(Organism.grouping_key == grouping_key).first()
     if not organism:
         raise HTTPException(status_code=404, detail="Organism not found")
     
@@ -253,10 +288,14 @@ def bulk_import_organisms(
             continue
         
         try:
+            common_name = organism_data.get("common_name", None)
+            common_name_source = organism_data.get("common_name_source", "BPA") if common_name is not None else None
             # Create new organism
             organism = Organism(
                 grouping_key=organism_grouping_key,
                 tax_id=tax_id,
+                common_name=common_name,
+                common_name_source=common_name_source,
                 scientific_name=scientific_name,
                 bpa_json=organism_data
             )
