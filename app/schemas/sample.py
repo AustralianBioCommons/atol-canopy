@@ -71,7 +71,7 @@ class SampleCreate(SampleBase):
 
 
 # Schema for updating an existing sample
-class SampleUpdate(BaseModel):
+class SampleUpdate(SampleBase):
     """Schema for updating an existing sample."""
     scientific_name: Optional[str] = None
     genus: Optional[str] = None
@@ -151,7 +151,7 @@ class SampleSubmissionBase(BaseModel):
 # Schema for creating a new sample submission
 class SampleSubmissionCreate(SampleSubmissionBase):
     """Schema for creating a new sample submission."""
-    sample_id: Optional[UUID] = None
+    sample_id: UUID
     prepared_payload: Optional[Dict] = None
     response_payload: Optional[Dict] = None
     accession: Optional[str] = None
@@ -175,7 +175,7 @@ class SampleSubmissionUpdate(BaseModel):
 class SampleSubmissionInDBBase(SampleSubmissionBase):
     """Base schema for SampleSubmission in DB, includes id and timestamps."""
     id: UUID
-    sample_id: Optional[UUID] = None
+    sample_id: UUID
     prepared_payload: Optional[Dict] = None
     response_payload: Optional[Dict] = None
     accession: Optional[str] = None

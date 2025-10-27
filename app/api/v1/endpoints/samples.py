@@ -5,6 +5,7 @@ from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy.orm import Session
+from sqlalchemy.orm.attributes import flag_modified
 
 from app.core.dependencies import (
     get_current_active_user,
@@ -73,6 +74,7 @@ def create_sample(
         bpa_sample_id=sample_in.bpa_sample_id,
         bpa_json=sample_data,
     )
+    db.add(sample)
 
      # Load the ENA-ATOL mapping file
     ena_atol_map_path = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(__file__)))), "config", "ena-atol-map.json")
@@ -89,12 +91,10 @@ def create_sample(
         authority=sample_in.authority,
         entity_type_const="sample",
         prepared_payload=prepared_payload,
-        response_payload=None,
-        accession=None,
-        biosample_accession=None,
         status="draft",
     )
-    db.add(sample)
+    print("sample: ", sample)
+    print("sample_submission: ", sample_submission)
     db.add(sample_submission)
     db.commit()
     db.refresh(sample)
@@ -113,12 +113,13 @@ def get_sample_prepared_payload(
     Get prepared_payload for a specific sample.
     """
     sample_submission = db.query(SampleSubmission).filter(SampleSubmission.sample_id == sample_id).first()
+    print("sample_submission 2: ", sample_submission)
     if not sample_submission:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="Sample submission data not found",
         )
-    return {"submission_json": sample_submission.prepared_payload}
+    return {"prepared_payload": getattr(sample_submission, "prepared_payload")}
 
 
 @router.get("/{sample_id}", response_model=SampleSchema)
@@ -138,7 +139,7 @@ def read_sample(
     return sample
 
 
-@router.patch("/{sample_id}", response_model=SampleSchema)
+@router.put("/{sample_id}", response_model=SampleSchema)
 def update_sample(
     *,
     db: Session = Depends(get_db),
@@ -152,92 +153,94 @@ def update_sample(
     # Only users with 'curator' or 'admin' role can update samples
     require_role(current_user, ["curator", "admin"])
     
-    sample = db.query(Sample).filter(Sample.id == sample_id).first()
-    if not sample:
-        raise HTTPException(status_code=404, detail="Sample not found")
+    try:
+        sample = db.query(Sample).filter(Sample.id == sample_id).first()
+        if not sample:
+            raise HTTPException(status_code=404, detail="Sample not found")
 
-    # Load the ENA-ATOL mapping file
-    ena_atol_map_path = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(__file__)))), "config", "ena-atol-map.json")
-    with open(ena_atol_map_path, "r") as f:
-        ena_atol_map = json.load(f)
-    # Generate ENA-mapped data for submission to ENA
-    prepared_payload = {}
-    for ena_key, atol_key in ena_atol_map["sample"].items():
-        if atol_key in sample_data:
-            prepared_payload[ena_key] = sample_data[atol_key]
-
-    sample_submission = db.query(SampleSubmission).filter(SampleSubmission.sample_id == sample_id).order_by(SampleSubmission.updated_at.desc()).first()
-    new_sample_submission = None
-    latest_sample_submission = {}
-    if not sample_submission:
-        new_sample_submission = SampleSubmission(
-                sample_id=sample_id,
-                authority=sample_submission.authority,
-                entity_type_const="sample",
-                prepared_payload=prepared_payload,
-                response_payload=None,
-                accession=None,
-                biosample_accession=None,
-                status="draft",
-            )
-        db.add(new_sample_submission)
-    else:
-        latest_sample_submission = sample_submission.dict(exclude_unset=True)
-        
-        if latest_sample_submission.status == "submitting":
-            raise HTTPException(status_code=404, detail=f"Sample with id: {sample_id} is currently being submitted to ENA and could not be updated. Please try again later.")
-        elif latest_sample_submission.status == "rejected" or sample_submission.status == "replaced":
-            # leave the old record for logs and create a new record
-            # retain accessions if they exist (accessions may not exist if status is 'rejected' and the sample has not successfully been submitted in the past)
+        sample_data = sample_in.dict(exclude_unset=True)
+        # Load the ENA-ATOL mapping file
+        ena_atol_map_path = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(__file__)))), "config", "ena-atol-map.json")
+        with open(ena_atol_map_path, "r") as f:
+            ena_atol_map = json.load(f)
+        # Generate ENA-mapped data for submission to ENA
+        prepared_payload = {}
+        for ena_key, atol_key in ena_atol_map["sample"].items():
+            if atol_key in sample_data:
+                prepared_payload[ena_key] = sample_data[atol_key]
+        sample_submission = db.query(SampleSubmission).filter(SampleSubmission.sample_id == sample_id).order_by(SampleSubmission.updated_at.desc()).first()
+        new_sample_submission = None
+        latest_sample_submission = {}
+        if not sample_submission:
             new_sample_submission = SampleSubmission(
-                sample_id=sample_id,
-                authority=sample_submission.authority,
-                entity_type_const="sample",
-                prepared_payload=prepared_payload,
-                response_payload=None,
-                accession=sample_submission.accession,
-                biosample_accession=sample_submission.biosample_accession,
-                status="draft",
-            )
+                    sample_id=sample_id,
+                    authority=sample_submission.authority,
+                    entity_type_const="sample",
+                    prepared_payload=prepared_payload,
+                    status="draft",
+                )
             db.add(new_sample_submission)
+        else:
+            latest_sample_submission = sample_submission
             
-        elif latest_sample_submission.status == "accepted":
-            # change old record's status to "replaced" and create a new record
-            # retain accessions
-            setattr(latest_sample_submission, "status", "replaced")
-            db.add(latest_sample_submission)
-            new_sample_submission = SampleSubmission(
-                sample_id=sample_id,
-                authority=sample_submission.authority,
-                entity_type_const="sample",
-                prepared_payload=prepared_payload,
-                response_payload=None,
-                accession=sample_submission.accession,
-                biosample_accession=sample_submission.biosample_accession,
-                status="draft",
-            )
-            db.add(new_sample_submission)
-        elif latest_sample_submission.status == "draft" or latest_sample_submission.status == "ready":
-            # update the existing record, since it has not yet been submitted to ENA (set status = 'draft')
-            setattr(latest_sample_submission, "prepared_payload", prepared_payload)
-            setattr(latest_sample_submission, "status", "draft")
-            db.add(latest_sample_submission)
-            # update the sample_submission object
-    
-    new_bpa_json = sample.bpa_json
-    update_data = sample_in.dict(exclude_unset=True)
-    for field, value in update_data.items():
-        setattr(sample, field, value)
-        setattr(new_bpa_json, field, value)
-    
-    setattr(sample, "bpa_json", new_bpa_json)
-
-    db.add(sample)
-    db.commit()
-    db.refresh(sample)
-    db.refresh(new_sample_submission)
-    db.refresh(latest_sample_submission)
-    return sample
+            if latest_sample_submission.status == "submitting":
+                raise HTTPException(status_code=404, detail=f"Sample with id: {sample_id} is currently being submitted to ENA and could not be updated. Please try again later.")
+            elif latest_sample_submission.status == "rejected" or sample_submission.status == "replaced":
+                # leave the old record for logs and create a new record
+                # retain accessions if they exist (accessions may not exist if status is 'rejected' and the sample has not successfully been submitted in the past)
+                new_sample_submission = SampleSubmission(
+                    sample_id=sample_id,
+                    authority=sample_submission.authority,
+                    entity_type_const="sample",
+                    prepared_payload=prepared_payload,
+                    response_payload=None,
+                    accession=sample_submission.accession,
+                    biosample_accession=sample_submission.biosample_accession,
+                    status="draft",
+                )
+                db.add(new_sample_submission)
+                
+            elif latest_sample_submission.status == "accepted":
+                # change old record's status to "replaced" and create a new record
+                # retain accessions
+                setattr(latest_sample_submission, "status", "replaced")
+                db.add(latest_sample_submission)
+                new_sample_submission = SampleSubmission(
+                    sample_id=sample_id,
+                    authority=sample_submission.authority,
+                    entity_type_const="sample",
+                    prepared_payload=prepared_payload,
+                    response_payload=None,
+                    accession=sample_submission.accession,
+                    biosample_accession=sample_submission.biosample_accession,
+                    status="draft",
+                )
+                db.add(new_sample_submission)
+            elif latest_sample_submission.status == "draft" or latest_sample_submission.status == "ready":
+                # update the existing record, since it has not yet been submitted to ENA (set status = 'draft')
+                setattr(latest_sample_submission, "prepared_payload", prepared_payload)
+                setattr(latest_sample_submission, "status", "draft")
+                db.add(latest_sample_submission)
+                # update the sample_submission object
+                
+        # initiate new bpa_json object to the previous bpa_json object
+        new_bpa_json = sample.bpa_json
+        update_data = sample_data
+        setattr(sample, "organism_key", sample_in.organism_key)
+        setattr(sample, "bpa_sample_id", sample_in.bpa_sample_id)
+        for field, value in update_data.items():
+            new_bpa_json[field] = value
+        sample.bpa_json = new_bpa_json
+        flag_modified(sample, "bpa_json")
+        db.add(sample)
+        db.commit()
+        db.refresh(sample)
+        return sample
+    except Exception as e:
+        print(f"Error updating sample with sample_id: {sample_id}")
+        print(e)
+        db.rollback()
+        raise HTTPException(status_code=500, detail="Failed to update sample")
 
 
 @router.delete("/{sample_id}", response_model=SampleSchema)

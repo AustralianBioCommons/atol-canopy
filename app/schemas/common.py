@@ -7,10 +7,11 @@ from pydantic import BaseModel
 class SubmissionStatus(str, Enum):
     DRAFT = 'draft'
     READY = 'ready'
-    SUBMITTED = 'submission'
+    SUBMITTED = 'submitting'
+    ACCEPTED = 'accepted'
     REJECTED = 'rejected'
 
 
 class SubmissionJsonResponse(BaseModel):
     """Schema for returning submission_json data"""
-    submission_json: Optional[Dict[str, Any]] = None
+    prepared_payload: Optional[Dict[str, Any]] = None
