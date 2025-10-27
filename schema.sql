@@ -132,7 +132,7 @@ CREATE TABLE sample (
 -- Sample submission table
 CREATE TABLE sample_submission (
     id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
-    sample_id UUID REFERENCES sample(id) NOT NULL,
+    sample_id UUID NOT NULL REFERENCES sample(id) ON DELETE CASCADE,
     authority authority_type NOT NULL DEFAULT 'ENA',
     prepared_payload JSONB NOT NULL,
     response_payload JSONB,
@@ -179,7 +179,7 @@ CREATE TABLE experiment (
 -- Experiment submission table
 CREATE TABLE experiment_submission (
     id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
-    experiment_id UUID REFERENCES experiment(id),
+    experiment_id UUID NOT NULL REFERENCES experiment(id) ON DELETE CASCADE,
     authority authority_type NOT NULL DEFAULT 'ENA',
     status submission_status NOT NULL DEFAULT 'draft',
 
@@ -266,7 +266,7 @@ CREATE TABLE read (
 
 CREATE TABLE read_submission (
     id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
-    read_id UUID REFERENCES read(id) NOT NULL,
+    read_id UUID NOT NULL REFERENCES read(id) ON DELETE CASCADE,
     authority authority_type NOT NULL DEFAULT 'ENA',
     status submission_status NOT NULL DEFAULT 'draft',
 
@@ -345,7 +345,7 @@ CREATE TABLE assembly_output_file (
 -- Assembly submission table
 CREATE TABLE assembly_submission (
     id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
-    assembly_id UUID REFERENCES assembly(id),
+    assembly_id UUID NOT NULL REFERENCES assembly(id) ON DELETE CASCADE,
     assembly_name TEXT NOT NULL, -- Do we need this for versioning?
     authority authority_type NOT NULL DEFAULT 'ENA',
     accession TEXT,

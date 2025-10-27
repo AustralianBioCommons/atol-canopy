@@ -36,7 +36,7 @@ class ExperimentSubmission(Base):
     __tablename__ = "experiment_submission"
     
     id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
-    experiment_id = Column(UUID(as_uuid=True), ForeignKey("experiment.id"), nullable=True)
+    experiment_id = Column(UUID(as_uuid=True), ForeignKey("experiment.id"), nullable=True, ondelete="CASCADE")
     authority = Column(SQLAlchemyEnum("ENA", "NCBI", "DDBJ", name="authority_type"), nullable=False, default="ENA")
     status = Column(SQLAlchemyEnum("draft", "ready", "submitted", "accepted", "rejected", "replaced", name="submission_status"), nullable=False, default="draft")
     

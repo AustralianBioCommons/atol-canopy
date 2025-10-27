@@ -36,7 +36,7 @@ class SampleSubmission(Base):
     __tablename__ = "sample_submission"
     
     id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
-    sample_id = Column(UUID(as_uuid=True), ForeignKey("sample.id"), nullable=True)
+    sample_id = Column(UUID(as_uuid=True), ForeignKey("sample.id"), nullable=True, ondelete="CASCADE")
     authority = Column(SQLAlchemyEnum("ENA", "NCBI", "DDBJ", name="authority_type"), nullable=False, default="ENA")
     status = Column(SQLAlchemyEnum("draft", "ready", "submitted", "accepted", "rejected", "replaced", name="submission_status"), nullable=False, default="draft")
     prepared_payload = Column(JSONB, nullable=False)

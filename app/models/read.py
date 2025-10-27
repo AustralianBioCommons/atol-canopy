@@ -48,7 +48,7 @@ class ReadSubmission(Base):
     __tablename__ = "read_submission"
     
     id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
-    read_id = Column(UUID(as_uuid=True), ForeignKey("read.id"), nullable=False)
+    read_id = Column(UUID(as_uuid=True), ForeignKey("read.id"), nullable=False, ondelete="CASCADE")
     authority = Column(SQLAlchemyEnum("ENA", "NCBI", "DDBJ", name="authority_type"), nullable=False, default="ENA")
     status = Column(SQLAlchemyEnum("draft", "ready", "submitted", "accepted", "rejected", "replaced", name="submission_status"), nullable=False, default="draft")
     

@@ -49,7 +49,7 @@ class AssemblySubmission(Base):
     __tablename__ = "assembly_submission"
     
     id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
-    assembly_id = Column(UUID(as_uuid=True), ForeignKey("assembly.id"), nullable=True)
+    assembly_id = Column(UUID(as_uuid=True), ForeignKey("assembly.id"), nullable=True, ondelete="CASCADE")
     assembly_name = Column(Text, nullable=False)
     authority = Column(SQLAlchemyEnum("ENA", "NCBI", "DDBJ", name="authority_type"), nullable=False, default="ENA")
     accession = Column(Text, nullable=True)
