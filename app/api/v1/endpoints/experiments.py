@@ -22,7 +22,7 @@ from app.schemas.experiment import (
     ExperimentSubmission as ExperimentSubmissionSchema,
     ExperimentSubmissionCreate,
     ExperimentSubmissionUpdate,
-    SubmissionStatus as SchemaSubmissionStatus,
+    SubmissionStatus,
 )
 from app.schemas.bulk_import import BulkExperimentImport, BulkImportResponse
 
@@ -61,15 +61,38 @@ def create_experiment(
     """
     # Only users with 'curator' or 'admin' role can create experiments
     require_role(current_user, ["curator", "admin"])
+    experiment_data = experiment_in.dict(exclude_unset=True)
     
+    experiment_id = uuid.uuid4()
     experiment = Experiment(
+        id=str(experiment_id),
         sample_id=experiment_in.sample_id,
         bpa_package_id=experiment_in.bpa_package_id,
-        bpa_json=experiment_in.bpa_json,
+        bpa_json=experiment_in.model_dump(mode="json", exclude_unset=True),
     )
     db.add(experiment)
+
+    # Load the ENA-ATOL mapping file
+    ena_atol_map_path = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(__file__)))), "config", "ena-atol-map.json")
+    with open(ena_atol_map_path, "r") as f:
+        ena_atol_map = json.load(f)
+    # Generate ENA-mapped data for submission to ENA
+    prepared_payload = {}
+    for ena_key, atol_key in ena_atol_map["experiment"].items():
+        if atol_key in experiment_data:
+            prepared_payload[ena_key] = experiment_data[atol_key]
+
+    experiment_submission = ExperimentSubmission(
+        experiment_id=experiment_id,
+        sample_id=experiment_in.sample_id,
+        entity_type_const="experiment",
+        prepared_payload=prepared_payload,
+        status=SubmissionStatus.DRAFT,
+    )
+    db.add(experiment_submission)
     db.commit()
     db.refresh(experiment)
+    db.refresh(experiment_submission)
     return experiment
 
 
@@ -163,7 +186,7 @@ def read_experiment_submissions(
     db: Session = Depends(get_db),
     skip: int = 0,
     limit: int = 100,
-    status: Optional[SchemaSubmissionStatus] = Query(None, description="Filter by submission status"),
+    status: Optional[SubmissionStatus] = Query(None, description="Filter by submission status"),
     current_user: User = Depends(get_current_active_user),
 ) -> Any:
     """

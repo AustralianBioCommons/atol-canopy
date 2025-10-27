@@ -5,14 +5,8 @@ from uuid import UUID
 
 from pydantic import BaseModel, Field
 
-
 # Enum for submission status
-class SubmissionStatus(str, Enum):
-    DRAFT = 'draft'
-    READY = 'ready'
-    SUBMITTED = 'submission'
-    REJECTED = 'rejected'
-
+from app.schemas.common import SubmissionStatus
 
 # Base Experiment schema
 class ExperimentBase(BaseModel):
@@ -26,15 +20,62 @@ class ExperimentBase(BaseModel):
 # Schema for creating a new experiment
 class ExperimentCreate(ExperimentBase):
     """Schema for creating a new experiment."""
-    pass
-
+    design_description: Optional[str] = None
+    bpa_package_id: Optional[str] = None
+    bpa_library_id: Optional[str] = None
+    library_strategy: Optional[str] = None
+    library_source: Optional[str] = None
+    insert_size: Optional[int] = None
+    library_construction_protocol: Optional[str] = None
+    library_selection: Optional[str] = None
+    library_layout: Optional[str] = None
+    instrument_model: Optional[str] = None
+    platform: Optional[str] = None
+    material_extracted_by: Optional[str] = None
+    material_extraction_date: Optional[str] = None
+    library_prepared_by: Optional[str] = None
+    library_prepared_date: Optional[str] = None
+    sequencing_kit: Optional[str] = None
+    flowcell_type: Optional[str] = None
+    base_caller_model: Optional[str] = None
+    data_owner: Optional[str] = None
+    extraction_method: Optional[str] = None
+    nucleic_acid_treatment: Optional[str] = None
+    extraction_protocol_DOI: Optional[str] = None
+    nucleic_acid_conc: Optional[str] = None
+    nucleic_acid_volume: Optional[str] = None
+    GAL: Optional[str] = None
+    sample_access_date: Optional[str] = None
 
 # Schema for updating an existing experiment
-class ExperimentUpdate(BaseModel):
+class ExperimentUpdate(ExperimentBase):
     """Schema for updating an existing experiment."""
-    sample_id: Optional[UUID] = None
+    design_description: Optional[str] = None
     bpa_package_id: Optional[str] = None
-    bpa_json: Optional[Dict] = None
+    bpa_library_id: Optional[str] = None
+    library_strategy: Optional[str] = None
+    library_source: Optional[str] = None
+    insert_size: Optional[int] = None
+    library_construction_protocol: Optional[str] = None
+    library_selection: Optional[str] = None
+    library_layout: Optional[str] = None
+    instrument_model: Optional[str] = None
+    platform: Optional[str] = None
+    material_extracted_by: Optional[str] = None
+    material_extraction_date: Optional[str] = None
+    library_prepared_by: Optional[str] = None
+    library_prepared_date: Optional[str] = None
+    sequencing_kit: Optional[str] = None
+    flowcell_type: Optional[str] = None
+    base_caller_model: Optional[str] = None
+    data_owner: Optional[str] = None
+    extraction_method: Optional[str] = None
+    nucleic_acid_treatment: Optional[str] = None
+    extraction_protocol_DOI: Optional[str] = None
+    nucleic_acid_conc: Optional[str] = None
+    nucleic_acid_volume: Optional[str] = None
+    GAL: Optional[str] = None
+    sample_access_date: Optional[str] = None
 
 
 # Schema for experiment in DB
@@ -58,7 +99,7 @@ class Experiment(ExperimentInDBBase):
 class ExperimentSubmissionBase(BaseModel):
     """Base ExperimentSubmission schema with common attributes."""
     sample_id: UUID
-    project_id: UUID
+    project_id: Optional[UUID] = None
     authority: str = Field(default="ENA", description="Authority for the submission")
     status: SubmissionStatus = Field(default=SubmissionStatus.DRAFT, description="Status of the submission")
     entity_type_const: str = Field(default="experiment", description="Entity type constant for foreign key constraints")

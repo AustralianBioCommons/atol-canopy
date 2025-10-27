@@ -24,7 +24,7 @@ from app.schemas.sample import (
     SampleSubmissionCreate,
     SampleSubmissionUpdate,
     SampleUpdate,
-    SubmissionStatus as SchemaSubmissionStatus,
+    SubmissionStatus,
 )
 from app.schemas.bulk_import import BulkSampleImport, BulkImportResponse
 from app.schemas.common import SubmissionJsonResponse
@@ -72,7 +72,7 @@ def create_sample(
         id=sample_id,
         organism_key=sample_in.organism_key,
         bpa_sample_id=sample_in.bpa_sample_id,
-        bpa_json=sample_data,
+        bpa_json=sample_in.model_dump(mode="json", exclude_unset=True),
     )
     db.add(sample)
 
@@ -91,7 +91,7 @@ def create_sample(
         authority=sample_in.authority,
         entity_type_const="sample",
         prepared_payload=prepared_payload,
-        status="draft",
+        status=SubmissionStatus.DRAFT,
     )
     db.add(sample_submission)
     db.commit()
