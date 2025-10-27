@@ -3,7 +3,7 @@ from datetime import datetime, timezone
 
 from sqlalchemy import Column, DateTime, ForeignKey, ForeignKeyConstraint, String, Text, Enum as SQLAlchemyEnum
 from sqlalchemy.dialects.postgresql import JSONB, UUID
-from sqlalchemy.orm import relationship
+from sqlalchemy.orm import relationship, backref
 
 from app.db.session import Base
 
@@ -17,14 +17,14 @@ class Experiment(Base):
     __tablename__ = "experiment"
     
     id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
-    sample_id = Column(UUID(as_uuid=True), ForeignKey("sample.id"), nullable=False)
+    sample_id = Column(UUID(as_uuid=True), ForeignKey("sample.id", ondelete="CASCADE"), nullable=False)
     bpa_package_id = Column(Text, unique=True, nullable=False)
     bpa_json = Column(JSONB, nullable=False)
     created_at = Column(DateTime, nullable=False, default=datetime.now(timezone.utc))
     updated_at = Column(DateTime, nullable=False, default=datetime.now(timezone.utc), onupdate=datetime.now(timezone.utc))
     
     # Relationships
-    sample = relationship("Sample", backref="experiments")
+    sample = relationship("Sample", backref=backref("exp_sample_records", cascade="all, delete-orphan"))
 
 
 class ExperimentSubmission(Base):
@@ -36,12 +36,12 @@ class ExperimentSubmission(Base):
     __tablename__ = "experiment_submission"
     
     id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
-    experiment_id = Column(UUID(as_uuid=True), ForeignKey("experiment.id"), nullable=True, ondelete="CASCADE")
+    experiment_id = Column(UUID(as_uuid=True), ForeignKey("experiment.id", ondelete="CASCADE"), nullable=True)
     authority = Column(SQLAlchemyEnum("ENA", "NCBI", "DDBJ", name="authority_type"), nullable=False, default="ENA")
     status = Column(SQLAlchemyEnum("draft", "ready", "submitted", "accepted", "rejected", "replaced", name="submission_status"), nullable=False, default="draft")
     
-    sample_id = Column(UUID(as_uuid=True), ForeignKey("sample.id"), nullable=False)
-    project_id = Column(UUID(as_uuid=True), ForeignKey("project.id"), nullable=False)
+    sample_id = Column(UUID(as_uuid=True), ForeignKey("sample.id", ondelete="SET NULL"), nullable=False)
+    project_id = Column(UUID(as_uuid=True), ForeignKey("project.id", ondelete="SET NULL"), nullable=True)
     
     project_accession = Column(Text, nullable=True)
     sample_accession = Column(Text, nullable=True)
@@ -57,9 +57,9 @@ class ExperimentSubmission(Base):
     updated_at = Column(DateTime, nullable=False, default=datetime.now(timezone.utc), onupdate=datetime.now(timezone.utc))
     
     # Relationships
-    experiment = relationship("Experiment", backref="submission_records")
-    sample = relationship("Sample")
-    project = relationship("Project")
+    experiment = relationship("Experiment", backref=backref("exp_submission_records", cascade="all, delete-orphan"))
+    sample = relationship("Sample", backref=backref("exp_sample_submission_records", cascade="all, delete-orphan"))
+    project = relationship("Project", backref=backref("exp_project_submission_records", cascade="all, delete-orphan"))
     
     # Table constraints
     __table_args__ = (

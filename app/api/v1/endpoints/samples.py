@@ -93,8 +93,6 @@ def create_sample(
         prepared_payload=prepared_payload,
         status="draft",
     )
-    print("sample: ", sample)
-    print("sample_submission: ", sample_submission)
     db.add(sample_submission)
     db.commit()
     db.refresh(sample)
@@ -113,7 +111,6 @@ def get_sample_prepared_payload(
     Get prepared_payload for a specific sample.
     """
     sample_submission = db.query(SampleSubmission).filter(SampleSubmission.sample_id == sample_id).first()
-    print("sample_submission 2: ", sample_submission)
     if not sample_submission:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,

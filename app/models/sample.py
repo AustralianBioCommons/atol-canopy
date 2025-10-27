@@ -3,7 +3,7 @@ from datetime import datetime, timezone
 
 from sqlalchemy import Column, DateTime, ForeignKey, ForeignKeyConstraint, String, Text, Enum as SQLAlchemyEnum
 from sqlalchemy.dialects.postgresql import JSONB, UUID
-from sqlalchemy.orm import relationship
+from sqlalchemy.orm import relationship, backref
 
 from app.db.session import Base
 
@@ -17,14 +17,14 @@ class Sample(Base):
     __tablename__ = "sample"
     
     id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
-    organism_key = Column("organism_key", ForeignKey("organism.grouping_key"), nullable=False)
+    organism_key = Column("organism_key", ForeignKey("organism.grouping_key", ondelete="CASCADE"), nullable=False)
     bpa_sample_id = Column(Text, unique=True, nullable=False)
     bpa_json = Column(JSONB, nullable=False)
     created_at = Column(DateTime, nullable=False, default=datetime.now(timezone.utc))
     updated_at = Column(DateTime, nullable=False, default=datetime.now(timezone.utc), onupdate=datetime.now(timezone.utc))
     
     # Relationships
-    organism = relationship("Organism", backref="samples")
+    organism = relationship("Organism", backref=backref("samples", cascade="all, delete-orphan"))
 
 
 class SampleSubmission(Base):
@@ -36,7 +36,7 @@ class SampleSubmission(Base):
     __tablename__ = "sample_submission"
     
     id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
-    sample_id = Column(UUID(as_uuid=True), ForeignKey("sample.id"), nullable=True, ondelete="CASCADE")
+    sample_id = Column(UUID(as_uuid=True), ForeignKey("sample.id", ondelete="CASCADE"), nullable=True)
     authority = Column(SQLAlchemyEnum("ENA", "NCBI", "DDBJ", name="authority_type"), nullable=False, default="ENA")
     status = Column(SQLAlchemyEnum("draft", "ready", "submitted", "accepted", "rejected", "replaced", name="submission_status"), nullable=False, default="draft")
     prepared_payload = Column(JSONB, nullable=False)
@@ -49,7 +49,7 @@ class SampleSubmission(Base):
     updated_at = Column(DateTime, nullable=False, default=datetime.now(timezone.utc), onupdate=datetime.now(timezone.utc))
     
     # Relationships
-    sample = relationship("Sample", backref="submission_records")
+    sample = relationship("Sample", backref=backref("sample_submission_records", cascade="all, delete-orphan"))
     
     # Table constraints
     __table_args__ = (

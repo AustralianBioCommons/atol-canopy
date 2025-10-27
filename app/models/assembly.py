@@ -3,7 +3,7 @@ from datetime import datetime, timezone
 
 from sqlalchemy import Column, DateTime, ForeignKey, String, Text, Float, BigInteger, Enum as SQLAlchemyEnum, PrimaryKeyConstraint
 from sqlalchemy.dialects.postgresql import JSONB, UUID
-from sqlalchemy.orm import relationship
+from sqlalchemy.orm import relationship, backref
 
 from app.db.session import Base
 
@@ -49,12 +49,12 @@ class AssemblySubmission(Base):
     __tablename__ = "assembly_submission"
     
     id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
-    assembly_id = Column(UUID(as_uuid=True), ForeignKey("assembly.id"), nullable=True, ondelete="CASCADE")
+    assembly_id = Column(UUID(as_uuid=True), ForeignKey("assembly.id", ondelete="CASCADE"), nullable=False)
     assembly_name = Column(Text, nullable=False)
     authority = Column(SQLAlchemyEnum("ENA", "NCBI", "DDBJ", name="authority_type"), nullable=False, default="ENA")
     accession = Column(Text, nullable=True)
-    organism_key = Column(Text, ForeignKey("organism.grouping_key"), nullable=False)
-    sample_id = Column(UUID(as_uuid=True), ForeignKey("sample.id"), nullable=False)
+    organism_key = Column(Text, ForeignKey("organism.grouping_key", ondelete="CASCADE"), nullable=False)
+    sample_id = Column(UUID(as_uuid=True), ForeignKey("sample.id", ondelete="SET NULL"), nullable=True)
     
     internal_json = Column(JSONB, nullable=True)
     prepared_payload = Column(JSONB, nullable=True)
@@ -66,9 +66,9 @@ class AssemblySubmission(Base):
     updated_at = Column(DateTime, nullable=False, default=datetime.now(timezone.utc), onupdate=datetime.now(timezone.utc))
     
     # Relationships
-    assembly = relationship("Assembly", backref="submission_records")
-    organism = relationship("Organism")
-    sample = relationship("Sample")
+    assembly = relationship("Assembly", backref=backref("assembly_submission_records", cascade="all, delete-orphan"))
+    organism = relationship("Organism", backref=backref("assemblies_organism", cascade="all, delete-orphan"))
+    sample = relationship("Sample", backref="assemblies_sample")
 
 
 class AssemblyOutputFile(Base):
@@ -91,7 +91,7 @@ class AssemblyOutputFile(Base):
     updated_at = Column(DateTime, nullable=False, default=datetime.now(timezone.utc), onupdate=datetime.now(timezone.utc))
     
     # Relationships
-    assembly = relationship("Assembly", backref="output_files")
+    assembly = relationship("Assembly", backref=backref("output_files", cascade="all, delete-orphan"))
 
 
 class AssemblyRead(Base):
@@ -113,5 +113,5 @@ class AssemblyRead(Base):
     )
     
     # Relationships
-    assembly = relationship("Assembly", foreign_keys=[assembly_id])
-    read = relationship("Read", foreign_keys=[read_id])
+    assembly = relationship("Assembly", backref=backref("assembly_reads", cascade="all, delete-orphan"))
+    read = relationship("Read", backref=backref("reads_assembly", cascade="all, delete-orphan"))

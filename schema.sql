@@ -122,7 +122,7 @@ CREATE TABLE project (
 -- Main sample table
 CREATE TABLE sample (
     id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
-    organism_key TEXT NOT NULL REFERENCES organism(grouping_key),
+    organism_key TEXT NOT NULL REFERENCES organism(grouping_key) ON DELETE CASCADE,
     bpa_sample_id TEXT UNIQUE NOT NULL,
     bpa_json JSONB NOT NULL,
     created_at TIMESTAMP NOT NULL DEFAULT NOW(),
@@ -168,7 +168,7 @@ CREATE UNIQUE INDEX uq_sample_one_accepted
 -- Main experiment table
 CREATE TABLE experiment (
     id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
-    sample_id UUID REFERENCES sample(id) NOT NULL,
+    sample_id UUID NOT NULL REFERENCES sample(id) ON DELETE CASCADE,
     bpa_package_id TEXT UNIQUE NOT NULL,
     -- bpa_dataset_id TEXT UNIQUE NOT NULL,
     bpa_json JSONB NOT NULL,
@@ -244,7 +244,7 @@ CREATE TABLE project_experiment (
 
 CREATE TABLE read (
     id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
-    experiment_id UUID REFERENCES experiment(id) NOT NULL,
+    experiment_id UUID NOT NULL REFERENCES experiment(id) ON DELETE CASCADE,
     file_name TEXT NOT NULL,
     file_checksum TEXT NOT NULL,
     file_format TEXT NOT NULL,
@@ -273,7 +273,7 @@ CREATE TABLE read_submission (
     prepared_payload JSONB NOT NULL,
     response_payload JSONB,
 
-    experiment_id UUID REFERENCES experiment(id) NOT NULL,
+    experiment_id UUID NOT NULL REFERENCES experiment(id) ON DELETE CASCADE,
     project_id UUID REFERENCES project(id),
 
     experiment_accession TEXT,

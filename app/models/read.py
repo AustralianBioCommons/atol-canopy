@@ -3,7 +3,7 @@ from datetime import datetime, timezone
 
 from sqlalchemy import Column, DateTime, ForeignKey, ForeignKeyConstraint, Text, BigInteger, String, Enum as SQLAlchemyEnum
 from sqlalchemy.dialects.postgresql import UUID, JSONB
-from sqlalchemy.orm import relationship
+from sqlalchemy.orm import relationship, backref
 
 from app.db.session import Base
 
@@ -17,7 +17,7 @@ class Read(Base):
     __tablename__ = "read"
     
     id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
-    experiment_id = Column(UUID(as_uuid=True), ForeignKey("experiment.id"), nullable=False)
+    experiment_id = Column(UUID(as_uuid=True), ForeignKey("experiment.id", ondelete="CASCADE"), nullable=True)
     file_name = Column(Text, nullable=False)
     file_checksum = Column(Text, nullable=False)
     file_format = Column(Text, nullable=False)
@@ -36,7 +36,7 @@ class Read(Base):
     updated_at = Column(DateTime, nullable=False, default=datetime.now(timezone.utc), onupdate=datetime.now(timezone.utc))
     
     # Relationships
-    experiment = relationship("Experiment", backref="reads")
+    experiment = relationship("Experiment", backref=backref("reads", cascade="all, delete-orphan"))
 
 
 class ReadSubmission(Base):
@@ -48,15 +48,16 @@ class ReadSubmission(Base):
     __tablename__ = "read_submission"
     
     id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
-    read_id = Column(UUID(as_uuid=True), ForeignKey("read.id"), nullable=False, ondelete="CASCADE")
+    read_id = Column(UUID(as_uuid=True), ForeignKey("read.id", ondelete="CASCADE"), nullable=False)
     authority = Column(SQLAlchemyEnum("ENA", "NCBI", "DDBJ", name="authority_type"), nullable=False, default="ENA")
     status = Column(SQLAlchemyEnum("draft", "ready", "submitted", "accepted", "rejected", "replaced", name="submission_status"), nullable=False, default="draft")
     
     prepared_payload = Column(JSONB, nullable=False)
     response_payload = Column(JSONB, nullable=True)
     
-    experiment_id = Column(UUID(as_uuid=True), ForeignKey("experiment.id"), nullable=False)
-    project_id = Column(UUID(as_uuid=True), ForeignKey("project.id"), nullable=False)
+    # TODO determine whether these relations are needed based on query requirements
+    experiment_id = Column(UUID(as_uuid=True), ForeignKey("experiment.id", ondelete="CASCADE"), nullable=True)
+    project_id = Column(UUID(as_uuid=True), ForeignKey("project.id", ondelete="SET NULL"), nullable=True)
     
     experiment_accession = Column(Text, nullable=True)
     
@@ -69,9 +70,9 @@ class ReadSubmission(Base):
     updated_at = Column(DateTime, nullable=False, default=datetime.now(timezone.utc), onupdate=datetime.now(timezone.utc))
     
     # Relationships
-    read = relationship("Read", backref="submission_records")
-    experiment = relationship("Experiment")
-    project = relationship("Project")
+    read = relationship("Read", backref=backref("read_submission_records", cascade="all, delete-orphan"))
+    experiment = relationship("Experiment", backref=backref("read_exp_submission_records", cascade="all, delete-orphan"))
+    project = relationship("Project", backref=backref("read_proj_submission_records", cascade="all, delete-orphan"))
     
     # Table constraints
     __table_args__ = (
