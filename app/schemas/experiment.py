@@ -48,10 +48,12 @@ class ExperimentCreate(ExperimentBase):
     sample_access_date: Optional[str] = None
 
 # Schema for updating an existing experiment
-class ExperimentUpdate(ExperimentBase):
+class ExperimentUpdate(BaseModel):
     """Schema for updating an existing experiment."""
-    design_description: Optional[str] = None
+    sample_id: Optional[UUID] = None
     bpa_package_id: Optional[str] = None
+    bpa_json: Optional[Dict] = None
+    design_description: Optional[str] = None
     bpa_library_id: Optional[str] = None
     library_strategy: Optional[str] = None
     library_source: Optional[str] = None

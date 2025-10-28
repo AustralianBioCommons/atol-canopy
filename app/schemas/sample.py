@@ -29,6 +29,7 @@ class SampleCreate(SampleBase):
     class_name: Optional[str] = None
     phylum: Optional[str] = None
     authority: Optional[str] = None
+    # TODO remove authority ^^
     taxon_id: Optional[str] = None
     common_name: Optional[str] = None
     voucher_id: Optional[str] = None

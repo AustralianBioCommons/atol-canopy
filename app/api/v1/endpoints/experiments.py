@@ -7,6 +7,7 @@ from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.orm import Session
+from sqlalchemy.orm.attributes import flag_modified
 
 from app.core.dependencies import get_current_active_user, get_current_superuser, get_db, require_role
 from app.models.experiment import Experiment, ExperimentSubmission
@@ -145,20 +146,102 @@ def update_experiment(
     """
     # Only users with 'curator' or 'admin' role can update experiments
     require_role(current_user, ["curator", "admin"])
-    
-    experiment = db.query(Experiment).filter(Experiment.id == experiment_id).first()
-    if not experiment:
-        raise HTTPException(status_code=404, detail="Experiment not found")
-    
-    update_data = experiment_in.dict(exclude_unset=True)
-    for field, value in update_data.items():
-        setattr(experiment, field, value)
-    
-    db.add(experiment)
-    db.commit()
-    db.refresh(experiment)
-    return experiment
+    try:
+        experiment = db.query(Experiment).filter(Experiment.id == experiment_id).first()
+        if not experiment:
+            raise HTTPException(status_code=404, detail="Experiment not found")
+        
+        experiment_data = experiment_in.dict(exclude_unset=True)
 
+        # Load the ENA-ATOL mapping file
+        ena_atol_map_path = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(__file__)))), "config", "ena-atol-map.json")
+        with open(ena_atol_map_path, "r") as f:
+            ena_atol_map = json.load(f)
+        # Generate ENA-mapped data for submission to ENA
+        prepared_payload = {}
+        for ena_key, atol_key in ena_atol_map["experiment"].items():
+            if atol_key in experiment_data:
+                prepared_payload[ena_key] = experiment_data[atol_key]
+        experiment_submission = db.query(ExperimentSubmission).filter(ExperimentSubmission.experiment_id == experiment_id).order_by(ExperimentSubmission.updated_at.desc()).first()
+        new_experiment_submission = None
+        latest_experiment_submission = {}
+        if not experiment_submission:
+            new_experiment_submission = ExperimentSubmission(
+                    experiment_id=experiment_id,
+                    sample_id=experiment.sample_id,
+                    project_id=experiment.project_id,
+                    authority=experiment_submission.authority,
+                    entity_type_const="experiment",
+                    prepared_payload=prepared_payload,
+                    status="draft",
+                )
+            db.add(new_experiment_submission)
+        else:
+            latest_experiment_submission = experiment_submission
+            
+            if latest_experiment_submission.status == "submitting":
+                raise HTTPException(status_code=404, detail=f"Experiment with id: {experiment_id} is currently being submitted to ENA and could not be updated. Please try again later.")
+            elif latest_experiment_submission.status == "rejected" or experiment_submission.status == "replaced":
+                # leave the old record for logs and create a new record
+                # retain accessions if they exist (accessions may not exist if status is 'rejected' and the sample has not successfully been submitted in the past)
+                new_experiment_submission = ExperimentSubmission(
+                    experiment_id=experiment_id,
+                    sample_id=experiment.sample_id,
+                    project_id=experiment.project_id,
+                    authority=experiment_submission.authority,
+                    entity_type_const="experiment",
+                    prepared_payload=prepared_payload,
+                    response_payload=None,
+                    accession=experiment_submission.accession,
+                    biosample_accession=experiment_submission.biosample_accession,
+                    status="draft",
+                )
+                db.add(new_experiment_submission)
+                
+            elif latest_experiment_submission.status == "accepted":
+                # change old record's status to "replaced" and create a new record
+                # retain accessions
+                setattr(latest_experiment_submission, "status", "replaced")
+                db.add(latest_experiment_submission)
+                new_experiment_submission = ExperimentSubmission(
+                    experiment_id=experiment_id,
+                    sample_id=experiment.sample_id,
+                    project_id=experiment.project_id,
+                    authority=experiment_submission.authority,
+                    entity_type_const="experiment",
+                    prepared_payload=prepared_payload,
+                    response_payload=None,
+                    accession=experiment_submission.accession,
+                    biosample_accession=experiment_submission.biosample_accession,
+                    status="draft",
+                )
+                db.add(new_experiment_submission)
+            elif latest_experiment_submission.status == "draft" or latest_experiment_submission.status == "ready":
+                # update the existing record, since it has not yet been submitted to ENA (set status = 'draft')
+                setattr(latest_experiment_submission, "prepared_payload", prepared_payload)
+                setattr(latest_experiment_submission, "status", "draft")
+                db.add(latest_experiment_submission)
+                # update the experiment_submission object
+        
+        setattr(experiment, "bpa_package_id", experiment_in.bpa_package_id)
+        setattr(experiment, "sample_id", experiment_in.sample_id)
+        # initiate new bpa_json object to the previous bpa_json object
+        new_bpa_json = experiment.bpa_json
+        
+        for field, value in experiment_data.items():
+            if field != "sample_id":
+                new_bpa_json[field] = value
+        experiment.bpa_json = new_bpa_json
+        flag_modified(experiment, "bpa_json")
+        db.add(experiment)
+        db.commit()
+        db.refresh(experiment)
+        return experiment
+    except Exception as e:
+        print(f"Error updating experiment with experiment_id: {experiment_id}")
+        print(e)
+        db.rollback()
+        raise HTTPException(status_code=500, detail="Failed to update experiment")
 
 @router.delete("/{experiment_id}", response_model=ExperimentSchema)
 def delete_experiment(
@@ -339,7 +422,7 @@ def bulk_import_experiments(
                 id=experiment_id,
                 sample_id=sample_id,
                 bpa_package_id=package_id,
-                bpa_json=experiment_data
+                bpa_json= {k: v for k, v in experiment_data.items() if k != "bpa_json"}
             )
             db.add(experiment)
             

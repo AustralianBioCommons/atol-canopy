@@ -223,10 +223,9 @@ def update_sample(
                 
         # initiate new bpa_json object to the previous bpa_json object
         new_bpa_json = sample.bpa_json
-        update_data = sample_data
         setattr(sample, "organism_key", sample_in.organism_key)
         setattr(sample, "bpa_sample_id", sample_in.bpa_sample_id)
-        for field, value in update_data.items():
+        for field, value in sample_data.items():
             new_bpa_json[field] = value
         sample.bpa_json = new_bpa_json
         flag_modified(sample, "bpa_json")
