@@ -21,8 +21,6 @@ from app.schemas.experiment import (
     Experiment as ExperimentSchema,
     ExperimentUpdate,
     ExperimentSubmission as ExperimentSubmissionSchema,
-    ExperimentSubmissionCreate,
-    ExperimentSubmissionUpdate,
     SubmissionStatus,
 )
 from app.schemas.bulk_import import BulkExperimentImport, BulkImportResponse
@@ -262,92 +260,6 @@ def delete_experiment(
     db.commit()
     return experiment
 
-
-# Experiment Submission endpoints
-@router.get("/submission/", response_model=List[ExperimentSubmissionSchema])
-def read_experiment_submissions(
-    db: Session = Depends(get_db),
-    skip: int = 0,
-    limit: int = 100,
-    status: Optional[SubmissionStatus] = Query(None, description="Filter by submission status"),
-    current_user: User = Depends(get_current_active_user),
-) -> Any:
-    """
-    Retrieve experiment submissions.
-    """
-    # All users can read experiment submissions
-    query = db.query(ExperimentSubmission)
-    if status:
-        query = query.filter(ExperimentSubmission.status == status)
-    
-    submissions = query.offset(skip).limit(limit).all()
-    return submissions
-
-
-@router.post("/submission/", response_model=ExperimentSubmissionSchema)
-def create_experiment_submission(
-    *,
-    db: Session = Depends(get_db),
-    submission_in: ExperimentSubmissionCreate,
-    current_user: User = Depends(get_current_active_user),
-) -> Any:
-    """
-    Create new experiment submission.
-    """
-    # Only users with 'curator' or 'admin' role can create experiment submissions
-    require_role(current_user, ["curator", "admin"])
-    
-    submission = ExperimentSubmission(
-        experiment_id=submission_in.experiment_id,
-        sample_id=submission_in.sample_id,
-        project_id=submission_in.project_id,
-        authority=submission_in.authority,
-        entity_type_const=submission_in.entity_type_const,
-        project_accession=submission_in.project_accession,
-        sample_accession=submission_in.sample_accession,
-        prepared_payload=submission_in.prepared_payload,
-        response_payload=submission_in.response_payload,
-        accession=submission_in.accession,
-        status=submission_in.status,
-        submitted_at=submission_in.submitted_at,
-    )
-    db.add(submission)
-    db.commit()
-    db.refresh(submission)
-    return submission
-
-
-@router.put("/submission/{submission_id}", response_model=ExperimentSubmissionSchema)
-def update_experiment_submission(
-    *,
-    db: Session = Depends(get_db),
-    submission_id: UUID,
-    submission_in: ExperimentSubmissionUpdate,
-    current_user: User = Depends(get_current_active_user),
-) -> Any:
-    """
-    Update an experiment submission.
-    """
-    # Only users with 'curator' or 'admin' role can update experiment submissions
-    require_role(current_user, ["curator", "admin"])
-    
-    submission = db.query(ExperimentSubmission).filter(ExperimentSubmission.id == submission_id).first()
-    if not submission:
-        raise HTTPException(status_code=404, detail="Experiment submission not found")
-    
-    update_data = submission_in.dict(exclude_unset=True)
-    for field, value in update_data.items():
-        setattr(submission, field, value)
-    
-    db.add(submission)
-    db.commit()
-    db.refresh(submission)
-    return submission
-
-
-# Experiment Fetched endpoints have been removed as they are no longer in the schema
-
-
 @router.post("/bulk-import", response_model=BulkImportResponse)
 def bulk_import_experiments(
     *,
@@ -522,36 +434,3 @@ def bulk_import_experiments(
             "missing_required_fields": missing_required_fields_count
         }
     }
-
-
-@router.get("/submission/{bpa_package_id}", response_model=ExperimentSubmissionSchema)
-async def get_experiment_submission_by_package_id(
-    bpa_package_id: str,
-    db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_active_user),
-) -> ExperimentSubmissionSchema:
-    """
-    Get ExperimentSubmission data for a specific bpa_package_id.
-    
-    This endpoint retrieves the submission experiment data associated with a specific BPA package ID.
-    """
-    # Find the experiment with the given bpa_package_id
-    experiment = db.query(Experiment).filter(Experiment.bpa_package_id == bpa_package_id).first()
-    if not experiment:
-        raise HTTPException(
-            status_code=404,
-            detail=f"Experiment with bpa_package_id {bpa_package_id} not found"
-        )
-    
-    # Find the submission record for this experiment
-    submission_record = db.query(ExperimentSubmission).filter(
-        ExperimentSubmission.experiment_id == experiment.id
-    ).first()
-    
-    if not submission_record:
-        raise HTTPException(
-            status_code=404,
-            detail=f"No submission record found for experiment with bpa_package_id {bpa_package_id}"
-        )
-    
-    return submission_record

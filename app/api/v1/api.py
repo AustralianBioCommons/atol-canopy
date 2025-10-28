@@ -6,6 +6,7 @@ from app.api.v1.endpoints import (
     projects,
     bpa_initiatives,
     experiments,
+    experiment_submissions,
     genome_notes,
     organisms,
     reads,
@@ -27,6 +28,7 @@ api_router.include_router(organisms.router, prefix="/organisms", tags=["organism
 api_router.include_router(samples.router, prefix="/samples", tags=["samples"])
 api_router.include_router(sample_submissions.router, prefix="/sample-submissions", tags=["sample-submissions"])
 api_router.include_router(experiments.router, prefix="/experiments", tags=["experiments"])
+api_router.include_router(experiment_submissions.router, prefix="/experiment-submissions", tags=["experiment-submissions"])
 api_router.include_router(assemblies.router, prefix="/assemblies", tags=["assemblies"])
 api_router.include_router(bpa_initiatives.router, prefix="/bpa-initiatives", tags=["bpa-initiatives"])
 api_router.include_router(projects.router, prefix="/projects", tags=["projects"])
