@@ -10,7 +10,12 @@ class ReadBase(BaseModel):
     """Base Read schema with common attributes."""
     experiment_id: UUID
     bpa_resource_id: str
-    bpa_json: Dict[str, Any]
+    bpa_json: Optional[Dict] = None
+
+
+# Schema for creating a new Read
+class ReadCreate(ReadBase):
+    """Schema for creating a new Read."""
     file_name: str
     file_checksum : str
     file_format : str
@@ -23,12 +28,8 @@ class ReadBase(BaseModel):
     sra_run_accession : Optional[str]
     run_read_count : Optional[str]
     run_base_count : Optional[str]
-
-
-# Schema for creating a new Read
-class ReadCreate(ReadBase):
-    """Schema for creating a new Read."""
-    pass
+    project_id: Optional[UUID] = None # Used by the attached submission object
+    # TODO standardise submission table FKs across the application ^
 
 
 # Schema for updating an existing Read
@@ -49,6 +50,8 @@ class ReadUpdate(BaseModel):
     sra_run_accession : Optional[str] = None
     run_read_count : Optional[str] = None
     run_base_count : Optional[str] = None
+    project_id: Optional[UUID] = None # Used by the attached submission object
+    # TODO standardise submission table FKs across the application ^
 
 
 # Schema for Read in DB

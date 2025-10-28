@@ -18,7 +18,16 @@ class Read(Base):
     
     id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     experiment_id = Column(UUID(as_uuid=True), ForeignKey("experiment.id", ondelete="CASCADE"), nullable=True)
-    file_name = Column(Text, nullable=False)
+    bpa_resource_id = Column(Text, unique=True, nullable=False)
+    bpa_json = Column(JSONB, nullable=False)
+    created_at = Column(DateTime, nullable=False, default=datetime.now(timezone.utc))
+    updated_at = Column(DateTime, nullable=False, default=datetime.now(timezone.utc), onupdate=datetime.now(timezone.utc))
+    
+    # Relationships
+    experiment = relationship("Experiment", backref=backref("reads", cascade="all, delete-orphan"))
+
+"""
+file_name = Column(Text, nullable=False)
     file_checksum = Column(Text, nullable=False)
     file_format = Column(Text, nullable=False)
     file_submission_date = Column(Text, nullable=True)
@@ -30,15 +39,7 @@ class Read(Base):
     sra_run_accession = Column(Text, nullable=True)
     run_read_count = Column(Text, nullable=True)
     run_base_count = Column(Text, nullable=True)
-    bpa_resource_id = Column(Text, unique=True, nullable=False)
-    bpa_json = Column(JSONB, nullable=False)
-    created_at = Column(DateTime, nullable=False, default=datetime.now(timezone.utc))
-    updated_at = Column(DateTime, nullable=False, default=datetime.now(timezone.utc), onupdate=datetime.now(timezone.utc))
-    
-    # Relationships
-    experiment = relationship("Experiment", backref=backref("reads", cascade="all, delete-orphan"))
-
-
+"""
 class ReadSubmission(Base):
     """
     ReadSubmission model for storing read data staged for submission to ENA.

@@ -23,11 +23,10 @@ from app.schemas.sample import (
     SampleSubmission as SampleSubmissionSchema,
     SampleSubmissionCreate,
     SampleSubmissionUpdate,
-    SampleUpdate,
-    SubmissionStatus,
+    SampleUpdate
 )
 from app.schemas.bulk_import import BulkSampleImport, BulkImportResponse
-from app.schemas.common import SubmissionJsonResponse
+from app.schemas.common import SubmissionJsonResponse, SubmissionStatus
 import os
 
 router = APIRouter()

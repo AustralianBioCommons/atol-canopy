@@ -20,9 +20,9 @@ from app.schemas.experiment import (
     ExperimentCreate,
     Experiment as ExperimentSchema,
     ExperimentUpdate,
-    ExperimentSubmission as ExperimentSubmissionSchema,
-    SubmissionStatus,
+    ExperimentSubmission as ExperimentSubmissionSchema
 )
+from app.schemas.common import SubmissionStatus
 from app.schemas.bulk_import import BulkExperimentImport, BulkImportResponse
 
 router = APIRouter()
@@ -60,17 +60,17 @@ def create_experiment(
     """
     # Only users with 'curator' or 'admin' role can create experiments
     require_role(current_user, ["curator", "admin"])
-    experiment_data = experiment_in.dict(exclude_unset=True)
     
     experiment_id = uuid.uuid4()
     experiment = Experiment(
-        id=str(experiment_id),
+        id=experiment_id,
         sample_id=experiment_in.sample_id,
         bpa_package_id=experiment_in.bpa_package_id,
         bpa_json=experiment_in.model_dump(mode="json", exclude_unset=True),
     )
     db.add(experiment)
 
+    experiment_data = experiment_in.dict(exclude_unset=True)
     # Load the ENA-ATOL mapping file
     ena_atol_map_path = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(__file__)))), "config", "ena-atol-map.json")
     with open(ena_atol_map_path, "r") as f:
@@ -84,6 +84,7 @@ def create_experiment(
     experiment_submission = ExperimentSubmission(
         experiment_id=experiment_id,
         sample_id=experiment_in.sample_id,
+        project_id=experiment_in.project_id,
         entity_type_const="experiment",
         prepared_payload=prepared_payload,
         status=SubmissionStatus.DRAFT,

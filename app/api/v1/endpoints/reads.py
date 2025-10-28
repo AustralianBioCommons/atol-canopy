@@ -1,3 +1,6 @@
+import json
+import uuid
+import os
 from typing import Any, Dict, List, Optional
 from uuid import UUID
 
@@ -17,7 +20,7 @@ from app.schemas.read import (
     ReadCreate,
     ReadUpdate,
 )
-from app.schemas.common import SubmissionJsonResponse
+from app.schemas.common import SubmissionJsonResponse, SubmissionStatus
 
 router = APIRouter()
 
@@ -54,15 +57,51 @@ def create_read(
     """
     # Only users with 'curator' or 'admin' role can create reads
     require_role(current_user, ["curator", "admin"])
+    read_id = uuid.uuid4()
     
     read = Read(
+        id=read_id,
         experiment_id=read_in.experiment_id,
         bpa_resource_id=read_in.bpa_resource_id,
-        bpa_json=read_in.bpa_json,
+        bpa_json=read_in.model_dump(mode="json", exclude_unset=True),
+        file_name=read_in.file_name,
+        file_checksum=read_in.file_checksum,
+        file_format=read_in.file_format,
+        file_submission_date=read_in.file_submission_date,
+        optional_file=read_in.optional_file,
+        bioplatforms_url=read_in.bioplatforms_url,
+        reads_access_date=read_in.reads_access_date,
+        read_number=read_in.read_number,
+        lane_number=read_in.lane_number,
+        sra_run_accession=read_in.sra_run_accession,
+        run_read_count=read_in.run_read_count,
+        run_base_count=read_in.run_base_count,
     )
     db.add(read)
+    
+    read_data = read_in.dict(exclude_unset=True)
+    # Load the ENA-ATOL mapping file
+    ena_atol_map_path = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(__file__)))), "config", "ena-atol-map.json")
+    with open(ena_atol_map_path, "r") as f:
+        ena_atol_map = json.load(f)
+    # Generate ENA-mapped data for submission to ENA
+    prepared_payload = {}
+    for ena_key, atol_key in ena_atol_map["run"].items():
+        if atol_key in read_data:
+            prepared_payload[ena_key] = read_data[atol_key]
+
+    read_submission = ReadSubmission(
+        read_id=read_id,
+        experiment_id=read_in.experiment_id,
+        project_id=read_in.project_id,
+        entity_type_const="read",
+        prepared_payload=prepared_payload,
+        status=SubmissionStatus.DRAFT,
+    )
+    db.add(read_submission)
     db.commit()
     db.refresh(read)
+    db.refresh(read_submission)
     return read
 
 
