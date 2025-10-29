@@ -6,6 +6,7 @@ from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy.orm import Session
+from sqlalchemy.orm.attributes import flag_modified
 
 from app.core.dependencies import (
     get_current_active_user,
@@ -64,18 +65,6 @@ def create_read(
         experiment_id=read_in.experiment_id,
         bpa_resource_id=read_in.bpa_resource_id,
         bpa_json=read_in.model_dump(mode="json", exclude_unset=True),
-        file_name=read_in.file_name,
-        file_checksum=read_in.file_checksum,
-        file_format=read_in.file_format,
-        file_submission_date=read_in.file_submission_date,
-        optional_file=read_in.optional_file,
-        bioplatforms_url=read_in.bioplatforms_url,
-        reads_access_date=read_in.reads_access_date,
-        read_number=read_in.read_number,
-        lane_number=read_in.lane_number,
-        sra_run_accession=read_in.sra_run_accession,
-        run_read_count=read_in.run_read_count,
-        run_base_count=read_in.run_base_count,
     )
     db.add(read)
     
@@ -126,7 +115,7 @@ def get_read_prepared_payload(
             status_code=404,
             detail="Prepared payload not found for this read submission",
         )
-    return {"submission_json": read_submission.prepared_payload}
+    return {"prepared_payload": read_submission.prepared_payload}
 
 
 @router.get("/{read_id}", response_model=ReadSchema)
@@ -164,10 +153,87 @@ def update_read(
     if not read:
         raise HTTPException(status_code=404, detail="Read not found")
     
-    update_data = read_in.dict(exclude_unset=True)
-    for field, value in update_data.items():
-        setattr(read, field, value)
+    read_data = read_in.dict(exclude_unset=True)
+    # Load the ENA-ATOL mapping file
+    ena_atol_map_path = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(__file__)))), "config", "ena-atol-map.json")
+    with open(ena_atol_map_path, "r") as f:
+        ena_atol_map = json.load(f)
+    # Generate ENA-mapped data for submission to ENA
+    prepared_payload = {}
+    for ena_key, atol_key in ena_atol_map["run"].items():
+        if atol_key in read_data:
+            prepared_payload[ena_key] = read_data[atol_key]
     
+    read_submission = db.query(ReadSubmission).filter(ReadSubmission.read_id == read_id).order_by(ReadSubmission.updated_at.desc()).first()
+    new_read_submission = None
+    latest_read_submission = None
+    if not read_submission:
+        new_read_submission = ReadSubmission(
+            read_id=read_id,
+            experiment_id=read_in.experiment_id,
+            project_id=read_in.project_id,
+            entity_type_const="read",
+            prepared_payload=prepared_payload,
+            status=SubmissionStatus.DRAFT,
+        )
+        db.add(new_read_submission)
+    else:
+        latest_read_submission = read_submission
+        if latest_read_submission.status == "submitting":
+                raise HTTPException(status_code=404, detail=f"Read with id: {read_id} is currently being submitted to ENA and could not be updated. Please try again later.")
+        elif latest_read_submission.status == "rejected" or read_submission.status == "replaced":
+            # leave the old record for logs and create a new record
+            # retain accessions if they exist (accessions may not exist if status is 'rejected' and the sample has not successfully been submitted in the past)
+            new_read_submission = ReadSubmission(
+                read_id=read_id,
+                experiment_id=read_in.experiment_id,
+                project_id=read_in.project_id,
+                authority=read_submission.authority,
+                entity_type_const="read",
+                prepared_payload=prepared_payload,
+                response_payload=None,
+                accession=experiment_submission.accession,
+                biosample_accession=experiment_submission.biosample_accession,
+                status="draft",
+            )
+            db.add(new_read_submission)
+            
+        elif latest_read_submission.status == "accepted":
+            # change old record's status to "replaced" and create a new record
+            # retain accessions
+            setattr(latest_read_submission, "status", "replaced")
+            db.add(latest_read_submission)
+            new_read_submission = ReadSubmission(
+                read_id=read_id,
+                experiment_id=read_in.experiment_id,
+                project_id=read_in.project_id,
+                authority=read_submission.authority,
+                entity_type_const="read",
+                prepared_payload=prepared_payload,
+                response_payload=None,
+                accession=experiment_submission.accession,
+                biosample_accession=experiment_submission.biosample_accession,
+                status="draft",
+            )
+            db.add(new_read_submission)
+        elif latest_read_submission.status == "draft" or latest_read_submission.status == "ready":
+            # update the existing record, since it has not yet been submitted to ENA (set status = 'draft')
+            setattr(latest_read_submission, "prepared_payload", prepared_payload)
+            setattr(latest_read_submission, "status", "draft")
+            db.add(latest_read_submission)
+            # update the experiment_submission object
+    
+    setattr(read, "bpa_resource_id", read_in.bpa_resource_id)
+    setattr(read, "experiment_id", read_in.experiment_id)
+    setattr(read, "project_id", read_in.project_id)
+    # initiate new bpa_json object to the previous bpa_json object
+    new_bpa_json = read.bpa_json
+
+    for field, value in read_data.items():
+        if field != "experiment_id" and field != "project_id":
+            new_bpa_json[field] = value
+    read.bpa_json = new_bpa_json
+    flag_modified(read, "bpa_json")
     db.add(read)
     db.commit()
     db.refresh(read)
