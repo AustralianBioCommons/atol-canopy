@@ -82,6 +82,8 @@ def get_organism_submission_json(
     # Get sample submission data
     if sample_ids:
         sample_submission_records = db.query(SampleSubmission).filter(SampleSubmission.sample_id.in_(sample_ids)).all()
+        response.samples = sample_submission_records
+        """
         for record in sample_submission_records:
             # Find the corresponding sample to get the bpa_sample_id
             sample = next((s for s in samples if s.id == record.sample_id), None)
@@ -93,6 +95,7 @@ def get_organism_submission_json(
                 prepared_payload=record.prepared_payload,
                 status=record.status
             ))
+        """
     
     # Get experiments for these samples
     if sample_ids:
@@ -102,18 +105,19 @@ def get_organism_submission_json(
         # Get experiment submission data
         if experiment_ids:
             experiment_submission_records = db.query(ExperimentSubmission).filter(ExperimentSubmission.experiment_id.in_(experiment_ids)).all()
+            response.experiments = experiment_submission_records
             for record in experiment_submission_records:
                 # Find the corresponding experiment to get the bpa_package_id
-                experiment = next((e for e in experiments if e.id == record.experiment_id), None)
-                bpa_package_id = experiment.bpa_package_id if experiment else None
-                
+                # experiment = next((e for e in experiments if e.id == record.experiment_id), None)
+                # bpa_package_id = experiment.bpa_package_id if experiment else None
+                """
                 response.experiments.append(ExperimentSubmissionJson(
                     experiment_id=record.experiment_id,
                     bpa_package_id=bpa_package_id,
                     prepared_payload=record.prepared_payload,
                     status=record.status
                 ))
-
+                """
                 reads = db.query(Read).filter(Read.experiment_id.in_(experiment_ids)).all()
                 read_ids = [read.id for read in reads]
                 print("reads: ",read_ids)
@@ -121,19 +125,8 @@ def get_organism_submission_json(
                 # Get read submission data
                 if read_ids:
                     read_submission_records = db.query(ReadSubmission).filter(ReadSubmission.read_id.in_(read_ids)).all()
-                    for record in read_submission_records:
-                        print("record: ",record)
-                        # Find the corresponding read to get the file_name
-                        read = next((r for r in reads if r.id == record.read_id), None)
-                        file_name = read.file_name if read else None
-                        
-                        response.reads.append(ReadSubmissionJson(
-                            read_id=record.read_id,
-                            experiment_id=record.experiment_id,
-                            file_name=file_name,
-                            prepared_payload=record.prepared_payload,
-                            status=record.status
-                        ))
+                    response.reads = read_submission_records
+
         # TO DO append reads    
     return response
 
