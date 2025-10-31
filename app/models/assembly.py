@@ -60,7 +60,7 @@ class AssemblySubmission(Base):
     prepared_payload = Column(JSONB, nullable=True)
     returned_payload = Column(JSONB, nullable=True)
     
-    status = Column(SQLAlchemyEnum("draft", "ready", "submitted", "accepted", "rejected", "replaced", name="submission_status"), nullable=False, default="draft")
+    status = Column(SQLAlchemyEnum("draft", "ready", "submitting", "accepted", "rejected", "replaced", name="submission_status"), nullable=False, default="draft")
     submitted_at = Column(DateTime, nullable=True)
     created_at = Column(DateTime, nullable=False, default=datetime.now(timezone.utc))
     updated_at = Column(DateTime, nullable=False, default=datetime.now(timezone.utc), onupdate=datetime.now(timezone.utc))

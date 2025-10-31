@@ -38,7 +38,7 @@ class ExperimentSubmission(Base):
     id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     experiment_id = Column(UUID(as_uuid=True), ForeignKey("experiment.id", ondelete="CASCADE"), nullable=True)
     authority = Column(SQLAlchemyEnum("ENA", "NCBI", "DDBJ", name="authority_type"), nullable=False, default="ENA")
-    status = Column(SQLAlchemyEnum("draft", "ready", "submitted", "accepted", "rejected", "replaced", name="submission_status"), nullable=False, default="draft")
+    status = Column(SQLAlchemyEnum("draft", "ready", "submitting", "accepted", "rejected", "replaced", name="submission_status"), nullable=False, default="draft")
     
     sample_id = Column(UUID(as_uuid=True), ForeignKey("sample.id", ondelete="SET NULL"), nullable=False)
     project_id = Column(UUID(as_uuid=True), ForeignKey("project.id", ondelete="SET NULL"), nullable=True)
@@ -55,6 +55,11 @@ class ExperimentSubmission(Base):
     submitted_at = Column(DateTime, nullable=True)
     created_at = Column(DateTime, nullable=False, default=datetime.now(timezone.utc))
     updated_at = Column(DateTime, nullable=False, default=datetime.now(timezone.utc), onupdate=datetime.now(timezone.utc))
+    
+    # Broker lease/claim fields
+    batch_id = Column(UUID(as_uuid=True), nullable=True)
+    lock_acquired_at = Column(DateTime, nullable=True)
+    lock_expires_at = Column(DateTime, nullable=True)
     
     # Relationships
     experiment = relationship("Experiment", backref=backref("exp_submission_records", cascade="all, delete-orphan"))

@@ -13,6 +13,7 @@ from app.api.v1.endpoints import (
     read_submissions,
     samples,
     sample_submissions,
+    broker,
     users,
     xml_export
 )
@@ -23,6 +24,7 @@ api_router = APIRouter()
 # Include all endpoint routers
 api_router.include_router(auth.router, prefix="/auth", tags=["authentication"])
 api_router.include_router(users.router, prefix="/users", tags=["users"])
+api_router.include_router(broker.router, prefix="/broker", tags=["broker"])
 
 # Core entity routers
 api_router.include_router(organisms.router, prefix="/organisms", tags=["organisms"])

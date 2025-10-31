@@ -147,6 +147,11 @@ CREATE TABLE sample_submission (
     -- constant to help the composite FK
     entity_type_const entity_type NOT NULL DEFAULT 'sample' CHECK (entity_type_const = 'sample'),
 
+    -- broker lease/claim fields
+    batch_id UUID,
+    lock_acquired_at TIMESTAMP,
+    lock_expires_at TIMESTAMP,
+
     CONSTRAINT fk_self_accession
     FOREIGN KEY (accession, authority, entity_type_const, sample_id)
     REFERENCES accession_registry (accession, authority, entity_type, entity_id)
@@ -160,6 +165,9 @@ CREATE UNIQUE INDEX uq_sample_one_accepted
     -- TODO consider if we want to keep track of former submissions that have been replaced/modified
 
 -- UNIQUE (sample_id, authority) WHERE status = 'accepted' AND accession IS NOT NULL
+
+-- Broker lease/claim index
+CREATE INDEX IF NOT EXISTS idx_sample_submission_batch ON sample_submission (batch_id);
 
 -- ==========================================
 -- Experiment tables
@@ -202,6 +210,11 @@ CREATE TABLE experiment_submission (
     created_at TIMESTAMP NOT NULL DEFAULT NOW(),
     updated_at TIMESTAMP NOT NULL DEFAULT NOW(),
 
+    -- broker lease/claim fields
+    batch_id UUID,
+    lock_acquired_at TIMESTAMP,
+    lock_expires_at TIMESTAMP,
+
       -- When accession is present, it must exist in the registry AND map to this same experiment:
   CONSTRAINT fk_self_accession
     FOREIGN KEY (accession, authority, entity_type_const, experiment_id)
@@ -216,6 +229,9 @@ CREATE TABLE experiment_submission (
     FOREIGN KEY (sample_accession, authority)
     REFERENCES accession_registry (accession, authority)
 );
+
+-- Broker lease/claim index
+CREATE INDEX IF NOT EXISTS idx_experiment_submission_batch ON experiment_submission (batch_id);
      
 -- TODO consider if we want to keep track of former submissions that have been replaced/modified
 CREATE UNIQUE INDEX uq_exp_one_accepted
@@ -270,6 +286,11 @@ CREATE TABLE read_submission (
     created_at TIMESTAMP NOT NULL DEFAULT NOW(),
     updated_at TIMESTAMP NOT NULL DEFAULT NOW(),
 
+    -- broker lease/claim fields
+    batch_id UUID,
+    lock_acquired_at TIMESTAMP,
+    lock_expires_at TIMESTAMP,
+
     -- constant to help the composite FK
     entity_type_const entity_type NOT NULL DEFAULT 'read' CHECK (entity_type_const = 'read'),
 
@@ -288,6 +309,9 @@ CREATE TABLE read_submission (
 CREATE UNIQUE INDEX uq_read_one_accepted
   ON read_submission (read_id, authority)
   WHERE status = 'accepted' AND accession IS NOT NULL;
+
+-- Broker lease/claim index
+CREATE INDEX IF NOT EXISTS idx_read_submission_batch ON read_submission (batch_id);
 
 -- ==========================================
 -- Assembly tables

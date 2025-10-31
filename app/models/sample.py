@@ -38,7 +38,7 @@ class SampleSubmission(Base):
     id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     sample_id = Column(UUID(as_uuid=True), ForeignKey("sample.id", ondelete="CASCADE"), nullable=True)
     authority = Column(SQLAlchemyEnum("ENA", "NCBI", "DDBJ", name="authority_type"), nullable=False, default="ENA")
-    status = Column(SQLAlchemyEnum("draft", "ready", "submitted", "accepted", "rejected", "replaced", name="submission_status"), nullable=False, default="draft")
+    status = Column(SQLAlchemyEnum("draft", "ready", "submitting", "accepted", "rejected", "replaced", name="submission_status"), nullable=False, default="draft")
     prepared_payload = Column(JSONB, nullable=False)
     response_payload = Column(JSONB, nullable=True)
     accession = Column(Text, nullable=True)
@@ -47,6 +47,11 @@ class SampleSubmission(Base):
     submitted_at = Column(DateTime, nullable=True)
     created_at = Column(DateTime, nullable=False, default=datetime.now(timezone.utc))
     updated_at = Column(DateTime, nullable=False, default=datetime.now(timezone.utc), onupdate=datetime.now(timezone.utc))
+    
+    # Broker lease/claim fields
+    batch_id = Column(UUID(as_uuid=True), nullable=True)
+    lock_acquired_at = Column(DateTime, nullable=True)
+    lock_expires_at = Column(DateTime, nullable=True)
     
     # Relationships
     sample = relationship("Sample", backref=backref("sample_submission_records", cascade="all, delete-orphan"))

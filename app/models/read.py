@@ -51,7 +51,7 @@ class ReadSubmission(Base):
     id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     read_id = Column(UUID(as_uuid=True), ForeignKey("read.id", ondelete="CASCADE"), nullable=False)
     authority = Column(SQLAlchemyEnum("ENA", "NCBI", "DDBJ", name="authority_type"), nullable=False, default="ENA")
-    status = Column(SQLAlchemyEnum("draft", "ready", "submitted", "accepted", "rejected", "replaced", name="submission_status"), nullable=False, default="draft")
+    status = Column(SQLAlchemyEnum("draft", "ready", "submitting", "accepted", "rejected", "replaced", name="submission_status"), nullable=False, default="draft")
     
     prepared_payload = Column(JSONB, nullable=False)
     response_payload = Column(JSONB, nullable=True)
@@ -74,6 +74,11 @@ class ReadSubmission(Base):
     read = relationship("Read", backref=backref("read_submission_records", cascade="all, delete-orphan"))
     experiment = relationship("Experiment", backref=backref("read_exp_submission_records", cascade="all, delete-orphan"))
     project = relationship("Project", backref=backref("read_proj_submission_records", cascade="all, delete-orphan"))
+    
+    # Broker lease/claim fields
+    batch_id = Column(UUID(as_uuid=True), nullable=True)
+    lock_acquired_at = Column(DateTime, nullable=True)
+    lock_expires_at = Column(DateTime, nullable=True)
     
     # Table constraints
     __table_args__ = (
