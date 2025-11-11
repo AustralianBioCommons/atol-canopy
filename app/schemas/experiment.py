@@ -14,7 +14,7 @@ class ExperimentBase(BaseModel):
     sample_id: UUID
     # BPA fields
     bpa_package_id: str
-    bpa_json: Optional[Dict] = None
+    # bpa_json: Optional[Dict] = None
 
 
 # Schema for creating a new experiment
@@ -52,7 +52,7 @@ class ExperimentUpdate(BaseModel):
     """Schema for updating an existing experiment."""
     sample_id: Optional[UUID] = None
     bpa_package_id: Optional[str] = None
-    bpa_json: Optional[Dict] = None
+    # bpa_json: Optional[Dict] = None
     design_description: Optional[str] = None
     bpa_library_id: Optional[str] = None
     library_strategy: Optional[str] = None

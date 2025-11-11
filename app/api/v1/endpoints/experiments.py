@@ -75,7 +75,7 @@ def create_experiment(
         transforms=transforms,
         inject=inject,
     )
-    experiment = Experiment(bpa_json=exp_data, **experiment_kwargs)
+    experiment = Experiment(**experiment_kwargs)
     db.add(experiment)
 
     experiment_data = experiment_in.dict(exclude_unset=True)
@@ -233,6 +233,7 @@ def update_experiment(
         setattr(experiment, "bpa_package_id", experiment_in.bpa_package_id)
         setattr(experiment, "sample_id", experiment_in.sample_id)
         # initiate new bpa_json object to the previous bpa_json object
+        """
         new_bpa_json = experiment.bpa_json
         
         for field, value in experiment_data.items():
@@ -240,6 +241,7 @@ def update_experiment(
                 new_bpa_json[field] = value
         experiment.bpa_json = new_bpa_json
         flag_modified(experiment, "bpa_json")
+        """
         db.add(experiment)
         db.commit()
         db.refresh(experiment)
@@ -355,7 +357,7 @@ def bulk_import_experiments(
                 transforms=transforms,
                 inject=inject,
             )
-            experiment = Experiment(bpa_json=experiment_data, **experiment_kwargs)
+            experiment = Experiment(**experiment_kwargs)
             db.add(experiment)
             
             # Find a project for this experiment
@@ -396,7 +398,7 @@ def bulk_import_experiments(
                             transforms=transforms,
                             inject=inject,
                         )
-                        read = Read(bpa_json=run, **read_kwargs)
+                        read = Read(**read_kwargs)
                         db.add(read)
                         created_reads_count += 1
 

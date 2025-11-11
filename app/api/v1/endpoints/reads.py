@@ -73,7 +73,7 @@ def create_read(
 
     read = Read(
         id=read_id,
-        bpa_json=read_data,
+        #bpa_json=read_data,
         **read_kwargs,
     )
     db.add(read)
@@ -237,6 +237,7 @@ def update_read(
     setattr(read, "experiment_id", read_in.experiment_id)
     setattr(read, "project_id", read_in.project_id)
     # initiate new bpa_json object to the previous bpa_json object
+    """
     new_bpa_json = read.bpa_json
 
     for field, value in read_data.items():
@@ -244,6 +245,7 @@ def update_read(
             new_bpa_json[field] = value
     read.bpa_json = new_bpa_json
     flag_modified(read, "bpa_json")
+    """
     db.add(read)
     db.commit()
     db.refresh(read)

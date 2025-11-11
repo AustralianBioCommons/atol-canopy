@@ -157,7 +157,8 @@ CREATE TABLE sample (
     preservation_temperature TEXT,
     project_name TEXT,
     biosample_accession TEXT,
-    bpa_json JSONB NOT NULL,
+    -- bpa_json JSONB NOT NULL,
+    -- TODO extensions json field above instead of bpa_json?
     created_at TIMESTAMP NOT NULL DEFAULT NOW(),
     updated_at TIMESTAMP NOT NULL DEFAULT NOW()
 );
@@ -237,7 +238,8 @@ CREATE TABLE experiment (
     raw_data_release_date TEXT,
     
     -- bpa_dataset_id TEXT UNIQUE NOT NULL,
-    bpa_json JSONB NOT NULL,
+    -- bpa_json JSONB NOT NULL,
+    -- TODO extensions json field above instead of bpa_json?
     -- TO DO perhaps add an 'extensions' field instead of bpa_json
     created_at TIMESTAMP NOT NULL DEFAULT NOW(),
     updated_at TIMESTAMP NOT NULL DEFAULT NOW()
@@ -329,7 +331,10 @@ CREATE TABLE read (
     bioplatforms_url TEXT,
     read_number TEXT,
     lane_number TEXT,
-    bpa_json JSONB NOT NULL,
+    run_read_count TEXT,
+    run_base_count TEXT,
+    -- bpa_json JSONB NOT NULL,
+    -- TODO extensions json field above instead of bpa_json?
     created_at TIMESTAMP NOT NULL DEFAULT NOW(),
     updated_at TIMESTAMP NOT NULL DEFAULT NOW()
 );

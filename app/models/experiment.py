@@ -43,7 +43,7 @@ class Experiment(Base):
     nucleic_acid_volume = Column(Text, nullable=True)
     gal = Column(Text, nullable=True)
     raw_data_release_date = Column(Text, nullable=True)
-    bpa_json = Column(JSONB, nullable=False)
+    # bpa_json = Column(JSONB, nullable=False)
     created_at = Column(DateTime, nullable=False, default=datetime.now(timezone.utc))
     updated_at = Column(DateTime, nullable=False, default=datetime.now(timezone.utc), onupdate=datetime.now(timezone.utc))
     

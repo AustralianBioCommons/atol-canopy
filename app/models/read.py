@@ -27,7 +27,7 @@ class Read(Base):
     bioplatforms_url = Column(Text, nullable=True)
     read_number = Column(Text, nullable=True)
     lane_number = Column(Text, nullable=True)
-    bpa_json = Column(JSONB, nullable=False)
+    # bpa_json = Column(JSONB, nullable=False)
     created_at = Column(DateTime, nullable=False, default=datetime.now(timezone.utc))
     updated_at = Column(DateTime, nullable=False, default=datetime.now(timezone.utc), onupdate=datetime.now(timezone.utc))
     

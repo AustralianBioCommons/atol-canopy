@@ -10,7 +10,7 @@ class ReadBase(BaseModel):
     """Base Read schema with common attributes."""
     experiment_id: UUID
     bpa_resource_id: str
-    bpa_json: Optional[Dict] = None
+    # bpa_json: Optional[Dict] = None
 
 
 # Schema for creating a new Read
@@ -37,7 +37,7 @@ class ReadUpdate(BaseModel):
     """Schema for updating an existing Read."""
     experiment_id: Optional[UUID] = None
     bpa_resource_id: Optional[str] = None
-    bpa_json: Optional[Dict[str, Any]] = None
+    # bpa_json: Optional[Dict[str, Any]] = None
     file_name: Optional[str]  = None
     file_checksum : Optional[str]  = None
     file_format : Optional[str]  = None

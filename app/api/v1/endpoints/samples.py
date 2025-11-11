@@ -128,7 +128,9 @@ def create_sample(
         defaults=defaults,
         inject=inject,
     )
-    sample = Sample(bpa_json=sample_in.model_dump(mode="json", exclude_unset=True), **sample_kwargs)
+    sample = Sample(
+        #bpa_json=sample_in.model_dump(mode="json", exclude_unset=True), 
+        **sample_kwargs)
     db.add(sample)
 
      # Load the ENA-ATOL mapping file
@@ -277,6 +279,7 @@ def update_sample(
                 # update the sample_submission object
                 
         # initiate new bpa_json object to the previous bpa_json object
+        """
         new_bpa_json = sample.bpa_json
         setattr(sample, "organism_key", sample_in.organism_key)
         setattr(sample, "bpa_sample_id", sample_in.bpa_sample_id)
@@ -284,6 +287,7 @@ def update_sample(
             new_bpa_json[field] = value
         sample.bpa_json = new_bpa_json
         flag_modified(sample, "bpa_json")
+        """
         db.add(sample)
         db.commit()
         db.refresh(sample)
@@ -429,7 +433,9 @@ def bulk_import_samples(
                 defaults=defaults,
                 inject=inject,
             )
-            sample = Sample(bpa_json=sample_data, **sample_kwargs)
+            sample = Sample(
+                # bpa_json=sample_data, 
+                **sample_kwargs)
             db.add(sample)
             
             # Create prepared_payload based on the mapping

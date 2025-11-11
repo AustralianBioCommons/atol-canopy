@@ -63,7 +63,7 @@ class SampleUpdate(SampleBase):
 class SampleInDBBase(SampleBase):
     """Base schema for Sample in DB, includes id, timestamps and bpa_json."""
     id: UUID
-    bpa_json: Dict
+    # bpa_json: Dict
     created_at: datetime
     updated_at: datetime
 

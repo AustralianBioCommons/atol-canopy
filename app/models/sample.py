@@ -52,7 +52,7 @@ class Sample(Base):
     preservation_temperature = Column(Text, nullable=True)
     project_name = Column(Text, nullable=True)
     biosample_accession = Column(Text, nullable=True)
-    bpa_json = Column(JSONB, nullable=False)
+    # bpa_json = Column(JSONB, nullable=False)
     created_at = Column(DateTime, nullable=False, default=datetime.now(timezone.utc))
     updated_at = Column(DateTime, nullable=False, default=datetime.now(timezone.utc), onupdate=datetime.now(timezone.utc))
     
