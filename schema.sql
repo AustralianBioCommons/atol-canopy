@@ -262,6 +262,8 @@ CREATE TABLE read (
     id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
     experiment_id UUID NOT NULL REFERENCES experiment(id) ON DELETE CASCADE,
     bpa_resource_id TEXT UNIQUE,
+    file_name TEXT,
+    bioplatforms_url TEXT,
     bpa_json JSONB NOT NULL,
     created_at TIMESTAMP NOT NULL DEFAULT NOW(),
     updated_at TIMESTAMP NOT NULL DEFAULT NOW()

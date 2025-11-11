@@ -47,34 +47,3 @@ class ProjectInDBBase(ProjectBase):
 class Project(ProjectInDBBase):
     """Schema for returning Project information."""
     pass
-
-
-# Base ProjectExperiment schema
-class ProjectExperimentBase(BaseModel):
-    """Base ProjectExperiment schema with common attributes."""
-    project_id: UUID
-    experiment_id: UUID
-    project_accession: str
-
-
-# Schema for creating a new ProjectExperiment
-class ProjectExperimentCreate(ProjectExperimentBase):
-    """Schema for creating a new ProjectExperiment."""
-    pass
-
-
-# Schema for ProjectExperiment in DB
-class ProjectExperimentInDBBase(ProjectExperimentBase):
-    """Base schema for ProjectExperiment in DB, includes id and timestamps."""
-    id: UUID
-    created_at: datetime
-    updated_at: datetime
-
-    class Config:
-        from_attributes = True
-
-
-# Schema for returning ProjectExperiment information
-class ProjectExperiment(ProjectExperimentInDBBase):
-    """Schema for returning ProjectExperiment information."""
-    pass

@@ -1,6 +1,6 @@
 from app.models.accession_registry import AccessionRegistry
 from app.models.assembly import Assembly, AssemblySubmission, AssemblyOutputFile, AssemblyRead
-from app.models.project import Project, ProjectExperiment
+from app.models.project import Project
 from app.models.bpa_initiative import BPAInitiative
 from app.models.experiment import Experiment, ExperimentSubmission
 from app.models.genome_note import GenomeNote, GenomeNoteAssembly

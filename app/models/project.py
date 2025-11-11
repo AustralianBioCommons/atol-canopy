@@ -26,18 +26,16 @@ class Project(Base):
     centre_name = Column(Text, nullable=True)
     study_attributes = Column(JSONB, nullable=True)
     submitted_at = Column(DateTime, nullable=True)
-    status = Column(SQLAlchemyEnum("draft", "ready", "submitted", "accepted", "rejected", "replaced", name="submission_status"), nullable=False, default="draft")
+    status = Column(SQLAlchemyEnum("draft", "ready", "submitting", "rejected", "accepted", "replaced", name="submission_status"), nullable=False, default="draft")
     authority = Column(SQLAlchemyEnum("ENA", "NCBI", "DDBJ", name="authority_type"), nullable=False, default="ENA")
     created_at = Column(DateTime, nullable=False, default=datetime.now(timezone.utc))
     updated_at = Column(DateTime, nullable=False, default=datetime.now(timezone.utc), onupdate=datetime.now(timezone.utc))
 
-
+"""
 class ProjectExperiment(Base):
-    """
-    ProjectExperiment model for linking projects to experiments.
+    #ProjectExperiment model for linking projects to experiments.
     
-    This model corresponds to the 'project_experiment' table in the database.
-    """
+    #This model corresponds to the 'project_experiment' table in the database.
     __tablename__ = "project_experiment"
     
     # Composite primary key fields
@@ -47,3 +45,4 @@ class ProjectExperiment(Base):
     # Relationships
     project = relationship("Project", backref="project_experiments")
     experiment = relationship("Experiment", backref="project_experiments")
+"""

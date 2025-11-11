@@ -3,8 +3,8 @@ from uuid import UUID
 
 from sqlalchemy.orm import Session
 
-from app.models.project import Project, ProjectExperiment
-from app.schemas.project import ProjectCreate, ProjectExperimentCreate, ProjectUpdate
+from app.models.project import Project
+from app.schemas.project import ProjectCreate, ProjectUpdate
 from app.services.base_service import BaseService
 
 
@@ -50,17 +50,4 @@ class ProjectService(BaseService[Project, ProjectCreate, ProjectUpdate]):
         return query.offset(skip).limit(limit).all()
 
 
-class ProjectExperimentService(BaseService[ProjectExperiment, ProjectExperimentCreate, ProjectExperimentCreate]):
-    """Service for ProjectExperiment operations."""
-    
-    def get_by_project_id(self, db: Session, project_id: UUID) -> List[ProjectExperiment]:
-        """Get project-experiment relationships by project ID."""
-        return db.query(ProjectExperiment).filter(ProjectExperiment.project_id == project_id).all()
-    
-    def get_by_experiment_id(self, db: Session, experiment_id: UUID) -> List[ProjectExperiment]:
-        """Get project-experiment relationships by experiment ID."""
-        return db.query(ProjectExperiment).filter(ProjectExperiment.experiment_id == experiment_id).all()
-
-
 project_service = ProjectService(Project)
-project_experiment_service = ProjectExperimentService(ProjectExperiment)
