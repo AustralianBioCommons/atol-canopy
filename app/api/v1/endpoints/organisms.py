@@ -26,6 +26,10 @@ from app.schemas.aggregate import OrganismSubmissionJsonResponse, SampleSubmissi
 
 router = APIRouter()
 
+def _sa_obj_to_dict(obj):
+    """Serialize all SQLAlchemy column fields for a model instance."""
+    return {c.name: getattr(obj, c.name) for c in obj.__table__.columns}
+
 
 @router.get("/", response_model=List[OrganismSchema])
 def read_organisms(
@@ -71,21 +75,9 @@ def get_experiments_for_organism(
 
     # Build response
     if not includeReads:
-        # Minimal serialization of experiments
-        exp_list = []
-        for e in experiments:
-            exp_list.append({
-                "id": str(e.id),
-                "sample_id": str(e.sample_id) if e.sample_id else None,
-                "bpa_package_id": e.bpa_package_id,
-                "bpa_json": e.bpa_json,
-                "created_at": e.created_at,
-                "updated_at": e.updated_at,
-            })
-        return {
-            "grouping_key": grouping_key,
-            "experiments": exp_list,
-        }
+        # Return all experiment fields
+        exp_list = [_sa_obj_to_dict(e) for e in experiments]
+        return {"grouping_key": grouping_key, "experiments": exp_list}
 
     # includeReads = True
     exp_ids = [e.id for e in experiments]
@@ -96,29 +88,13 @@ def get_experiments_for_organism(
             key = str(r.experiment_id) if r.experiment_id else "null"
             if key not in reads_by_exp:
                 reads_by_exp[key] = []
-            reads_by_exp[key].append({
-                "id": str(r.id),
-                "experiment_id": str(r.experiment_id) if r.experiment_id else None,
-                "bpa_resource_id": r.bpa_resource_id,
-                # Prefer explicit columns if present in model, else pull from bpa_json
-                "file_name": getattr(r, "file_name", None) or (r.bpa_json.get("file_name") if isinstance(r.bpa_json, dict) else None),
-                "bioplatforms_url": getattr(r, "bioplatforms_url", None) or (r.bpa_json.get("bioplatforms_url") if isinstance(r.bpa_json, dict) else None),
-                "bpa_json": r.bpa_json,
-                "created_at": r.created_at,
-                "updated_at": r.updated_at,
-            })
+            reads_by_exp[key].append(_sa_obj_to_dict(r))
 
     exp_with_reads = []
     for e in experiments:
-        exp_with_reads.append({
-            "id": str(e.id),
-            "sample_id": str(e.sample_id) if e.sample_id else None,
-            "bpa_package_id": e.bpa_package_id,
-            "bpa_json": e.bpa_json,
-            "created_at": e.created_at,
-            "updated_at": e.updated_at,
-            "reads": reads_by_exp.get(str(e.id), []),
-        })
+        item = _sa_obj_to_dict(e)
+        item["reads"] = reads_by_exp.get(str(e.id), [])
+        exp_with_reads.append(item)
 
     return {
         "grouping_key": grouping_key,
