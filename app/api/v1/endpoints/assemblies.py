@@ -112,8 +112,8 @@ def get_pipeline_inputs(
             
             for read in reads:
                 print(f"Read {read.id} found for experiment {experiment.id}")
-                if read.bpa_json.get("file_name") and read.bpa_json.get("bioplatforms_url"):
-                    files_dict[read.bpa_json.get("file_name")] = read.bpa_json.get("bioplatforms_url")
+                if read.file_name and read.bioplatforms_url:
+                    files_dict[read.file_name] = read.bioplatforms_url
     
     # Create the result object
     result.append({
@@ -182,8 +182,8 @@ def get_pipeline_inputs_by_tax_id(
                 
                 for read in reads:
                     print(f"Read {read.id} found for experiment {experiment.id}")
-                    if read.bpa_json.get("file_name") and read.bpa_json.get("bioplatforms_url"):
-                        result[tax_id][organism_key]["files"][read.bpa_json.get("file_name")] = read.bpa_json.get("bioplatforms_url")
+                    if read.file_name and read.bioplatforms_url:
+                        result[tax_id][organism_key]["files"][read.file_name] = read.bioplatforms_url
     
     return result
 
