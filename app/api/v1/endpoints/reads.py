@@ -60,11 +60,21 @@ def create_read(
     require_role(current_user, ["curator", "admin"])
     read_id = uuid.uuid4()
     
+    # Auto-map from Pydantic schema to Read columns
+    read_data = read_in.model_dump(exclude_unset=True)
+    allowed_cols = {c.name for c in Read.__table__.columns}
+    exclude_keys = {"id", "created_at", "updated_at", "bpa_json"}
+    read_kwargs = {k: v for k, v in read_data.items() if k in (allowed_cols - exclude_keys)}
+    # Normalize optional_file if present
+    if "optional_file" in read_kwargs and read_kwargs["optional_file"] is not None:
+        val = read_kwargs["optional_file"]
+        if not isinstance(val, bool):
+            read_kwargs["optional_file"] = str(val).lower() in ("true", "1", "yes")
+
     read = Read(
         id=read_id,
-        experiment_id=read_in.experiment_id,
-        bpa_resource_id=read_in.bpa_resource_id,
-        bpa_json=read_in.model_dump(mode="json", exclude_unset=True),
+        bpa_json=read_data,
+        **read_kwargs,
     )
     db.add(read)
     

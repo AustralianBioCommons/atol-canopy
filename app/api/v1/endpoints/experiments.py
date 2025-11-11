@@ -62,35 +62,18 @@ def create_experiment(
     require_role(current_user, ["curator", "admin"])
     
     experiment_id = uuid.uuid4()
+    # Auto-map fields from Pydantic schema to Experiment columns
+    exp_data = experiment_in.model_dump(exclude_unset=True)
+    # Light normalization
+    if "insert_size" in exp_data and exp_data["insert_size"] is not None:
+        exp_data["insert_size"] = str(exp_data["insert_size"])
+    allowed_cols = {c.name for c in Experiment.__table__.columns}
+    exclude_keys = {"id", "created_at", "updated_at", "bpa_json"}
+    experiment_kwargs = {k: v for k, v in exp_data.items() if k in (allowed_cols - exclude_keys)}
     experiment = Experiment(
         id=experiment_id,
-        sample_id=experiment_in.sample_id,
-        bpa_package_id=experiment_in.bpa_package_id,
-        # New columns aligned to schema.sql
-        design_description=getattr(experiment_in, "design_description", None),
-        bpa_library_id=getattr(experiment_in, "bpa_library_id", None),
-        library_strategy=getattr(experiment_in, "library_strategy", None),
-        library_source=getattr(experiment_in, "library_source", None),
-        insert_size=str(experiment_in.insert_size) if getattr(experiment_in, "insert_size", None) is not None else None,
-        library_construction_protocol=getattr(experiment_in, "library_construction_protocol", None),
-        library_selection=getattr(experiment_in, "library_selection", None),
-        library_layout=getattr(experiment_in, "library_layout", None),
-        instrument_model=getattr(experiment_in, "instrument_model", None),
-        platform=getattr(experiment_in, "platform", None),
-        material_extracted_by=getattr(experiment_in, "material_extracted_by", None),
-        library_prepared_by=getattr(experiment_in, "library_prepared_by", None),
-        sequencing_kit=getattr(experiment_in, "sequencing_kit", None),
-        flowcell_type=getattr(experiment_in, "flowcell_type", None),
-        base_caller_model=getattr(experiment_in, "base_caller_model", None),
-        data_owner=getattr(experiment_in, "data_owner", None),
-        project_collaborators=getattr(experiment_in, "project_collaborators", None),
-        extraction_method=getattr(experiment_in, "extraction_method", None),
-        nucleic_acid_treatment=getattr(experiment_in, "nucleic_acid_treatment", None),
-        nucleic_acid_conc=getattr(experiment_in, "nucleic_acid_conc", None),
-        nucleic_acid_volume=getattr(experiment_in, "nucleic_acid_volume", None),
-        gal=getattr(experiment_in, "GAL", None),
-        raw_data_release_date=getattr(experiment_in, "raw_data_release_date", None),
-        bpa_json=experiment_in.model_dump(mode="json", exclude_unset=True),
+        bpa_json=exp_data,
+        **experiment_kwargs,
     )
     db.add(experiment)
 
@@ -402,7 +385,7 @@ def bulk_import_experiments(
             if "runs" in experiment_data and isinstance(experiment_data["runs"], list):
                 for run in experiment_data["runs"]:
                     try:
-                        # Create read entity for each run
+                        # Create read entity for each run using auto-mapping
                         def _to_bool(v):
                             if isinstance(v, bool):
                                 return v
@@ -410,19 +393,17 @@ def bulk_import_experiments(
                                 return None
                             return str(v).lower() in ("true", "1", "yes")
 
+                        allowed_read_cols = {c.name for c in Read.__table__.columns}
+                        read_exclude = {"id", "created_at", "updated_at", "experiment_id", "bpa_json"}
+                        read_kwargs = {k: v for k, v in run.items() if k in (allowed_read_cols - read_exclude)}
+                        if "optional_file" in read_kwargs and read_kwargs["optional_file"] is not None:
+                            read_kwargs["optional_file"] = _to_bool(read_kwargs["optional_file"])
+
                         read = Read(
                             id=uuid.uuid4(),
                             experiment_id=experiment_id,
-                            bpa_resource_id=run.get("bpa_resource_id", None),
-                            bpa_dataset_id=run.get("bpa_dataset_id"),
-                            file_name=run.get("file_name"),
-                            file_checksum=run.get("file_checksum"),
-                            file_format=run.get("file_format"),
-                            optional_file=_to_bool(run.get("optional_file")) if run.get("optional_file") is not None else True,
-                            bioplatforms_url=run.get("bioplatforms_url"),
-                            read_number=run.get("read_number"),
-                            lane_number=run.get("lane_number"),
-                            bpa_json=run
+                            bpa_json=run,
+                            **read_kwargs,
                         )
                         db.add(read)
                         created_reads_count += 1
