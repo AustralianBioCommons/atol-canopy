@@ -25,7 +25,7 @@ class ExperimentCreate(ExperimentBase):
     bpa_library_id: Optional[str] = None
     library_strategy: Optional[str] = None
     library_source: Optional[str] = None
-    insert_size: Optional[int] = None
+    insert_size: Optional[str] = None
     library_construction_protocol: Optional[str] = None
     library_selection: Optional[str] = None
     library_layout: Optional[str] = None
@@ -41,10 +41,10 @@ class ExperimentCreate(ExperimentBase):
     data_owner: Optional[str] = None
     extraction_method: Optional[str] = None
     nucleic_acid_treatment: Optional[str] = None
-    extraction_protocol_DOI: Optional[str] = None
+    extraction_protocol_doi: Optional[str] = None
     nucleic_acid_conc: Optional[str] = None
     nucleic_acid_volume: Optional[str] = None
-    GAL: Optional[str] = None
+    gal: Optional[str] = None
     sample_access_date: Optional[str] = None
 
 # Schema for updating an existing experiment
@@ -57,7 +57,7 @@ class ExperimentUpdate(BaseModel):
     bpa_library_id: Optional[str] = None
     library_strategy: Optional[str] = None
     library_source: Optional[str] = None
-    insert_size: Optional[int] = None
+    insert_size: Optional[str] = None
     library_construction_protocol: Optional[str] = None
     library_selection: Optional[str] = None
     library_layout: Optional[str] = None
@@ -73,10 +73,10 @@ class ExperimentUpdate(BaseModel):
     data_owner: Optional[str] = None
     extraction_method: Optional[str] = None
     nucleic_acid_treatment: Optional[str] = None
-    extraction_protocol_DOI: Optional[str] = None
+    extraction_protocol_doi: Optional[str] = None
     nucleic_acid_conc: Optional[str] = None
     nucleic_acid_volume: Optional[str] = None
-    GAL: Optional[str] = None
+    gal: Optional[str] = None
     sample_access_date: Optional[str] = None
 
 

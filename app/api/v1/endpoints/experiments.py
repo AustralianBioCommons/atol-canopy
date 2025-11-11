@@ -66,6 +66,30 @@ def create_experiment(
         id=experiment_id,
         sample_id=experiment_in.sample_id,
         bpa_package_id=experiment_in.bpa_package_id,
+        # New columns aligned to schema.sql
+        design_description=getattr(experiment_in, "design_description", None),
+        bpa_library_id=getattr(experiment_in, "bpa_library_id", None),
+        library_strategy=getattr(experiment_in, "library_strategy", None),
+        library_source=getattr(experiment_in, "library_source", None),
+        insert_size=str(experiment_in.insert_size) if getattr(experiment_in, "insert_size", None) is not None else None,
+        library_construction_protocol=getattr(experiment_in, "library_construction_protocol", None),
+        library_selection=getattr(experiment_in, "library_selection", None),
+        library_layout=getattr(experiment_in, "library_layout", None),
+        instrument_model=getattr(experiment_in, "instrument_model", None),
+        platform=getattr(experiment_in, "platform", None),
+        material_extracted_by=getattr(experiment_in, "material_extracted_by", None),
+        library_prepared_by=getattr(experiment_in, "library_prepared_by", None),
+        sequencing_kit=getattr(experiment_in, "sequencing_kit", None),
+        flowcell_type=getattr(experiment_in, "flowcell_type", None),
+        base_caller_model=getattr(experiment_in, "base_caller_model", None),
+        data_owner=getattr(experiment_in, "data_owner", None),
+        project_collaborators=getattr(experiment_in, "project_collaborators", None),
+        extraction_method=getattr(experiment_in, "extraction_method", None),
+        nucleic_acid_treatment=getattr(experiment_in, "nucleic_acid_treatment", None),
+        nucleic_acid_conc=getattr(experiment_in, "nucleic_acid_conc", None),
+        nucleic_acid_volume=getattr(experiment_in, "nucleic_acid_volume", None),
+        gal=getattr(experiment_in, "GAL", None),
+        raw_data_release_date=getattr(experiment_in, "raw_data_release_date", None),
         bpa_json=experiment_in.model_dump(mode="json", exclude_unset=True),
     )
     db.add(experiment)
@@ -331,11 +355,22 @@ def bulk_import_experiments(
             experiment_id = uuid.uuid4()
             sample_id = sample.id
             
+            # Auto-map fields from experiment_data to Experiment columns
+            allowed_cols = {c.name for c in Experiment.__table__.columns}
+            # Exclude auto-managed or explicitly set fields
+            exclude_keys = {"id", "sample_id", "bpa_package_id", "bpa_json", "created_at", "updated_at"}
+            experiment_kwargs = {k: v for k, v in experiment_data.items() if k in (allowed_cols - exclude_keys)}
+            # Light normalization
+            if "insert_size" in experiment_kwargs and experiment_kwargs["insert_size"] is not None:
+                experiment_kwargs["insert_size"] = str(experiment_kwargs["insert_size"])
+
             experiment = Experiment(
                 id=experiment_id,
                 sample_id=sample_id,
                 bpa_package_id=package_id,
-                bpa_json= {k: v for k, v in experiment_data.items() if k != "bpa_json"}
+                bpa_json=experiment_data,
+                gal=experiment_data.get("GAL", None),
+                **experiment_kwargs,
             )
             db.add(experiment)
             
@@ -368,10 +403,25 @@ def bulk_import_experiments(
                 for run in experiment_data["runs"]:
                     try:
                         # Create read entity for each run
+                        def _to_bool(v):
+                            if isinstance(v, bool):
+                                return v
+                            if v in (None, ""):
+                                return None
+                            return str(v).lower() in ("true", "1", "yes")
+
                         read = Read(
                             id=uuid.uuid4(),
                             experiment_id=experiment_id,
                             bpa_resource_id=run.get("bpa_resource_id", None),
+                            bpa_dataset_id=run.get("bpa_dataset_id"),
+                            file_name=run.get("file_name"),
+                            file_checksum=run.get("file_checksum"),
+                            file_format=run.get("file_format"),
+                            optional_file=_to_bool(run.get("optional_file")) if run.get("optional_file") is not None else True,
+                            bioplatforms_url=run.get("bioplatforms_url"),
+                            read_number=run.get("read_number"),
+                            lane_number=run.get("lane_number"),
                             bpa_json=run
                         )
                         db.add(read)
@@ -406,7 +456,7 @@ def bulk_import_experiments(
             created_submission_count += 1
             
         except Exception as e:
-            print(f"Error creating experiment with package_id: {package_id}, bpa_sample_id: {bpa_sample_id}")
+            print(f"Error creating experiment with bpa_package_id: {package_id}, bpa_sample_id: {bpa_sample_id}")
             print(e)
             db.rollback()
             skipped_experiments_count += 1

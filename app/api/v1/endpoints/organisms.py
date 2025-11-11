@@ -42,6 +42,90 @@ def read_organisms(
     return organisms
 
 
+@router.get("/{grouping_key}/experiments")
+def get_experiments_for_organism(
+    *,
+    db: Session = Depends(get_db),
+    grouping_key: str,
+    includeReads: bool = Query(False, description="Include reads for each experiment"),
+    current_user: User = Depends(get_current_active_user),
+) -> Any:
+    """
+    Return all experiments for the organism, and optionally all reads for each experiment when includeReads is true.
+    """
+    # Admin, curator, broker and genome_launcher can get expanded organism data
+    require_role(current_user, ["admin", "curator", "broker", "genome_launcher"])
+
+    organism = db.query(Organism).filter(Organism.grouping_key == grouping_key).first()
+    if not organism:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=f"Organism with grouping key '{grouping_key}' not found")
+
+    # Find all samples for this organism
+    samples = db.query(Sample.id).filter(Sample.organism_key == grouping_key).all()
+    sample_ids = [sid for (sid,) in samples]
+
+    # Load experiments
+    experiments = []
+    if sample_ids:
+        experiments = db.query(Experiment).filter(Experiment.sample_id.in_(sample_ids)).all()
+
+    # Build response
+    if not includeReads:
+        # Minimal serialization of experiments
+        exp_list = []
+        for e in experiments:
+            exp_list.append({
+                "id": str(e.id),
+                "sample_id": str(e.sample_id) if e.sample_id else None,
+                "bpa_package_id": e.bpa_package_id,
+                "bpa_json": e.bpa_json,
+                "created_at": e.created_at,
+                "updated_at": e.updated_at,
+            })
+        return {
+            "grouping_key": grouping_key,
+            "experiments": exp_list,
+        }
+
+    # includeReads = True
+    exp_ids = [e.id for e in experiments]
+    reads_by_exp: Dict[str, List[Dict[str, Any]]] = {}
+    if exp_ids:
+        reads = db.query(Read).filter(Read.experiment_id.in_(exp_ids)).all()
+        for r in reads:
+            key = str(r.experiment_id) if r.experiment_id else "null"
+            if key not in reads_by_exp:
+                reads_by_exp[key] = []
+            reads_by_exp[key].append({
+                "id": str(r.id),
+                "experiment_id": str(r.experiment_id) if r.experiment_id else None,
+                "bpa_resource_id": r.bpa_resource_id,
+                # Prefer explicit columns if present in model, else pull from bpa_json
+                "file_name": getattr(r, "file_name", None) or (r.bpa_json.get("file_name") if isinstance(r.bpa_json, dict) else None),
+                "bioplatforms_url": getattr(r, "bioplatforms_url", None) or (r.bpa_json.get("bioplatforms_url") if isinstance(r.bpa_json, dict) else None),
+                "bpa_json": r.bpa_json,
+                "created_at": r.created_at,
+                "updated_at": r.updated_at,
+            })
+
+    exp_with_reads = []
+    for e in experiments:
+        exp_with_reads.append({
+            "id": str(e.id),
+            "sample_id": str(e.sample_id) if e.sample_id else None,
+            "bpa_package_id": e.bpa_package_id,
+            "bpa_json": e.bpa_json,
+            "created_at": e.created_at,
+            "updated_at": e.updated_at,
+            "reads": reads_by_exp.get(str(e.id), []),
+        })
+
+    return {
+        "grouping_key": grouping_key,
+        "experiments": exp_with_reads,
+    }
+
+
 @router.get("/submissions/{grouping_key}", response_model=OrganismSubmissionJsonResponse)
 def get_organism_submission_json(
     *,

@@ -1,5 +1,6 @@
 import json
 import uuid
+from datetime import datetime
 from typing import Any, Dict, List, Optional
 from uuid import UUID
 
@@ -67,12 +68,65 @@ def create_sample(
 
     sample_data = sample_in.dict(exclude_unset=True)
     sample_id = uuid.uuid4()
-    sample = Sample(
+    # helpers for type parsing
+    def _to_float(v):
+        try:
+            return float(v) if v not in (None, "") else None
+        except Exception:
+            return None
+
+    def _to_date(v):
+        if not v:
+            return None
+        try:
+            # Support simple YYYY-MM-DD
+            return datetime.fromisoformat(v).date()
+        except Exception:
+            return None
+
+    # Compute required NOT NULL fields and fallbacks
+    lifestage = sample_in.lifestage or "unknown"
+    sex = sample_in.sex or "unknown"
+    organism_part = sample_in.organism_part or "unknown"
+    region_and_locality = getattr(sample_in, "region_and_locality", None) or sample_in.collection_location or "unknown"
+    country_or_sea = getattr(sample_in, "country_or_sea", None) or "unknown"
+    habitat = sample_in.habitat or "unknown"
+    collection_date_val = sample_in.date_of_collection or None
+    # Accept raw string and allow missing collection_date
+
+    # Build kwargs dynamically so we don't pass None for DB server_default columns
+    sample_kwargs = dict(
         id=sample_id,
         organism_key=sample_in.organism_key,
         bpa_sample_id=sample_in.bpa_sample_id,
+        specimen_id=sample_in.specimen_id,
+        identified_by=sample_in.identified_by,
+        specimen_custodian=sample_in.specimen_custodian,
+        sample_custodian=sample_in.sample_custodian,
+        lifestage=lifestage,
+        sex=sex,
+        organism_part=organism_part,
+        region_and_locality=region_and_locality,
+        country_or_sea=country_or_sea,
+        habitat=habitat,
+        collection_method=sample_in.description_of_collection_method,
+        collection_date=collection_date_val,
+        collection_permit=sample_in.collection_permit,
+        data_context=sample_in.data_context,
+        bioplatforms_project_id=sample_in.bioplatforms_project_id,
+        latitude=_to_float(sample_in.decimal_latitude),
+        longitude=_to_float(sample_in.decimal_longitude),
+        elevation=_to_float(sample_in.elevation),
+        depth=_to_float(sample_in.depth),
         bpa_json=sample_in.model_dump(mode="json", exclude_unset=True),
     )
+    # Only set these if provided (DB has server defaults for NOT NULL)
+    if sample_in.collected_by:
+        sample_kwargs["collected_by"] = sample_in.collected_by
+    if sample_in.collector_institute:
+        sample_kwargs["collecting_institution"] = sample_in.collector_institute
+
+    sample = Sample(**sample_kwargs)
     db.add(sample)
 
      # Load the ENA-ATOL mapping file
@@ -313,12 +367,62 @@ def bulk_import_samples(
         try:
             # Create new sample
             sample_id = uuid.uuid4()
-            sample = Sample(
+            # helpers for type parsing
+            def _to_float(v):
+                try:
+                    return float(v) if v not in (None, "") else None
+                except Exception:
+                    return None
+
+            def _to_date(v):
+                if not v:
+                    return None
+                try:
+                    return datetime.fromisoformat(v).date()
+                except Exception:
+                    return None
+
+            # Required fields with fallbacks
+            lifestage = sample_data.get("lifestage") or "unknown"
+            sex = sample_data.get("sex") or "unknown"
+            organism_part = sample_data.get("organism_part") or "unknown"
+            region_and_locality = sample_data.get("region_and_locality") or sample_data.get("collection_location") or "unknown"
+            country_or_sea = sample_data.get("country_or_sea") or "unknown"
+            habitat = sample_data.get("habitat") or "unknown"
+            collection_date_val = sample_data.get("date_of_collection") or sample_data.get("collection_date")
+            # Accept raw string and allow missing collection_date
+
+            sample_kwargs = dict(
                 id=sample_id,
                 organism_key=organism_key,
                 bpa_sample_id=bpa_sample_id,
+                specimen_id=sample_data.get("specimen_id"),
+                identified_by=sample_data.get("identified_by"),
+                specimen_custodian=sample_data.get("specimen_custodian"),
+                sample_custodian=sample_data.get("sample_custodian"),
+                lifestage=lifestage,
+                sex=sex,
+                organism_part=organism_part,
+                region_and_locality=region_and_locality,
+                country_or_sea=country_or_sea,
+                habitat=habitat,
+                collection_method=sample_data.get("description_of_collection_method") or sample_data.get("collection_method"),
+                collection_date=collection_date_val,
+                collection_permit=sample_data.get("collection_permit"),
+                data_context=sample_data.get("data_context"),
+                bioplatforms_project_id=sample_data.get("bioplatforms_project_id"),
+                latitude=_to_float(sample_data.get("decimal_latitude")),
+                longitude=_to_float(sample_data.get("decimal_longitude")),
+                elevation=_to_float(sample_data.get("elevation")),
+                depth=_to_float(sample_data.get("depth")),
                 bpa_json=sample_data
             )
+            if sample_data.get("collected_by"):
+                sample_kwargs["collected_by"] = sample_data.get("collected_by")
+            if (sample_data.get("collector_institute") or sample_data.get("collecting_institution")):
+                sample_kwargs["collecting_institution"] = sample_data.get("collector_institute") or sample_data.get("collecting_institution")
+
+            sample = Sample(**sample_kwargs)
             db.add(sample)
             
             # Create prepared_payload based on the mapping

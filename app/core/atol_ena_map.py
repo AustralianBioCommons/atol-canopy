@@ -90,10 +90,9 @@
     "data_owner",
     "extraction_method",
     "nucleid_acid_treatment",
-    "extraction_protocol_DOI",
     "nucleic_acid_conc",
     "nucleic_acid_volume",
-    "GAL",
+    "gal",
     "sample_access_date"
 ]
  # Run SRA schema

@@ -1,7 +1,7 @@
 import uuid
 from datetime import datetime, timezone
 
-from sqlalchemy import Column, DateTime, ForeignKey, ForeignKeyConstraint, Text, BigInteger, String, Enum as SQLAlchemyEnum
+from sqlalchemy import Column, DateTime, ForeignKey, ForeignKeyConstraint, Text, BigInteger, String, Boolean, Enum as SQLAlchemyEnum
 from sqlalchemy.dialects.postgresql import UUID, JSONB
 from sqlalchemy.orm import relationship, backref
 
@@ -19,6 +19,14 @@ class Read(Base):
     id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     experiment_id = Column(UUID(as_uuid=True), ForeignKey("experiment.id", ondelete="CASCADE"), nullable=True)
     bpa_resource_id = Column(Text, unique=True, nullable=False)
+    bpa_dataset_id = Column(Text, nullable=True)
+    file_name = Column(Text, nullable=True)
+    file_checksum = Column(Text, nullable=True)
+    file_format = Column(Text, nullable=True)
+    optional_file = Column(Boolean, nullable=False, default=True)
+    bioplatforms_url = Column(Text, nullable=True)
+    read_number = Column(Text, nullable=True)
+    lane_number = Column(Text, nullable=True)
     bpa_json = Column(JSONB, nullable=False)
     created_at = Column(DateTime, nullable=False, default=datetime.now(timezone.utc))
     updated_at = Column(DateTime, nullable=False, default=datetime.now(timezone.utc), onupdate=datetime.now(timezone.utc))
