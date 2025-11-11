@@ -26,6 +26,7 @@ from app.schemas.common import SubmissionStatus
 from app.schemas.bulk_import import BulkExperimentImport, BulkImportResponse
 
 router = APIRouter()
+from app.utils.mapping import map_to_model_columns, to_bool
 
 
 @router.get("/", response_model=List[ExperimentSchema])
@@ -62,19 +63,19 @@ def create_experiment(
     require_role(current_user, ["curator", "admin"])
     
     experiment_id = uuid.uuid4()
-    # Auto-map fields from Pydantic schema to Experiment columns
+    # Auto-map fields from Pydantic schema to Experiment columns using shared mapper
     exp_data = experiment_in.model_dump(exclude_unset=True)
-    # Light normalization
-    if "insert_size" in exp_data and exp_data["insert_size"] is not None:
-        exp_data["insert_size"] = str(exp_data["insert_size"])
-    allowed_cols = {c.name for c in Experiment.__table__.columns}
-    exclude_keys = {"id", "created_at", "updated_at", "bpa_json"}
-    experiment_kwargs = {k: v for k, v in exp_data.items() if k in (allowed_cols - exclude_keys)}
-    experiment = Experiment(
-        id=experiment_id,
-        bpa_json=exp_data,
-        **experiment_kwargs,
+    transforms = {
+        "insert_size": (lambda v: str(v) if v is not None else None),
+    }
+    inject = {"id": experiment_id}
+    experiment_kwargs = map_to_model_columns(
+        Experiment,
+        exp_data,
+        transforms=transforms,
+        inject=inject,
     )
+    experiment = Experiment(bpa_json=exp_data, **experiment_kwargs)
     db.add(experiment)
 
     experiment_data = experiment_in.dict(exclude_unset=True)
@@ -338,23 +339,23 @@ def bulk_import_experiments(
             experiment_id = uuid.uuid4()
             sample_id = sample.id
             
-            # Auto-map fields from experiment_data to Experiment columns
-            allowed_cols = {c.name for c in Experiment.__table__.columns}
-            # Exclude auto-managed or explicitly set fields
-            exclude_keys = {"id", "sample_id", "bpa_package_id", "bpa_json", "created_at", "updated_at"}
-            experiment_kwargs = {k: v for k, v in experiment_data.items() if k in (allowed_cols - exclude_keys)}
-            # Light normalization
-            if "insert_size" in experiment_kwargs and experiment_kwargs["insert_size"] is not None:
-                experiment_kwargs["insert_size"] = str(experiment_kwargs["insert_size"])
-
-            experiment = Experiment(
-                id=experiment_id,
-                sample_id=sample_id,
-                bpa_package_id=package_id,
-                bpa_json=experiment_data,
-                gal=experiment_data.get("GAL", None),
-                **experiment_kwargs,
+            # Auto-map fields from experiment_data to Experiment columns using shared mapper
+            aliases = {
+                "GAL": "gal",
+                "extraction_protocol_DOI": "extraction_protocol_doi",
+            }
+            transforms = {
+                "insert_size": (lambda v: str(v) if v is not None else None),
+            }
+            inject = {"id": experiment_id, "sample_id": sample_id, "bpa_package_id": package_id}
+            experiment_kwargs = map_to_model_columns(
+                Experiment,
+                experiment_data,
+                aliases=aliases,
+                transforms=transforms,
+                inject=inject,
             )
+            experiment = Experiment(bpa_json=experiment_data, **experiment_kwargs)
             db.add(experiment)
             
             # Find a project for this experiment
@@ -385,26 +386,17 @@ def bulk_import_experiments(
             if "runs" in experiment_data and isinstance(experiment_data["runs"], list):
                 for run in experiment_data["runs"]:
                     try:
-                        # Create read entity for each run using auto-mapping
-                        def _to_bool(v):
-                            if isinstance(v, bool):
-                                return v
-                            if v in (None, ""):
-                                return None
-                            return str(v).lower() in ("true", "1", "yes")
-
-                        allowed_read_cols = {c.name for c in Read.__table__.columns}
-                        read_exclude = {"id", "created_at", "updated_at", "experiment_id", "bpa_json"}
-                        read_kwargs = {k: v for k, v in run.items() if k in (allowed_read_cols - read_exclude)}
-                        if "optional_file" in read_kwargs and read_kwargs["optional_file"] is not None:
-                            read_kwargs["optional_file"] = _to_bool(read_kwargs["optional_file"])
-
-                        read = Read(
-                            id=uuid.uuid4(),
-                            experiment_id=experiment_id,
-                            bpa_json=run,
-                            **read_kwargs,
+                        # Create read entity for each run using shared mapper
+                        read_id = uuid.uuid4()
+                        transforms = {"optional_file": to_bool}
+                        inject = {"id": read_id, "experiment_id": experiment_id}
+                        read_kwargs = map_to_model_columns(
+                            Read,
+                            run,
+                            transforms=transforms,
+                            inject=inject,
                         )
+                        read = Read(bpa_json=run, **read_kwargs)
                         db.add(read)
                         created_reads_count += 1
 
