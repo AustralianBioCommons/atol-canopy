@@ -156,7 +156,6 @@ CREATE TABLE sample (
     preservation_method TEXT,
     preservation_temperature TEXT,
     project_name TEXT,
-    biosample_accession TEXT,
     -- bpa_json JSONB NOT NULL,
     -- TODO extensions json field above instead of bpa_json?
     created_at TIMESTAMP NOT NULL DEFAULT NOW(),

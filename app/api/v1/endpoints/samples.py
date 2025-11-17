@@ -31,8 +31,6 @@ from app.schemas.common import SubmissionJsonResponse, SubmissionStatus
 import os
 
 router = APIRouter()
-from app.utils.mapping import map_to_model_columns, to_float
-
 
 @router.get("/", response_model=List[SampleSchema])
 def read_samples(
@@ -89,48 +87,57 @@ def create_sample(
     lifestage = sample_in.lifestage or "unknown"
     sex = sample_in.sex or "unknown"
     organism_part = sample_in.organism_part or "unknown"
-    region_and_locality = getattr(sample_in, "region_and_locality", None) or sample_in.collection_location or "unknown"
+    region_and_locality = getattr(sample_in, "region_and_locality", None) or "unknown"
     country_or_sea = getattr(sample_in, "country_or_sea", None) or "unknown"
     habitat = sample_in.habitat or "unknown"
-    collection_date_val = sample_in.date_of_collection or None
+    collection_date_val = getattr(sample_in, "collection_date", None) or None
     # Accept raw string and allow missing collection_date
 
-    # Map incoming fields with aliases, transforms, defaults, and inject id
-    base_data = sample_in.model_dump(exclude_unset=True)
-    aliases = {
-        "description_of_collection_method": "collection_method",
-        "date_of_collection": "collection_date",
-        "decimal_latitude": "latitude",
-        "decimal_longitude": "longitude",
-        "collector_institute": "collecting_institution",
-    }
-    transforms = {
-        "latitude": to_float,
-        "longitude": to_float,
-        "elevation": to_float,
-        "depth": to_float,
-    }
-    defaults = {
-        "lifestage": lifestage,
-        "sex": sex,
-        "organism_part": organism_part,
-        "region_and_locality": region_and_locality,
-        "country_or_sea": country_or_sea,
-        "habitat": habitat,
-        "collection_date": collection_date_val,
-    }
-    inject = {"id": sample_id}
-    sample_kwargs = map_to_model_columns(
-        Sample,
-        base_data,
-        aliases=aliases,
-        transforms=transforms,
-        defaults=defaults,
-        inject=inject,
+    # Build kwargs dynamically so we don't pass None for DB server_default columns
+    sample_kwargs = dict(
+        id=sample_id,
+        organism_key=sample_in.organism_key,
+        bpa_sample_id=sample_in.bpa_sample_id,
+        specimen_id=sample_in.specimen_id,
+        identified_by=sample_in.identified_by,
+        specimen_id_description=sample_in.specimen_id_description,
+        specimen_custodian=sample_in.specimen_custodian,
+        sample_custodian=sample_in.sample_custodian,
+        lifestage=lifestage,
+        sex=sex,
+        organism_part=organism_part,
+        region_and_locality=region_and_locality,
+        state_or_region=sample_in.state_or_region,
+        country_or_sea=country_or_sea,
+        indigenous_location=sample_in.indigenous_location,
+        latitude=_to_float(sample_in.decimal_latitude),
+        longitude=_to_float(sample_in.decimal_longitude),
+        elevation=_to_float(sample_in.elevation),
+        depth=_to_float(sample_in.depth),
+        habitat=habitat,
+        collection_method=sample_in.description_of_collection_method,
+        collection_date=collection_date_val,
+        collected_by=sample_in.collected_by,
+        collecting_institute=sample_in.collector_institute,
+        collection_permit=sample_in.collection_permit,
+        data_context=sample_in.data_context,
+        bioplatforms_project_id=sample_in.bioplatforms_project_id,
+        title=sample_in.title,
+        sample_same_as=sample_in.sample_same_as,
+        sample_derived_from=sample_in.sample_derived_from,
+        specimen_voucher=sample_in.specimen_voucher,
+        tolid=sample_in.tolid,
+        preservation_method=sample_in.preservation_method,
+        preservation_temperature=sample_in.preservation_temperature,
+        bpa_json=sample_in.model_dump(mode="json", exclude_unset=True),
     )
-    sample = Sample(
-        #bpa_json=sample_in.model_dump(mode="json", exclude_unset=True), 
-        **sample_kwargs)
+    # Only set these if provided (DB has server defaults for NOT NULL)
+    if sample_in.collected_by:
+        sample_kwargs["collected_by"] = sample_in.collected_by
+    if sample_in.collector_institute:
+        sample_kwargs["collecting_institution"] = sample_in.collector_institute
+
+    sample = Sample(**sample_kwargs)
     db.add(sample)
 
      # Load the ENA-ATOL mapping file
@@ -279,7 +286,6 @@ def update_sample(
                 # update the sample_submission object
                 
         # initiate new bpa_json object to the previous bpa_json object
-        """
         new_bpa_json = sample.bpa_json
         setattr(sample, "organism_key", sample_in.organism_key)
         setattr(sample, "bpa_sample_id", sample_in.bpa_sample_id)
@@ -287,7 +293,6 @@ def update_sample(
             new_bpa_json[field] = value
         sample.bpa_json = new_bpa_json
         flag_modified(sample, "bpa_json")
-        """
         db.add(sample)
         db.commit()
         db.refresh(sample)
@@ -396,46 +401,39 @@ def bulk_import_samples(
             country_or_sea = sample_data.get("country_or_sea") or "unknown"
             habitat = sample_data.get("habitat") or "unknown"
             collection_date_val = sample_data.get("date_of_collection") or sample_data.get("collection_date")
-            # Use shared mapper to build kwargs
-            base_data = dict(sample_data)
-            aliases = {
-                "description_of_collection_method": "collection_method",
-                "date_of_collection": "collection_date",
-                "decimal_latitude": "latitude",
-                "decimal_longitude": "longitude",
-                "collector_institute": "collecting_institution",
-            }
-            transforms = {
-                "latitude": to_float,
-                "longitude": to_float,
-                "elevation": to_float,
-                "depth": to_float,
-            }
-            defaults = {
-                "lifestage": lifestage,
-                "sex": sex,
-                "organism_part": organism_part,
-                "region_and_locality": region_and_locality,
-                "country_or_sea": country_or_sea,
-                "habitat": habitat,
-                "collection_date": collection_date_val,
-            }
-            inject = {
-                "id": sample_id,
-                "organism_key": organism_key,
-                "bpa_sample_id": bpa_sample_id,
-            }
-            sample_kwargs = map_to_model_columns(
-                Sample,
-                base_data,
-                aliases=aliases,
-                transforms=transforms,
-                defaults=defaults,
-                inject=inject,
+            # Accept raw string and allow missing collection_date
+
+            sample_kwargs = dict(
+                id=sample_id,
+                organism_key=organism_key,
+                bpa_sample_id=bpa_sample_id,
+                specimen_id=sample_data.get("specimen_id"),
+                identified_by=sample_data.get("identified_by"),
+                specimen_custodian=sample_data.get("specimen_custodian"),
+                sample_custodian=sample_data.get("sample_custodian"),
+                lifestage=lifestage,
+                sex=sex,
+                organism_part=organism_part,
+                region_and_locality=region_and_locality,
+                country_or_sea=country_or_sea,
+                habitat=habitat,
+                collection_method=sample_data.get("description_of_collection_method") or sample_data.get("collection_method"),
+                collection_date=collection_date_val,
+                collection_permit=sample_data.get("collection_permit"),
+                data_context=sample_data.get("data_context"),
+                bioplatforms_project_id=sample_data.get("bioplatforms_project_id"),
+                latitude=_to_float(sample_data.get("decimal_latitude")),
+                longitude=_to_float(sample_data.get("decimal_longitude")),
+                elevation=_to_float(sample_data.get("elevation")),
+                depth=_to_float(sample_data.get("depth")),
+                bpa_json=sample_data
             )
-            sample = Sample(
-                # bpa_json=sample_data, 
-                **sample_kwargs)
+            if sample_data.get("collected_by"):
+                sample_kwargs["collected_by"] = sample_data.get("collected_by")
+            if (sample_data.get("collector_institute") or sample_data.get("collecting_institution")):
+                sample_kwargs["collecting_institution"] = sample_data.get("collector_institute") or sample_data.get("collecting_institution")
+
+            sample = Sample(**sample_kwargs)
             db.add(sample)
             
             # Create prepared_payload based on the mapping
