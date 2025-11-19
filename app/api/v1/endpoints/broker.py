@@ -13,6 +13,7 @@ from app.models.accession_registry import AccessionRegistry
 from sqlalchemy.dialects.postgresql import insert
 from app.models.experiment import Experiment, ExperimentSubmission
 from app.models.read import Read, ReadSubmission
+from app.models.broker import SubmissionBatch, SubmissionAttempt, SubmissionAttemptItem
 
 router = APIRouter(dependencies=[Depends(has_role(["broker"]))])
 
@@ -27,6 +28,7 @@ class ClaimedEntity(BaseModel):
 
 class ClaimResponse(BaseModel):
     batch_id: UUID
+    attempt_id: UUID
     organism_key: str
     samples: List[ClaimedEntity] = Field(default_factory=list)
     experiments: List[ClaimedEntity] = Field(default_factory=list)
@@ -47,6 +49,7 @@ class ReportItem(BaseModel):
 
 class ReportRequest(BaseModel):
     batch_id: Optional[UUID] = None
+    attempt_id: Optional[UUID] = None
     samples: List[ReportItem] = Field(default_factory=list)
     experiments: List[ReportItem] = Field(default_factory=list)
     reads: List[ReportItem] = Field(default_factory=list)
@@ -67,13 +70,26 @@ def claim_drafts_for_organism(
     """Claim latest draft SampleSubmissions for an organism and mark them 'submitting'.
     This acts as a short lease to prevent concurrent edits.
     """
-    batch_id = uuid4()
+    # Create a batch and an attempt for this claim
+    batch = SubmissionBatch(organism_key=organism_key, status="processing")
+    db.add(batch)
+    db.flush()
+    ttl = timedelta(minutes=15)
+    now = datetime.now(timezone.utc)
+    attempt = SubmissionAttempt(
+        batch_id=batch.id,
+        status="processing",
+        lock_acquired_at=now,
+        lock_expires_at=now + ttl,
+    )
+    db.add(attempt)
+    db.flush()
+    batch_id = batch.id
+    attempt_id = attempt.id
 
     claimed_samples: List[ClaimedEntity] = []
     claimed_experiments: List[ClaimedEntity] = []
     claimed_reads: List[ClaimedEntity] = []
-    now = datetime.now(timezone.utc)
-    ttl = timedelta(minutes=15)
 
     # Latest draft per sample_id using window function (avoid DISTINCT with FOR UPDATE)
     sample_rank_subq = (
@@ -107,8 +123,11 @@ def claim_drafts_for_organism(
     for row in sample_rows:
         row.status = "submitting"
         row.batch_id = batch_id
+        row.attempt_id = attempt_id
         row.lock_acquired_at = now
-        row.lock_expires_at = now + ttl
+        row.lock_expires_at = attempt.lock_expires_at
+        # record in attempt items
+        db.add(SubmissionAttemptItem(attempt_id=attempt_id, entity_type="sample", submission_id=row.id))
     db.commit()
 
     for row in sample_rows:
@@ -153,8 +172,10 @@ def claim_drafts_for_organism(
     for row in exp_rows:
         row.status = "submitting"
         row.batch_id = batch_id
+        row.attempt_id = attempt_id
         row.lock_acquired_at = now
-        row.lock_expires_at = now + ttl
+        row.lock_expires_at = attempt.lock_expires_at
+        db.add(SubmissionAttemptItem(attempt_id=attempt_id, entity_type="experiment", submission_id=row.id))
     db.commit()
 
     for row in exp_rows:
@@ -200,8 +221,10 @@ def claim_drafts_for_organism(
     for row in read_rows:
         row.status = "submitting"
         row.batch_id = batch_id
+        row.attempt_id = attempt_id
         row.lock_acquired_at = now
-        row.lock_expires_at = now + ttl
+        row.lock_expires_at = attempt.lock_expires_at
+        db.add(SubmissionAttemptItem(attempt_id=attempt_id, entity_type="read", submission_id=row.id))
     db.commit()
 
     for row in read_rows:
@@ -216,11 +239,91 @@ def claim_drafts_for_organism(
 
     return ClaimResponse(
         batch_id=batch_id,
+        attempt_id=attempt_id,
         organism_key=organism_key,
         samples=claimed_samples,
         experiments=claimed_experiments,
         reads=claimed_reads,
     )
+
+@router.post("/attempts/{attempt_id}/lease/renew")
+def renew_attempt_lease(
+    *,
+    attempt_id: UUID,
+    extend_minutes: int = Query(15, ge=1, le=180),
+    db: Session = Depends(get_db),
+) -> Dict[str, Any]:
+    """Extend the lease for an attempt and its claimed items."""
+    attempt = db.query(SubmissionAttempt).filter(SubmissionAttempt.id == attempt_id).first()
+    if not attempt:
+        raise HTTPException(status_code=404, detail="Attempt not found")
+
+    now = datetime.now(timezone.utc)
+    current_exp = attempt.lock_expires_at or now
+    new_exp = (current_exp if current_exp > now else now) + timedelta(minutes=extend_minutes)
+    attempt.lock_expires_at = new_exp
+    db.add(attempt)
+
+    # Propagate to items in submitting state
+    for sub in db.query(SampleSubmission).filter(SampleSubmission.attempt_id == attempt_id, SampleSubmission.status == "submitting").all():
+        sub.lock_expires_at = new_exp
+    for sub in db.query(ExperimentSubmission).filter(ExperimentSubmission.attempt_id == attempt_id, ExperimentSubmission.status == "submitting").all():
+        sub.lock_expires_at = new_exp
+    for sub in db.query(ReadSubmission).filter(ReadSubmission.attempt_id == attempt_id, ReadSubmission.status == "submitting").all():
+        sub.lock_expires_at = new_exp
+
+    db.commit()
+    return {"attempt_id": str(attempt_id), "lock_expires_at": new_exp.isoformat()}
+
+
+@router.post("/attempts/{attempt_id}/finalize")
+def finalize_attempt(
+    *,
+    attempt_id: UUID,
+    db: Session = Depends(get_db),
+) -> Dict[str, Any]:
+    """Finalize an attempt: release any remaining 'submitting' items back to 'draft' and close the attempt."""
+    attempt = db.query(SubmissionAttempt).filter(SubmissionAttempt.id == attempt_id).first()
+    if not attempt:
+        raise HTTPException(status_code=404, detail="Attempt not found")
+
+    released = {"samples": 0, "experiments": 0, "reads": 0}
+
+    # Samples
+    sample_rows = db.query(SampleSubmission).filter(SampleSubmission.attempt_id == attempt_id, SampleSubmission.status == "submitting").all()
+    for sub in sample_rows:
+        sub.status = "draft"
+        sub.batch_id = None
+        sub.attempt_id = None
+        sub.lock_acquired_at = None
+        sub.lock_expires_at = None
+        released["samples"] += 1
+
+    # Experiments
+    exp_rows = db.query(ExperimentSubmission).filter(ExperimentSubmission.attempt_id == attempt_id, ExperimentSubmission.status == "submitting").all()
+    for sub in exp_rows:
+        sub.status = "draft"
+        sub.batch_id = None
+        sub.attempt_id = None
+        sub.lock_acquired_at = None
+        sub.lock_expires_at = None
+        released["experiments"] += 1
+
+    # Reads
+    read_rows = db.query(ReadSubmission).filter(ReadSubmission.attempt_id == attempt_id, ReadSubmission.status == "submitting").all()
+    for sub in read_rows:
+        sub.status = "draft"
+        sub.batch_id = None
+        sub.attempt_id = None
+        sub.lock_acquired_at = None
+        sub.lock_expires_at = None
+        released["reads"] += 1
+
+    attempt.status = "complete"
+    db.add(attempt)
+    db.commit()
+
+    return {"attempt_id": str(attempt_id), "released": released, "status": attempt.status}
 
 
 @router.post("/batches/{batch_id}/report", response_model=ReportResult)
@@ -234,6 +337,7 @@ def report_results(
     updated_samples = 0
     updated_experiments = 0
     updated_reads = 0
+    provided_attempt_id = payload.attempt_id
 
     # Process SampleSubmission updates
     for item in payload.samples:
@@ -247,6 +351,8 @@ def report_results(
         # If batch tracking is active, enforce match
         if sub.batch_id and sub.batch_id != batch_id:
             raise HTTPException(status_code=409, detail=f"SampleSubmission {item.id} belongs to different batch")
+        if provided_attempt_id is not None and sub.attempt_id != provided_attempt_id:
+            raise HTTPException(status_code=409, detail=f"SampleSubmission {item.id} belongs to different attempt")
 
         # Apply updates
         sub.status = item.status
@@ -276,6 +382,7 @@ def report_results(
         # Clear lease on finalize (anything other than submitting)
         if item.status != "submitting":
             sub.batch_id = None
+            sub.attempt_id = None
             sub.lock_acquired_at = None
             sub.lock_expires_at = None
 
@@ -291,6 +398,8 @@ def report_results(
             raise HTTPException(status_code=409, detail=f"ExperimentSubmission {item.id} not in 'submitting' state")
         if sub.batch_id and sub.batch_id != batch_id:
             raise HTTPException(status_code=409, detail=f"ExperimentSubmission {item.id} belongs to different batch")
+        if provided_attempt_id is not None and sub.attempt_id != provided_attempt_id:
+            raise HTTPException(status_code=409, detail=f"ExperimentSubmission {item.id} belongs to different attempt")
 
         sub.status = item.status
         sub.response_payload = item.response_payload
@@ -320,6 +429,7 @@ def report_results(
 
         if item.status != "submitting":
             sub.batch_id = None
+            sub.attempt_id = None
             sub.lock_acquired_at = None
             sub.lock_expires_at = None
 
@@ -335,6 +445,8 @@ def report_results(
             raise HTTPException(status_code=409, detail=f"ReadSubmission {item.id} not in 'submitting' state")
         if sub.batch_id and sub.batch_id != batch_id:
             raise HTTPException(status_code=409, detail=f"ReadSubmission {item.id} belongs to different batch")
+        if provided_attempt_id is not None and sub.attempt_id != provided_attempt_id:
+            raise HTTPException(status_code=409, detail=f"ReadSubmission {item.id} belongs to different attempt")
 
         sub.status = item.status
         sub.response_payload = item.response_payload
@@ -360,6 +472,7 @@ def report_results(
 
         if item.status != "submitting":
             sub.batch_id = None
+            sub.attempt_id = None
             sub.lock_acquired_at = None
             sub.lock_expires_at = None
 

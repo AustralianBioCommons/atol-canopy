@@ -129,7 +129,7 @@ def create_sample(
         tolid=sample_in.tolid,
         preservation_method=sample_in.preservation_method,
         preservation_temperature=sample_in.preservation_temperature,
-        bpa_json=sample_in.model_dump(mode="json", exclude_unset=True),
+        # bpa_json=sample_in.model_dump(mode="json", exclude_unset=True),
     )
     # Only set these if provided (DB has server defaults for NOT NULL)
     if sample_in.collected_by:
@@ -286,6 +286,7 @@ def update_sample(
                 # update the sample_submission object
                 
         # initiate new bpa_json object to the previous bpa_json object
+        """
         new_bpa_json = sample.bpa_json
         setattr(sample, "organism_key", sample_in.organism_key)
         setattr(sample, "bpa_sample_id", sample_in.bpa_sample_id)
@@ -293,6 +294,7 @@ def update_sample(
             new_bpa_json[field] = value
         sample.bpa_json = new_bpa_json
         flag_modified(sample, "bpa_json")
+        """
         db.add(sample)
         db.commit()
         db.refresh(sample)
@@ -426,7 +428,7 @@ def bulk_import_samples(
                 longitude=_to_float(sample_data.get("decimal_longitude")),
                 elevation=_to_float(sample_data.get("elevation")),
                 depth=_to_float(sample_data.get("depth")),
-                bpa_json=sample_data
+                # bpa_json=sample_data
             )
             if sample_data.get("collected_by"):
                 sample_kwargs["collected_by"] = sample_data.get("collected_by")

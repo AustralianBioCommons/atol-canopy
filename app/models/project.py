@@ -23,7 +23,7 @@ class Project(Base):
     alias = Column(Text, nullable=False)
     title = Column(Text, nullable=False)
     description = Column(Text, nullable=False)
-    centre_name = Column(Text, nullable=True)
+    centre_name = Column(Text, nullable=True, default="AToL")
     study_attributes = Column(JSONB, nullable=True)
     submitted_at = Column(DateTime, nullable=True)
     status = Column(SQLAlchemyEnum("draft", "ready", "submitting", "rejected", "accepted", "replaced", name="submission_status"), nullable=False, default="draft")

@@ -84,6 +84,7 @@ class ExperimentSubmission(Base):
     batch_id = Column(UUID(as_uuid=True), nullable=True)
     lock_acquired_at = Column(DateTime, nullable=True)
     lock_expires_at = Column(DateTime, nullable=True)
+    attempt_id = Column(UUID(as_uuid=True), nullable=True)
     
     # Relationships
     experiment = relationship("Experiment", backref=backref("exp_submission_records", cascade="all, delete-orphan"))
