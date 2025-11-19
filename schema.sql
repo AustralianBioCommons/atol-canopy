@@ -419,17 +419,7 @@ CREATE TABLE submission_attempt (
     updated_at TIMESTAMP NOT NULL DEFAULT NOW()
 );
 
-CREATE TABLE submission_attempt_item (
-    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
-    attempt_id UUID NOT NULL REFERENCES submission_attempt(id) ON DELETE CASCADE,
-    entity_type entity_type NOT NULL,
-    submission_id UUID NOT NULL,
-    created_at TIMESTAMP NOT NULL DEFAULT NOW(),
-    UNIQUE (attempt_id, entity_type, submission_id)
-);
-
 CREATE INDEX IF NOT EXISTS idx_submission_attempt_batch ON submission_attempt (batch_id);
-CREATE INDEX IF NOT EXISTS idx_submission_attempt_item_attempt ON submission_attempt_item (attempt_id);
 
 -- ==========================================
 -- Assembly tables

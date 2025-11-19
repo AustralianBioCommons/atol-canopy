@@ -23,7 +23,7 @@ class Settings(BaseSettings):
     # Security
     JWT_SECRET_KEY: Optional[str] = None
     JWT_ALGORITHM: Optional[str] = None
-    JWT_ACCESS_TOKEN_EXPIRE_MINUTES: int = 15  # 15 minutes
+    JWT_ACCESS_TOKEN_EXPIRE_MINUTES: int = 150  # 150 minutes TODO change to 15 min for prod
     JWT_REFRESH_TOKEN_EXPIRE_DAYS: int = 7  # 7 days
     
     DATABASE_URI: Optional[str] = None

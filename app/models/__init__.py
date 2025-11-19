@@ -9,3 +9,4 @@ from app.models.read import Read, ReadSubmission
 from app.models.sample import Sample, SampleSubmission
 from app.models.token import RefreshToken
 from app.models.user import User
+from app.models.broker import SubmissionBatch, SubmissionAttempt

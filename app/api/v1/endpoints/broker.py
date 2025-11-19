@@ -2,7 +2,7 @@ from datetime import datetime, timezone, timedelta
 from typing import Any, Dict, List, Optional
 from uuid import UUID, uuid4
 
-from fastapi import APIRouter, Depends, HTTPException, Path, Query
+from fastapi import APIRouter, Depends, HTTPException, Path, Query, Body
 from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session
 from sqlalchemy import func
@@ -13,7 +13,7 @@ from app.models.accession_registry import AccessionRegistry
 from sqlalchemy.dialects.postgresql import insert
 from app.models.experiment import Experiment, ExperimentSubmission
 from app.models.read import Read, ReadSubmission
-from app.models.broker import SubmissionBatch, SubmissionAttempt, SubmissionAttemptItem
+from app.models.broker import SubmissionBatch, SubmissionAttempt
 
 router = APIRouter(dependencies=[Depends(has_role(["broker"]))])
 
@@ -33,6 +33,15 @@ class ClaimResponse(BaseModel):
     samples: List[ClaimedEntity] = Field(default_factory=list)
     experiments: List[ClaimedEntity] = Field(default_factory=list)
     reads: List[ClaimedEntity] = Field(default_factory=list)
+
+
+class ClaimRequest(BaseModel):
+    # Optional explicit selection by submission IDs; if provided, organism_key is not enforced
+    sample_submission_ids: Optional[List[UUID]] = None
+    experiment_submission_ids: Optional[List[UUID]] = None
+    read_submission_ids: Optional[List[UUID]] = None
+    # option to override lease, in mins
+    lease_duration_minutes: Optional[int] = Field(default=None, ge=1, le=180)
 
 
 class ReportItem(BaseModel):
@@ -65,6 +74,7 @@ def claim_drafts_for_organism(
     *,
     organism_key: str = Path(..., description="Organism grouping_key"),
     per_type_limit: int = Query(100, ge=1, le=1000, description="Max items per type to claim"),
+    payload: Optional[ClaimRequest] = Body(default=None),
     db: Session = Depends(get_db),
 ) -> ClaimResponse:
     """Claim latest draft SampleSubmissions for an organism and mark them 'submitting'.
@@ -74,8 +84,11 @@ def claim_drafts_for_organism(
     batch = SubmissionBatch(organism_key=organism_key, status="processing")
     db.add(batch)
     db.flush()
-    ttl = timedelta(minutes=15)
-    now = datetime.now(timezone.utc)
+    lease_minutes = 15
+    if payload and payload.lease_duration_minutes:
+        lease_minutes = payload.lease_duration_minutes
+    ttl = timedelta(minutes=lease_minutes)
+    now = datetime.now()
     attempt = SubmissionAttempt(
         batch_id=batch.id,
         status="processing",
@@ -91,43 +104,49 @@ def claim_drafts_for_organism(
     claimed_experiments: List[ClaimedEntity] = []
     claimed_reads: List[ClaimedEntity] = []
 
-    # Latest draft per sample_id using window function (avoid DISTINCT with FOR UPDATE)
-    sample_rank_subq = (
-        db.query(
-            SampleSubmission.id.label("id"),
-            func.row_number()
-                .over(
-                    partition_by=SampleSubmission.sample_id,
-                    order_by=SampleSubmission.created_at.desc(),
-                )
-                .label("rn"),
+    # Choose sample rows by explicit IDs (if provided) else by organism/limit
+    if payload and payload.sample_submission_ids:
+        sample_rows = (
+            db.query(SampleSubmission)
+            .filter(SampleSubmission.id.in_(payload.sample_submission_ids))
+            .filter(SampleSubmission.status == "draft")
+            .with_for_update(skip_locked=True)
+            .all()
         )
-        .join(Sample, SampleSubmission.sample_id == Sample.id)
-        .filter(Sample.organism_key == organism_key, SampleSubmission.status == "draft")
-    ).subquery()
+    else:
+        sample_rank_subq = (
+            db.query(
+                SampleSubmission.id.label("id"),
+                func.row_number()
+                    .over(
+                        partition_by=SampleSubmission.sample_id,
+                        order_by=SampleSubmission.created_at.desc(),
+                    )
+                    .label("rn"),
+            )
+            .join(Sample, SampleSubmission.sample_id == Sample.id)
+            .filter(Sample.organism_key == organism_key, SampleSubmission.status == "draft")
+        ).subquery()
 
-    sample_ids_subq = (
-        db.query(sample_rank_subq.c.id)
-        .filter(sample_rank_subq.c.rn == 1)
-        .limit(per_type_limit)
-    ).subquery()
+        sample_ids_subq = (
+            db.query(sample_rank_subq.c.id)
+            .filter(sample_rank_subq.c.rn == 1)
+            .limit(per_type_limit)
+        ).subquery()
 
-    # Acquire row locks and mark as submitting
-    sample_rows = (
-        db.query(SampleSubmission)
-        .filter(SampleSubmission.id.in_(db.query(sample_ids_subq.c.id)))
-        .filter(SampleSubmission.status == "draft")
-        .with_for_update(skip_locked=True)
-        .all()
-    )
+        sample_rows = (
+            db.query(SampleSubmission)
+            .filter(SampleSubmission.id.in_(db.query(sample_ids_subq.c.id)))
+            .filter(SampleSubmission.status == "draft")
+            .with_for_update(skip_locked=True)
+            .all()
+        )
     for row in sample_rows:
         row.status = "submitting"
         row.batch_id = batch_id
         row.attempt_id = attempt_id
         row.lock_acquired_at = now
         row.lock_expires_at = attempt.lock_expires_at
-        # record in attempt items
-        db.add(SubmissionAttemptItem(attempt_id=attempt_id, entity_type="sample", submission_id=row.id))
     db.commit()
 
     for row in sample_rows:
@@ -140,42 +159,50 @@ def claim_drafts_for_organism(
             )
         )
 
-    # Latest draft ExperimentSubmission per experiment_id under this organism (window function)
-    exp_rank_subq = (
-        db.query(
-            ExperimentSubmission.id.label("id"),
-            func.row_number()
-                .over(
-                    partition_by=ExperimentSubmission.experiment_id,
-                    order_by=ExperimentSubmission.created_at.desc(),
-                )
-                .label("rn"),
+    # Choose experiment rows by explicit IDs (if provided) else by organism/limit
+    if payload and payload.experiment_submission_ids:
+        exp_rows = (
+            db.query(ExperimentSubmission)
+            .filter(ExperimentSubmission.id.in_(payload.experiment_submission_ids))
+            .filter(ExperimentSubmission.status == "draft")
+            .with_for_update(skip_locked=True)
+            .all()
         )
-        .join(Experiment, ExperimentSubmission.experiment_id == Experiment.id)
-        .join(Sample, Experiment.sample_id == Sample.id)
-        .filter(Sample.organism_key == organism_key, ExperimentSubmission.status == "draft")
-    ).subquery()
+    else:
+        exp_rank_subq = (
+            db.query(
+                ExperimentSubmission.id.label("id"),
+                func.row_number()
+                    .over(
+                        partition_by=ExperimentSubmission.experiment_id,
+                        order_by=ExperimentSubmission.created_at.desc(),
+                    )
+                    .label("rn"),
+            )
+            .join(Experiment, ExperimentSubmission.experiment_id == Experiment.id)
+            .join(Sample, Experiment.sample_id == Sample.id)
+            .filter(Sample.organism_key == organism_key, ExperimentSubmission.status == "draft")
+        ).subquery()
 
-    exp_ids_subq = (
-        db.query(exp_rank_subq.c.id)
-        .filter(exp_rank_subq.c.rn == 1)
-        .limit(per_type_limit)
-    ).subquery()
+        exp_ids_subq = (
+            db.query(exp_rank_subq.c.id)
+            .filter(exp_rank_subq.c.rn == 1)
+            .limit(per_type_limit)
+        ).subquery()
 
-    exp_rows = (
-        db.query(ExperimentSubmission)
-        .filter(ExperimentSubmission.id.in_(db.query(exp_ids_subq.c.id)))
-        .filter(ExperimentSubmission.status == "draft")
-        .with_for_update(skip_locked=True)
-        .all()
-    )
+        exp_rows = (
+            db.query(ExperimentSubmission)
+            .filter(ExperimentSubmission.id.in_(db.query(exp_ids_subq.c.id)))
+            .filter(ExperimentSubmission.status == "draft")
+            .with_for_update(skip_locked=True)
+            .all()
+        )
     for row in exp_rows:
         row.status = "submitting"
         row.batch_id = batch_id
         row.attempt_id = attempt_id
         row.lock_acquired_at = now
         row.lock_expires_at = attempt.lock_expires_at
-        db.add(SubmissionAttemptItem(attempt_id=attempt_id, entity_type="experiment", submission_id=row.id))
     db.commit()
 
     for row in exp_rows:
@@ -188,43 +215,51 @@ def claim_drafts_for_organism(
             )
         )
 
-    # Latest draft ReadSubmission per read_id under this organism (window function)
-    read_rank_subq = (
-        db.query(
-            ReadSubmission.id.label("id"),
-            func.row_number()
-                .over(
-                    partition_by=ReadSubmission.read_id,
-                    order_by=ReadSubmission.created_at.desc(),
-                )
-                .label("rn"),
+    # Choose read rows by explicit IDs (if provided) else by organism/limit
+    if payload and payload.read_submission_ids:
+        read_rows = (
+            db.query(ReadSubmission)
+            .filter(ReadSubmission.id.in_(payload.read_submission_ids))
+            .filter(ReadSubmission.status == "draft")
+            .with_for_update(skip_locked=True)
+            .all()
         )
-        .join(Read, ReadSubmission.read_id == Read.id)
-        .join(Experiment, Read.experiment_id == Experiment.id)
-        .join(Sample, Experiment.sample_id == Sample.id)
-        .filter(Sample.organism_key == organism_key, ReadSubmission.status == "draft")
-    ).subquery()
+    else:
+        read_rank_subq = (
+            db.query(
+                ReadSubmission.id.label("id"),
+                func.row_number()
+                    .over(
+                        partition_by=ReadSubmission.read_id,
+                        order_by=ReadSubmission.created_at.desc(),
+                    )
+                    .label("rn"),
+            )
+            .join(Read, ReadSubmission.read_id == Read.id)
+            .join(Experiment, Read.experiment_id == Experiment.id)
+            .join(Sample, Experiment.sample_id == Sample.id)
+            .filter(Sample.organism_key == organism_key, ReadSubmission.status == "draft")
+        ).subquery()
 
-    read_ids_subq = (
-        db.query(read_rank_subq.c.id)
-        .filter(read_rank_subq.c.rn == 1)
-        .limit(per_type_limit)
-    ).subquery()
+        read_ids_subq = (
+            db.query(read_rank_subq.c.id)
+            .filter(read_rank_subq.c.rn == 1)
+            .limit(per_type_limit)
+        ).subquery()
 
-    read_rows = (
-        db.query(ReadSubmission)
-        .filter(ReadSubmission.id.in_(db.query(read_ids_subq.c.id)))
-        .filter(ReadSubmission.status == "draft")
-        .with_for_update(skip_locked=True)
-        .all()
-    )
+        read_rows = (
+            db.query(ReadSubmission)
+            .filter(ReadSubmission.id.in_(db.query(read_ids_subq.c.id)))
+            .filter(ReadSubmission.status == "draft")
+            .with_for_update(skip_locked=True)
+            .all()
+        )
     for row in read_rows:
         row.status = "submitting"
         row.batch_id = batch_id
         row.attempt_id = attempt_id
         row.lock_acquired_at = now
         row.lock_expires_at = attempt.lock_expires_at
-        db.add(SubmissionAttemptItem(attempt_id=attempt_id, entity_type="read", submission_id=row.id))
     db.commit()
 
     for row in read_rows:
@@ -258,7 +293,7 @@ def renew_attempt_lease(
     if not attempt:
         raise HTTPException(status_code=404, detail="Attempt not found")
 
-    now = datetime.now(timezone.utc)
+    now = datetime.now()
     current_exp = attempt.lock_expires_at or now
     new_exp = (current_exp if current_exp > now else now) + timedelta(minutes=extend_minutes)
     attempt.lock_expires_at = new_exp
@@ -373,7 +408,7 @@ def report_results(
                 accession=item.accession,
                 entity_type="sample",
                 entity_id=sub.sample_id,
-                accepted_at=item.submitted_at or datetime.now(timezone.utc),
+                accepted_at=item.submitted_at or datetime.now(),
             )
             # On conflict by (authority, accession) or (authority, entity_type, entity_id), do nothing
             stmt = stmt.on_conflict_do_nothing(index_elements=[AccessionRegistry.accession])
@@ -405,11 +440,20 @@ def report_results(
         sub.response_payload = item.response_payload
         if item.accession:
             sub.accession = item.accession
-        # upstream accessions
+        # Ensure upstream sample accession exists in registry BEFORE setting FK
+        if item.sample_accession:
+            stmt = insert(AccessionRegistry).values(
+                authority=sub.authority or "ENA",
+                accession=item.sample_accession,
+                entity_type="sample",
+                entity_id=sub.sample_id,
+                accepted_at=item.submitted_at or datetime.now(),
+            )
+            stmt = stmt.on_conflict_do_nothing(index_elements=[AccessionRegistry.accession])
+            db.execute(stmt)
+            sub.sample_accession = item.sample_accession
         if item.project_accession:
             sub.project_accession = item.project_accession
-        if item.sample_accession:
-            sub.sample_accession = item.sample_accession
         if item.submitted_at and hasattr(sub, "submitted_at"):
             sub.submitted_at = item.submitted_at
 
@@ -422,7 +466,7 @@ def report_results(
                 accession=item.accession,
                 entity_type="experiment",
                 entity_id=sub.experiment_id,
-                accepted_at=item.submitted_at or datetime.now(timezone.utc),
+                accepted_at=item.submitted_at or datetime.now(),
             )
             stmt = stmt.on_conflict_do_nothing(index_elements=[AccessionRegistry.accession])
             db.execute(stmt)
@@ -452,8 +496,17 @@ def report_results(
         sub.response_payload = item.response_payload
         if item.accession:
             sub.accession = item.accession
-        # upstream experiment accession if provided
+        # Ensure upstream experiment accession exists in registry BEFORE setting FK
         if item.experiment_accession:
+            stmt = insert(AccessionRegistry).values(
+                authority=sub.authority or "ENA",
+                accession=item.experiment_accession,
+                entity_type="experiment",
+                entity_id=sub.experiment_id,
+                accepted_at=item.submitted_at or datetime.now(),
+            )
+            stmt = stmt.on_conflict_do_nothing(index_elements=[AccessionRegistry.accession])
+            db.execute(stmt)
             sub.experiment_accession = item.experiment_accession
 
         db.add(sub)
@@ -465,7 +518,7 @@ def report_results(
                 accession=item.accession,
                 entity_type="read",
                 entity_id=sub.read_id,
-                accepted_at=item.submitted_at or datetime.now(timezone.utc),
+                accepted_at=item.submitted_at or datetime.now(),
             )
             stmt = stmt.on_conflict_do_nothing(index_elements=[AccessionRegistry.accession])
             db.execute(stmt)
