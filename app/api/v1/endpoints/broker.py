@@ -540,3 +540,304 @@ def report_results(
             "reads": updated_reads,
         }
     )
+
+
+# ---------- Dashboard Helpers ----------
+def _counts_for_model(db: Session, model, filters) -> Dict[str, int]:
+    q = db.query(model.status, func.count()).filter(*filters).group_by(model.status)
+    rows = q.all()
+    out: Dict[str, int] = {"draft": 0, "submitting": 0, "accepted": 0, "rejected": 0}
+    for status, cnt in rows:
+        if status in out:
+            out[status] = cnt
+        else:
+            out[status] = cnt
+    return out
+
+
+def _counts_by_entity_for_batch(db: Session, batch_id: UUID) -> Dict[str, Dict[str, int]]:
+    return {
+        "samples": _counts_for_model(db, SampleSubmission, [SampleSubmission.batch_id == batch_id]),
+        "experiments": _counts_for_model(db, ExperimentSubmission, [ExperimentSubmission.batch_id == batch_id]),
+        "reads": _counts_for_model(db, ReadSubmission, [ReadSubmission.batch_id == batch_id]),
+    }
+
+
+def _counts_by_entity_for_attempt(db: Session, attempt_id: UUID) -> Dict[str, Dict[str, int]]:
+    return {
+        "samples": _counts_for_model(db, SampleSubmission, [SampleSubmission.attempt_id == attempt_id]),
+        "experiments": _counts_for_model(db, ExperimentSubmission, [ExperimentSubmission.attempt_id == attempt_id]),
+        "reads": _counts_for_model(db, ReadSubmission, [ReadSubmission.attempt_id == attempt_id]),
+    }
+
+
+def _derive_attempt_status(counts_by_entity: Dict[str, Dict[str, int]], lock_expires_at: Optional[datetime]) -> str:
+    now = datetime.now()
+    submitting = sum(d.get("submitting", 0) for d in counts_by_entity.values())
+    accepted = sum(d.get("accepted", 0) for d in counts_by_entity.values())
+    if submitting > 0 and (lock_expires_at is None or lock_expires_at > now):
+        return "active"
+    if submitting == 0 and accepted > 0:
+        return "complete"
+    if lock_expires_at is not None and lock_expires_at <= now and submitting > 0:
+        return "expired"
+    total = sum(sum(d.values()) for d in counts_by_entity.values())
+    if total == 0:
+        return "empty"
+    return "idle"
+
+
+def _derive_batch_status(counts_by_entity: Dict[str, Dict[str, int]], active_attempts_count: int) -> str:
+    submitting = sum(d.get("submitting", 0) for d in counts_by_entity.values())
+    accepted = sum(d.get("accepted", 0) for d in counts_by_entity.values())
+    draft = sum(d.get("draft", 0) for d in counts_by_entity.values())
+    if active_attempts_count > 0 or submitting > 0:
+        return "processing"
+    if accepted > 0 and submitting == 0 and draft == 0:
+        return "complete"
+    if accepted > 0 and draft > 0 and submitting == 0:
+        return "partial"
+    return "idle"
+
+
+# ---------- Dashboard GET Endpoints ----------
+@router.get("/batches")
+def list_batches(
+    *,
+    db: Session = Depends(get_db),
+    organism_key: Optional[str] = Query(None),
+    page: int = Query(1, ge=1),
+    page_size: int = Query(20, ge=1, le=200),
+) -> Dict[str, Any]:
+    q = db.query(SubmissionBatch)
+    if organism_key:
+        q = q.filter(SubmissionBatch.organism_key == organism_key)
+    total = q.count()
+    items = (
+        q.order_by(SubmissionBatch.created_at.desc())
+        .offset((page - 1) * page_size)
+        .limit(page_size)
+        .all()
+    )
+
+    results: List[Dict[str, Any]] = []
+    for b in items:
+        counts = _counts_by_entity_for_batch(db, b.id)
+        # active attempts = attempts with future lock and any submitting rows
+        attempts = db.query(SubmissionAttempt).filter(SubmissionAttempt.batch_id == b.id).all()
+        active_attempts_count = 0
+        now = datetime.now()
+        for a in attempts:
+            if a.lock_expires_at and a.lock_expires_at > now:
+                submitting_any = (
+                    db.query(SampleSubmission).filter(SampleSubmission.attempt_id == a.id, SampleSubmission.status == "submitting").first()
+                    or db.query(ExperimentSubmission).filter(ExperimentSubmission.attempt_id == a.id, ExperimentSubmission.status == "submitting").first()
+                    or db.query(ReadSubmission).filter(ReadSubmission.attempt_id == a.id, ReadSubmission.status == "submitting").first()
+                )
+                if submitting_any:
+                    active_attempts_count += 1
+        status = _derive_batch_status(counts, active_attempts_count)
+        results.append(
+            {
+                "batch_id": str(b.id),
+                "organism_key": b.organism_key,
+                "status": status,
+                "created_at": b.created_at,
+                "updated_at": b.updated_at,
+                "attempts_count": len(attempts),
+                "active_attempts_count": active_attempts_count,
+                "counts_by_entity": counts,
+            }
+        )
+
+    return {"items": results, "page": page, "page_size": page_size, "total": total}
+
+
+@router.get("/batches/{batch_id}")
+def get_batch(
+    *,
+    batch_id: UUID,
+    db: Session = Depends(get_db),
+) -> Dict[str, Any]:
+    b = db.query(SubmissionBatch).filter(SubmissionBatch.id == batch_id).first()
+    if not b:
+        raise HTTPException(status_code=404, detail="Batch not found")
+    counts = _counts_by_entity_for_batch(db, batch_id)
+    attempts = db.query(SubmissionAttempt).filter(SubmissionAttempt.batch_id == batch_id).order_by(SubmissionAttempt.created_at.desc()).all()
+    now = datetime.now()
+    active_attempts_count = 0
+    attempts_out: List[Dict[str, Any]] = []
+    for a in attempts:
+        a_counts = _counts_by_entity_for_attempt(db, a.id)
+        a_status = _derive_attempt_status(a_counts, a.lock_expires_at)
+        if a_status == "active":
+            active_attempts_count += 1
+        attempts_out.append(
+            {
+                "attempt_id": str(a.id),
+                "status": a_status,
+                "lock_expires_at": a.lock_expires_at,
+                "created_at": a.created_at,
+                "updated_at": a.updated_at,
+                "counts_by_status": {
+                    k: sum(v.values()) for k, v in a_counts.items()
+                },
+                "counts_by_entity": a_counts,
+            }
+        )
+    status = _derive_batch_status(counts, active_attempts_count)
+    return {
+        "batch_id": str(b.id),
+        "organism_key": b.organism_key,
+        "status": status,
+        "created_at": b.created_at,
+        "updated_at": b.updated_at,
+        "counts_by_entity": counts,
+        "attempts": attempts_out,
+    }
+
+
+@router.get("/attempts")
+def list_attempts(
+    *,
+    db: Session = Depends(get_db),
+    batch_id: Optional[UUID] = Query(None),
+    active_only: bool = Query(False),
+    page: int = Query(1, ge=1),
+    page_size: int = Query(20, ge=1, le=200),
+) -> Dict[str, Any]:
+    q = db.query(SubmissionAttempt)
+    if batch_id:
+        q = q.filter(SubmissionAttempt.batch_id == batch_id)
+    total = q.count()
+    items = (
+        q.order_by(SubmissionAttempt.created_at.desc())
+        .offset((page - 1) * page_size)
+        .limit(page_size)
+        .all()
+    )
+    now = datetime.now()
+    results: List[Dict[str, Any]] = []
+    for a in items:
+        counts = _counts_by_entity_for_attempt(db, a.id)
+        status = _derive_attempt_status(counts, a.lock_expires_at)
+        if active_only and status != "active":
+            continue
+        results.append(
+            {
+                "attempt_id": str(a.id),
+                "batch_id": str(a.batch_id),
+                "status": status,
+                "lock_expires_at": a.lock_expires_at,
+                "created_at": a.created_at,
+                "updated_at": a.updated_at,
+                "counts_by_entity": counts,
+            }
+        )
+    return {"items": results, "page": page, "page_size": page_size, "total": total}
+
+
+@router.get("/attempts/{attempt_id}")
+def get_attempt(
+    *,
+    attempt_id: UUID,
+    db: Session = Depends(get_db),
+) -> Dict[str, Any]:
+    a = db.query(SubmissionAttempt).filter(SubmissionAttempt.id == attempt_id).first()
+    if not a:
+        raise HTTPException(status_code=404, detail="Attempt not found")
+    counts = _counts_by_entity_for_attempt(db, attempt_id)
+    status = _derive_attempt_status(counts, a.lock_expires_at)
+    return {
+        "attempt_id": str(a.id),
+        "batch_id": str(a.batch_id),
+        "status": status,
+        "lock_expires_at": a.lock_expires_at,
+        "created_at": a.created_at,
+        "updated_at": a.updated_at,
+        "counts_by_entity": counts,
+    }
+
+
+@router.get("/organisms/{organism_key}/summary")
+def organism_summary(
+    *,
+    organism_key: str,
+    db: Session = Depends(get_db),
+    recent_batches: int = Query(5, ge=1, le=50),
+) -> Dict[str, Any]:
+    # latest batches
+    batches = (
+        db.query(SubmissionBatch)
+        .filter(SubmissionBatch.organism_key == organism_key)
+        .order_by(SubmissionBatch.created_at.desc())
+        .limit(recent_batches)
+        .all()
+    )
+    latest = [
+        {
+            "batch_id": str(b.id),
+            "status": _derive_batch_status(_counts_by_entity_for_batch(db, b.id), 0),
+            "created_at": b.created_at,
+        }
+        for b in batches
+    ]
+    # counts across organism (properly scoped via joins)
+    # Samples: join to Sample for organism_key
+    s_rows = (
+        db.query(SampleSubmission.status, func.count())
+        .join(Sample, SampleSubmission.sample_id == Sample.id)
+        .filter(Sample.organism_key == organism_key)
+        .group_by(SampleSubmission.status)
+        .all()
+    )
+    s_counts: Dict[str, int] = {"draft": 0, "submitting": 0, "accepted": 0, "rejected": 0}
+    for st, cnt in s_rows:
+        s_counts[st] = cnt
+
+    # Experiments: ExperimentSubmission -> Experiment -> Sample
+    e_rows = (
+        db.query(ExperimentSubmission.status, func.count())
+        .join(Experiment, ExperimentSubmission.experiment_id == Experiment.id)
+        .join(Sample, Experiment.sample_id == Sample.id)
+        .filter(Sample.organism_key == organism_key)
+        .group_by(ExperimentSubmission.status)
+        .all()
+    )
+    e_counts: Dict[str, int] = {"draft": 0, "submitting": 0, "accepted": 0, "rejected": 0}
+    for st, cnt in e_rows:
+        e_counts[st] = cnt
+
+    # Reads: ReadSubmission -> Read -> Experiment -> Sample
+    r_rows = (
+        db.query(ReadSubmission.status, func.count())
+        .join(Read, ReadSubmission.read_id == Read.id)
+        .join(Experiment, Read.experiment_id == Experiment.id)
+        .join(Sample, Experiment.sample_id == Sample.id)
+        .filter(Sample.organism_key == organism_key)
+        .group_by(ReadSubmission.status)
+        .all()
+    )
+    r_counts: Dict[str, int] = {"draft": 0, "submitting": 0, "accepted": 0, "rejected": 0}
+    for st, cnt in r_rows:
+        r_counts[st] = cnt
+
+    counts_by_entity = {
+        "samples": s_counts,
+        "experiments": e_counts,
+        "reads": r_counts,
+    }
+    # Active attempts for this organism
+    attempts = db.query(SubmissionAttempt).join(SubmissionBatch, SubmissionAttempt.batch_id == SubmissionBatch.id).filter(SubmissionBatch.organism_key == organism_key).all()
+    active = []
+    now = datetime.now()
+    for a in attempts:
+        a_counts = _counts_by_entity_for_attempt(db, a.id)
+        if _derive_attempt_status(a_counts, a.lock_expires_at) == "active":
+            active.append({"attempt_id": str(a.id), "lock_expires_at": a.lock_expires_at})
+    return {
+        "organism_key": organism_key,
+        "latest_batches": latest,
+        "active_attempts": active,
+        "counts_by_entity": counts_by_entity,
+    }
