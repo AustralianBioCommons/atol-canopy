@@ -181,12 +181,13 @@ CREATE TABLE sample_submission (
     -- constant to help the composite FK
     entity_type_const entity_type NOT NULL DEFAULT 'sample' CHECK (entity_type_const = 'sample'),
 
-    -- broker lease/claim fields
-    batch_id UUID,
-    lock_acquired_at TIMESTAMP,
-    lock_expires_at TIMESTAMP,
     -- attempt linkage
     attempt_id UUID,
+    finalized_attempt_id UUID,
+
+    -- broker lease/claim fields (attempt-scoped)
+    lock_acquired_at TIMESTAMP,
+    lock_expires_at TIMESTAMP,
 
     CONSTRAINT fk_self_accession
     FOREIGN KEY (accession, authority, entity_type_const, sample_id)
@@ -200,12 +201,11 @@ CREATE UNIQUE INDEX uq_sample_one_accepted
   -- TODO uniqueness constraint above?
     -- TODO consider if we want to keep track of former submissions that have been replaced/modified
 
--- UNIQUE (sample_id, authority) WHERE status = 'accepted' AND accession IS NOT NULL
-
--- Broker lease/claim index
-CREATE INDEX IF NOT EXISTS idx_sample_submission_batch ON sample_submission (batch_id);
+-- Broker claim indexes
 CREATE INDEX IF NOT EXISTS idx_sample_submission_attempt ON sample_submission (attempt_id);
+CREATE INDEX IF NOT EXISTS idx_sample_submission_finalized_attempt ON sample_submission (finalized_attempt_id);
 
+-- UNIQUE (sample_id, authority) WHERE status = 'accepted' AND accession IS NOT NULL
 
 -- ==========================================
 -- Experiment tables
@@ -276,9 +276,9 @@ CREATE TABLE experiment_submission (
     updated_at TIMESTAMP NOT NULL DEFAULT NOW(),
 
     attempt_id UUID,
+    finalized_attempt_id UUID,
 
     -- broker lease/claim fields
-    batch_id UUID,
     lock_acquired_at TIMESTAMP,
     lock_expires_at TIMESTAMP,
 
@@ -298,8 +298,8 @@ CREATE TABLE experiment_submission (
 );
 
 -- Broker lease/claim index
-CREATE INDEX IF NOT EXISTS idx_experiment_submission_batch ON experiment_submission (batch_id);
 CREATE INDEX IF NOT EXISTS idx_experiment_submission_attempt ON experiment_submission (attempt_id);
+CREATE INDEX IF NOT EXISTS idx_experiment_submission_finalized_attempt ON experiment_submission (finalized_attempt_id);
      
 -- TODO consider if we want to keep track of former submissions that have been replaced/modified
 CREATE UNIQUE INDEX uq_exp_one_accepted
@@ -367,9 +367,9 @@ CREATE TABLE read_submission (
 
     -- attempt linkage
     attempt_id UUID,
+    finalized_attempt_id UUID,
 
-    -- broker lease/claim fields
-    batch_id UUID,
+    -- broker lease/claim fields (attempt-scoped)
     lock_acquired_at TIMESTAMP,
     lock_expires_at TIMESTAMP,
 
@@ -393,25 +393,18 @@ CREATE UNIQUE INDEX uq_read_one_accepted
   WHERE status = 'accepted' AND accession IS NOT NULL;
 
 -- Broker lease/claim index
-CREATE INDEX IF NOT EXISTS idx_read_submission_batch ON read_submission (batch_id);
+-- removed batch index; attempt-only
 CREATE INDEX IF NOT EXISTS idx_read_submission_attempt ON read_submission (attempt_id);
+CREATE INDEX IF NOT EXISTS idx_read_submission_finalized_attempt ON read_submission (finalized_attempt_id);
 
 -- ==========================================
--- Broker Batch/Attempt tables
+-- Broker Attempt table (attempt-only model)
 -- ==========================================
-
-CREATE TABLE submission_batch (
-    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
-    organism_key TEXT NOT NULL REFERENCES organism(grouping_key),
-    status TEXT NOT NULL DEFAULT 'processing',
-    created_by TEXT,
-    created_at TIMESTAMP NOT NULL DEFAULT NOW(),
-    updated_at TIMESTAMP NOT NULL DEFAULT NOW()
-);
 
 CREATE TABLE submission_attempt (
     id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
-    batch_id UUID NOT NULL REFERENCES submission_batch(id) ON DELETE CASCADE,
+    organism_key TEXT REFERENCES organism(grouping_key),
+    campaign_label TEXT,
     status TEXT NOT NULL DEFAULT 'processing',
     lock_acquired_at TIMESTAMP NOT NULL DEFAULT NOW(),
     lock_expires_at TIMESTAMP,
@@ -419,7 +412,23 @@ CREATE TABLE submission_attempt (
     updated_at TIMESTAMP NOT NULL DEFAULT NOW()
 );
 
-CREATE INDEX IF NOT EXISTS idx_submission_attempt_batch ON submission_attempt (batch_id);
+-- ==========================================
+-- Submission events (append-only audit trail)
+-- ==========================================
+
+CREATE TABLE submission_event (
+    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    attempt_id UUID NOT NULL REFERENCES submission_attempt(id) ON DELETE CASCADE,
+    entity_type entity_type NOT NULL,
+    submission_id UUID NOT NULL,
+    action TEXT NOT NULL CHECK (action IN ('claimed','accepted','rejected','released','expired','progress')),
+    accession TEXT,
+    details JSONB,
+    at TIMESTAMP NOT NULL DEFAULT NOW()
+);
+
+CREATE INDEX IF NOT EXISTS idx_submission_event_attempt ON submission_event (attempt_id);
+CREATE INDEX IF NOT EXISTS idx_submission_event_entity ON submission_event (entity_type, submission_id);
 
 -- ==========================================
 -- Assembly tables

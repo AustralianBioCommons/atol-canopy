@@ -13,7 +13,7 @@ from app.models.accession_registry import AccessionRegistry
 from sqlalchemy.dialects.postgresql import insert
 from app.models.experiment import Experiment, ExperimentSubmission
 from app.models.read import Read, ReadSubmission
-from app.models.broker import SubmissionBatch, SubmissionAttempt
+from app.models.broker import SubmissionAttempt, SubmissionEvent
 
 router = APIRouter(dependencies=[Depends(has_role(["broker"]))])
 
@@ -27,7 +27,6 @@ class ClaimedEntity(BaseModel):
 
 
 class ClaimResponse(BaseModel):
-    batch_id: UUID
     attempt_id: UUID
     organism_key: str
     samples: List[ClaimedEntity] = Field(default_factory=list)
@@ -57,7 +56,6 @@ class ReportItem(BaseModel):
 
 
 class ReportRequest(BaseModel):
-    batch_id: Optional[UUID] = None
     attempt_id: Optional[UUID] = None
     samples: List[ReportItem] = Field(default_factory=list)
     experiments: List[ReportItem] = Field(default_factory=list)
@@ -80,24 +78,20 @@ def claim_drafts_for_organism(
     """Claim latest draft SampleSubmissions for an organism and mark them 'submitting'.
     This acts as a short lease to prevent concurrent edits.
     """
-    # Create a batch and an attempt for this claim
-    batch = SubmissionBatch(organism_key=organism_key, status="processing")
-    db.add(batch)
-    db.flush()
+    # Create an attempt for this claim (attempt-only model)
     lease_minutes = 15
     if payload and payload.lease_duration_minutes:
         lease_minutes = payload.lease_duration_minutes
     ttl = timedelta(minutes=lease_minutes)
-    now = datetime.now()
+    now = datetime.now(timezone.utc)
     attempt = SubmissionAttempt(
-        batch_id=batch.id,
+        organism_key=organism_key,
         status="processing",
         lock_acquired_at=now,
         lock_expires_at=now + ttl,
     )
     db.add(attempt)
     db.flush()
-    batch_id = batch.id
     attempt_id = attempt.id
 
     claimed_samples: List[ClaimedEntity] = []
@@ -143,10 +137,10 @@ def claim_drafts_for_organism(
         )
     for row in sample_rows:
         row.status = "submitting"
-        row.batch_id = batch_id
         row.attempt_id = attempt_id
         row.lock_acquired_at = now
         row.lock_expires_at = attempt.lock_expires_at
+        db.add(SubmissionEvent(attempt_id=attempt_id, entity_type="sample", submission_id=row.id, action="claimed"))
     db.commit()
 
     for row in sample_rows:
@@ -199,10 +193,10 @@ def claim_drafts_for_organism(
         )
     for row in exp_rows:
         row.status = "submitting"
-        row.batch_id = batch_id
         row.attempt_id = attempt_id
         row.lock_acquired_at = now
         row.lock_expires_at = attempt.lock_expires_at
+        db.add(SubmissionEvent(attempt_id=attempt_id, entity_type="experiment", submission_id=row.id, action="claimed"))
     db.commit()
 
     for row in exp_rows:
@@ -256,10 +250,10 @@ def claim_drafts_for_organism(
         )
     for row in read_rows:
         row.status = "submitting"
-        row.batch_id = batch_id
         row.attempt_id = attempt_id
         row.lock_acquired_at = now
         row.lock_expires_at = attempt.lock_expires_at
+        db.add(SubmissionEvent(attempt_id=attempt_id, entity_type="read", submission_id=row.id, action="claimed"))
     db.commit()
 
     for row in read_rows:
@@ -273,7 +267,6 @@ def claim_drafts_for_organism(
         )
 
     return ClaimResponse(
-        batch_id=batch_id,
         attempt_id=attempt_id,
         organism_key=organism_key,
         samples=claimed_samples,
@@ -328,30 +321,30 @@ def finalize_attempt(
     sample_rows = db.query(SampleSubmission).filter(SampleSubmission.attempt_id == attempt_id, SampleSubmission.status == "submitting").all()
     for sub in sample_rows:
         sub.status = "draft"
-        sub.batch_id = None
         sub.attempt_id = None
         sub.lock_acquired_at = None
         sub.lock_expires_at = None
+        db.add(SubmissionEvent(attempt_id=attempt_id, entity_type="sample", submission_id=sub.id, action="released"))
         released["samples"] += 1
 
     # Experiments
     exp_rows = db.query(ExperimentSubmission).filter(ExperimentSubmission.attempt_id == attempt_id, ExperimentSubmission.status == "submitting").all()
     for sub in exp_rows:
         sub.status = "draft"
-        sub.batch_id = None
         sub.attempt_id = None
         sub.lock_acquired_at = None
         sub.lock_expires_at = None
+        db.add(SubmissionEvent(attempt_id=attempt_id, entity_type="experiment", submission_id=sub.id, action="released"))
         released["experiments"] += 1
 
     # Reads
     read_rows = db.query(ReadSubmission).filter(ReadSubmission.attempt_id == attempt_id, ReadSubmission.status == "submitting").all()
     for sub in read_rows:
         sub.status = "draft"
-        sub.batch_id = None
         sub.attempt_id = None
         sub.lock_acquired_at = None
         sub.lock_expires_at = None
+        db.add(SubmissionEvent(attempt_id=attempt_id, entity_type="read", submission_id=sub.id, action="released"))
         released["reads"] += 1
 
     attempt.status = "complete"
@@ -361,10 +354,10 @@ def finalize_attempt(
     return {"attempt_id": str(attempt_id), "released": released, "status": attempt.status}
 
 
-@router.post("/batches/{batch_id}/report", response_model=ReportResult)
+@router.post("/attempts/{attempt_id}/report", response_model=ReportResult)
 def report_results(
     *,
-    batch_id: UUID,
+    attempt_id: UUID,
     payload: ReportRequest,
     db: Session = Depends(get_db),
 ) -> ReportResult:
@@ -372,7 +365,7 @@ def report_results(
     updated_samples = 0
     updated_experiments = 0
     updated_reads = 0
-    provided_attempt_id = payload.attempt_id
+    provided_attempt_id = payload.attempt_id or attempt_id
 
     # Process SampleSubmission updates
     for item in payload.samples:
@@ -384,9 +377,7 @@ def report_results(
         if sub.status != "submitting":
             raise HTTPException(status_code=409, detail=f"SampleSubmission {item.id} not in 'submitting' state")
         # If batch tracking is active, enforce match
-        if sub.batch_id and sub.batch_id != batch_id:
-            raise HTTPException(status_code=409, detail=f"SampleSubmission {item.id} belongs to different batch")
-        if provided_attempt_id is not None and sub.attempt_id != provided_attempt_id:
+        if sub.attempt_id != provided_attempt_id:
             raise HTTPException(status_code=409, detail=f"SampleSubmission {item.id} belongs to different attempt")
 
         # Apply updates
@@ -408,7 +399,7 @@ def report_results(
                 accession=item.accession,
                 entity_type="sample",
                 entity_id=sub.sample_id,
-                accepted_at=item.submitted_at or datetime.now(),
+                accepted_at=item.submitted_at or datetime.now(timezone.utc),
             )
             # On conflict by (authority, accession) or (authority, entity_type, entity_id), do nothing
             stmt = stmt.on_conflict_do_nothing(index_elements=[AccessionRegistry.accession])
@@ -416,10 +407,13 @@ def report_results(
 
         # Clear lease on finalize (anything other than submitting)
         if item.status != "submitting":
-            sub.batch_id = None
             sub.attempt_id = None
             sub.lock_acquired_at = None
             sub.lock_expires_at = None
+            sub.finalized_attempt_id = attempt_id
+            # event
+            action = "accepted" if item.status == "accepted" else ("rejected" if item.status == "rejected" else "released")
+            db.add(SubmissionEvent(attempt_id=attempt_id, entity_type="sample", submission_id=sub.id, action=action, accession=item.accession, details=item.response_payload))
 
         updated_samples += 1
 
@@ -431,9 +425,7 @@ def report_results(
 
         if sub.status != "submitting":
             raise HTTPException(status_code=409, detail=f"ExperimentSubmission {item.id} not in 'submitting' state")
-        if sub.batch_id and sub.batch_id != batch_id:
-            raise HTTPException(status_code=409, detail=f"ExperimentSubmission {item.id} belongs to different batch")
-        if provided_attempt_id is not None and sub.attempt_id != provided_attempt_id:
+        if sub.attempt_id != provided_attempt_id:
             raise HTTPException(status_code=409, detail=f"ExperimentSubmission {item.id} belongs to different attempt")
 
         sub.status = item.status
@@ -447,7 +439,7 @@ def report_results(
                 accession=item.sample_accession,
                 entity_type="sample",
                 entity_id=sub.sample_id,
-                accepted_at=item.submitted_at or datetime.now(),
+                accepted_at=item.submitted_at or datetime.now(timezone.utc),
             )
             stmt = stmt.on_conflict_do_nothing(index_elements=[AccessionRegistry.accession])
             db.execute(stmt)
@@ -466,16 +458,24 @@ def report_results(
                 accession=item.accession,
                 entity_type="experiment",
                 entity_id=sub.experiment_id,
-                accepted_at=item.submitted_at or datetime.now(),
+                accepted_at=item.submitted_at or datetime.now(timezone.utc),
             )
             stmt = stmt.on_conflict_do_nothing(index_elements=[AccessionRegistry.accession])
             db.execute(stmt)
 
         if item.status != "submitting":
-            sub.batch_id = None
             sub.attempt_id = None
             sub.lock_acquired_at = None
             sub.lock_expires_at = None
+            sub.finalized_attempt_id = attempt_id
+            db.add(SubmissionEvent(
+                attempt_id=attempt_id,
+                entity_type="experiment",
+                submission_id=sub.id,
+                action=("accepted" if item.status == "accepted" else ("rejected" if item.status == "rejected" else "released")),
+                accession=item.accession,
+                details=item.response_payload,
+            ))
 
         updated_experiments += 1
 
@@ -487,9 +487,7 @@ def report_results(
 
         if sub.status != "submitting":
             raise HTTPException(status_code=409, detail=f"ReadSubmission {item.id} not in 'submitting' state")
-        if sub.batch_id and sub.batch_id != batch_id:
-            raise HTTPException(status_code=409, detail=f"ReadSubmission {item.id} belongs to different batch")
-        if provided_attempt_id is not None and sub.attempt_id != provided_attempt_id:
+        if sub.attempt_id != provided_attempt_id:
             raise HTTPException(status_code=409, detail=f"ReadSubmission {item.id} belongs to different attempt")
 
         sub.status = item.status
@@ -503,7 +501,7 @@ def report_results(
                 accession=item.experiment_accession,
                 entity_type="experiment",
                 entity_id=sub.experiment_id,
-                accepted_at=item.submitted_at or datetime.now(),
+                accepted_at=item.submitted_at or datetime.now(timezone.utc),
             )
             stmt = stmt.on_conflict_do_nothing(index_elements=[AccessionRegistry.accession])
             db.execute(stmt)
@@ -518,16 +516,24 @@ def report_results(
                 accession=item.accession,
                 entity_type="read",
                 entity_id=sub.read_id,
-                accepted_at=item.submitted_at or datetime.now(),
+                accepted_at=item.submitted_at or datetime.now(timezone.utc),
             )
             stmt = stmt.on_conflict_do_nothing(index_elements=[AccessionRegistry.accession])
             db.execute(stmt)
 
         if item.status != "submitting":
-            sub.batch_id = None
             sub.attempt_id = None
             sub.lock_acquired_at = None
             sub.lock_expires_at = None
+            sub.finalized_attempt_id = attempt_id
+            db.add(SubmissionEvent(
+                attempt_id=attempt_id,
+                entity_type="read",
+                submission_id=sub.id,
+                action=("accepted" if item.status == "accepted" else ("rejected" if item.status == "rejected" else "released")),
+                accession=item.accession,
+                details=item.response_payload,
+            ))
 
         updated_reads += 1
 
@@ -542,7 +548,7 @@ def report_results(
     )
 
 
-# ---------- Dashboard Helpers ----------
+# ---------- Dashboard Helpers (attempt-only) ----------
 def _counts_for_model(db: Session, model, filters) -> Dict[str, int]:
     q = db.query(model.status, func.count()).filter(*filters).group_by(model.status)
     rows = q.all()
@@ -553,14 +559,6 @@ def _counts_for_model(db: Session, model, filters) -> Dict[str, int]:
         else:
             out[status] = cnt
     return out
-
-
-def _counts_by_entity_for_batch(db: Session, batch_id: UUID) -> Dict[str, Dict[str, int]]:
-    return {
-        "samples": _counts_for_model(db, SampleSubmission, [SampleSubmission.batch_id == batch_id]),
-        "experiments": _counts_for_model(db, ExperimentSubmission, [ExperimentSubmission.batch_id == batch_id]),
-        "reads": _counts_for_model(db, ReadSubmission, [ReadSubmission.batch_id == batch_id]),
-    }
 
 
 def _counts_by_entity_for_attempt(db: Session, attempt_id: UUID) -> Dict[str, Dict[str, int]]:
@@ -587,128 +585,15 @@ def _derive_attempt_status(counts_by_entity: Dict[str, Dict[str, int]], lock_exp
     return "idle"
 
 
-def _derive_batch_status(counts_by_entity: Dict[str, Dict[str, int]], active_attempts_count: int) -> str:
-    submitting = sum(d.get("submitting", 0) for d in counts_by_entity.values())
-    accepted = sum(d.get("accepted", 0) for d in counts_by_entity.values())
-    draft = sum(d.get("draft", 0) for d in counts_by_entity.values())
-    if active_attempts_count > 0 or submitting > 0:
-        return "processing"
-    if accepted > 0 and submitting == 0 and draft == 0:
-        return "complete"
-    if accepted > 0 and draft > 0 and submitting == 0:
-        return "partial"
-    return "idle"
-
-
-# ---------- Dashboard GET Endpoints ----------
-@router.get("/batches")
-def list_batches(
-    *,
-    db: Session = Depends(get_db),
-    organism_key: Optional[str] = Query(None),
-    page: int = Query(1, ge=1),
-    page_size: int = Query(20, ge=1, le=200),
-) -> Dict[str, Any]:
-    q = db.query(SubmissionBatch)
-    if organism_key:
-        q = q.filter(SubmissionBatch.organism_key == organism_key)
-    total = q.count()
-    items = (
-        q.order_by(SubmissionBatch.created_at.desc())
-        .offset((page - 1) * page_size)
-        .limit(page_size)
-        .all()
-    )
-
-    results: List[Dict[str, Any]] = []
-    for b in items:
-        counts = _counts_by_entity_for_batch(db, b.id)
-        # active attempts = attempts with future lock and any submitting rows
-        attempts = db.query(SubmissionAttempt).filter(SubmissionAttempt.batch_id == b.id).all()
-        active_attempts_count = 0
-        now = datetime.now()
-        for a in attempts:
-            if a.lock_expires_at and a.lock_expires_at > now:
-                submitting_any = (
-                    db.query(SampleSubmission).filter(SampleSubmission.attempt_id == a.id, SampleSubmission.status == "submitting").first()
-                    or db.query(ExperimentSubmission).filter(ExperimentSubmission.attempt_id == a.id, ExperimentSubmission.status == "submitting").first()
-                    or db.query(ReadSubmission).filter(ReadSubmission.attempt_id == a.id, ReadSubmission.status == "submitting").first()
-                )
-                if submitting_any:
-                    active_attempts_count += 1
-        status = _derive_batch_status(counts, active_attempts_count)
-        results.append(
-            {
-                "batch_id": str(b.id),
-                "organism_key": b.organism_key,
-                "status": status,
-                "created_at": b.created_at,
-                "updated_at": b.updated_at,
-                "attempts_count": len(attempts),
-                "active_attempts_count": active_attempts_count,
-                "counts_by_entity": counts,
-            }
-        )
-
-    return {"items": results, "page": page, "page_size": page_size, "total": total}
-
-
-@router.get("/batches/{batch_id}")
-def get_batch(
-    *,
-    batch_id: UUID,
-    db: Session = Depends(get_db),
-) -> Dict[str, Any]:
-    b = db.query(SubmissionBatch).filter(SubmissionBatch.id == batch_id).first()
-    if not b:
-        raise HTTPException(status_code=404, detail="Batch not found")
-    counts = _counts_by_entity_for_batch(db, batch_id)
-    attempts = db.query(SubmissionAttempt).filter(SubmissionAttempt.batch_id == batch_id).order_by(SubmissionAttempt.created_at.desc()).all()
-    now = datetime.now()
-    active_attempts_count = 0
-    attempts_out: List[Dict[str, Any]] = []
-    for a in attempts:
-        a_counts = _counts_by_entity_for_attempt(db, a.id)
-        a_status = _derive_attempt_status(a_counts, a.lock_expires_at)
-        if a_status == "active":
-            active_attempts_count += 1
-        attempts_out.append(
-            {
-                "attempt_id": str(a.id),
-                "status": a_status,
-                "lock_expires_at": a.lock_expires_at,
-                "created_at": a.created_at,
-                "updated_at": a.updated_at,
-                "counts_by_status": {
-                    k: sum(v.values()) for k, v in a_counts.items()
-                },
-                "counts_by_entity": a_counts,
-            }
-        )
-    status = _derive_batch_status(counts, active_attempts_count)
-    return {
-        "batch_id": str(b.id),
-        "organism_key": b.organism_key,
-        "status": status,
-        "created_at": b.created_at,
-        "updated_at": b.updated_at,
-        "counts_by_entity": counts,
-        "attempts": attempts_out,
-    }
-
-
 @router.get("/attempts")
 def list_attempts(
     *,
     db: Session = Depends(get_db),
-    batch_id: Optional[UUID] = Query(None),
     active_only: bool = Query(False),
     page: int = Query(1, ge=1),
     page_size: int = Query(20, ge=1, le=200),
 ) -> Dict[str, Any]:
     q = db.query(SubmissionAttempt)
-    if batch_id:
-        q = q.filter(SubmissionAttempt.batch_id == batch_id)
     total = q.count()
     items = (
         q.order_by(SubmissionAttempt.created_at.desc())
@@ -726,7 +611,8 @@ def list_attempts(
         results.append(
             {
                 "attempt_id": str(a.id),
-                "batch_id": str(a.batch_id),
+                "organism_key": a.organism_key,
+                "campaign_label": a.campaign_label,
                 "status": status,
                 "lock_expires_at": a.lock_expires_at,
                 "created_at": a.created_at,
@@ -750,7 +636,8 @@ def get_attempt(
     status = _derive_attempt_status(counts, a.lock_expires_at)
     return {
         "attempt_id": str(a.id),
-        "batch_id": str(a.batch_id),
+        "organism_key": a.organism_key,
+        "campaign_label": a.campaign_label,
         "status": status,
         "lock_expires_at": a.lock_expires_at,
         "created_at": a.created_at,
@@ -764,24 +651,25 @@ def organism_summary(
     *,
     organism_key: str,
     db: Session = Depends(get_db),
-    recent_batches: int = Query(5, ge=1, le=50),
+    recent_attempts: int = Query(5, ge=1, le=50),
 ) -> Dict[str, Any]:
-    # latest batches
-    batches = (
-        db.query(SubmissionBatch)
-        .filter(SubmissionBatch.organism_key == organism_key)
-        .order_by(SubmissionBatch.created_at.desc())
-        .limit(recent_batches)
+    # latest attempts for this organism
+    attempts = (
+        db.query(SubmissionAttempt)
+        .filter(SubmissionAttempt.organism_key == organism_key)
+        .order_by(SubmissionAttempt.created_at.desc())
+        .limit(recent_attempts)
         .all()
     )
-    latest = [
-        {
-            "batch_id": str(b.id),
-            "status": _derive_batch_status(_counts_by_entity_for_batch(db, b.id), 0),
-            "created_at": b.created_at,
-        }
-        for b in batches
-    ]
+    latest = []
+    for a in attempts:
+        a_counts = _counts_by_entity_for_attempt(db, a.id)
+        latest.append({
+            "attempt_id": str(a.id),
+            "status": _derive_attempt_status(a_counts, a.lock_expires_at),
+            "lock_expires_at": a.lock_expires_at,
+            "created_at": a.created_at,
+        })
     # counts across organism (properly scoped via joins)
     # Samples: join to Sample for organism_key
     s_rows = (
@@ -828,7 +716,7 @@ def organism_summary(
         "reads": r_counts,
     }
     # Active attempts for this organism
-    attempts = db.query(SubmissionAttempt).join(SubmissionBatch, SubmissionAttempt.batch_id == SubmissionBatch.id).filter(SubmissionBatch.organism_key == organism_key).all()
+    attempts = db.query(SubmissionAttempt).filter(SubmissionAttempt.organism_key == organism_key).all()
     active = []
     now = datetime.now()
     for a in attempts:

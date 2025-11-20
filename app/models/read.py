@@ -83,11 +83,11 @@ class ReadSubmission(Base):
     experiment = relationship("Experiment", backref=backref("read_exp_submission_records", cascade="all, delete-orphan"))
     project = relationship("Project", backref=backref("read_proj_submission_records", cascade="all, delete-orphan"))
     
-    # Broker lease/claim fields
-    batch_id = Column(UUID(as_uuid=True), nullable=True)
+    # Broker lease/claim fields (attempt-only)
+    attempt_id = Column(UUID(as_uuid=True), nullable=True)
+    finalized_attempt_id = Column(UUID(as_uuid=True), nullable=True)
     lock_acquired_at = Column(DateTime, nullable=True)
     lock_expires_at = Column(DateTime, nullable=True)
-    attempt_id = Column(UUID(as_uuid=True), nullable=True)
     
     # Table constraints
     __table_args__ = (
