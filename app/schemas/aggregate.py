@@ -14,14 +14,14 @@ class SampleSubmissionJson(BaseModel):
     authority: Optional[str] = None
     response_payload: Optional[Dict[str, Any]] = None
     submitted_at: Optional[datetime] = None
-    accession: Optional[str] = None
     biosample_accession: Optional[str] = None
     status: Optional[str] = None
 
     created_at: Optional[datetime] = None
     updated_at: Optional[datetime] = None
-    # TO DO: broker lease/claim fields needed for submission responses??
-    batch_id: Optional[str] = None
+    # Broker lease/claim fields (attempt-only model)
+    attempt_id: Optional[UUID] = None
+    finalized_attempt_id: Optional[UUID] = None
     lock_acquired_at: Optional[datetime] = None
     lock_expires_at: Optional[datetime] = None
 
@@ -41,7 +41,8 @@ class ExperimentSubmissionJson(BaseModel):
 
     created_at: Optional[datetime] = None
     updated_at: Optional[datetime] = None
-    batch_id: Optional[str] = None
+    attempt_id: Optional[UUID] = None
+    finalized_attempt_id: Optional[UUID] = None
     lock_acquired_at: Optional[datetime] = None
     lock_expires_at: Optional[datetime] = None
 
@@ -61,7 +62,8 @@ class ReadSubmissionJson(BaseModel):
 
     created_at: Optional[datetime] = None
     updated_at: Optional[datetime] = None
-    batch_id: Optional[str] = None
+    attempt_id: Optional[UUID] = None
+    finalized_attempt_id: Optional[UUID] = None
     lock_acquired_at: Optional[datetime] = None
     lock_expires_at: Optional[datetime] = None
 
