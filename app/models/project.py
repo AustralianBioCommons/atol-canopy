@@ -32,6 +32,31 @@ class Project(Base):
     created_at = Column(DateTime, nullable=False, default=datetime.now(timezone.utc))
     updated_at = Column(DateTime, nullable=False, default=datetime.now(timezone.utc), onupdate=datetime.now(timezone.utc))
 
+class ProjectSubmission(Base):
+    """ProjectSubmission mirrors other *_submission tables for attempt-only brokering."""
+    __tablename__ = "project_submission"
+
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    project_id = Column(UUID(as_uuid=True), ForeignKey("project.id", ondelete="CASCADE"), nullable=False)
+    authority = Column(SQLAlchemyEnum("ENA", "NCBI", "DDBJ", name="authority_type"), nullable=False, default="ENA")
+    status = Column(SQLAlchemyEnum("draft", "ready", "submitting", "rejected", "accepted", "replaced", name="submission_status"), nullable=False, default="draft")
+
+    prepared_payload = Column(JSONB, nullable=True)
+    response_payload = Column(JSONB, nullable=True)
+
+    accession = Column(Text, nullable=True)
+
+    created_at = Column(DateTime, nullable=False, default=datetime.now(timezone.utc))
+    updated_at = Column(DateTime, nullable=False, default=datetime.now(timezone.utc), onupdate=datetime.now(timezone.utc))
+
+    # attempt linkage
+    attempt_id = Column(UUID(as_uuid=True), nullable=True)
+    finalized_attempt_id = Column(UUID(as_uuid=True), nullable=True)
+
+    # broker lease/claim fields
+    lock_acquired_at = Column(DateTime, nullable=True)
+    lock_expires_at = Column(DateTime, nullable=True)
+
 """
 class ProjectExperiment(Base):
     #ProjectExperiment model for linking projects to experiments.

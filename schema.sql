@@ -119,6 +119,48 @@ CREATE TABLE project (
 CREATE UNIQUE INDEX uq_one_project_type_per_organism
   ON project (organism_key, project_type);
 
+-- Project submission table (attempt-only model)
+CREATE TABLE IF NOT EXISTS project_submission (
+    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    project_id UUID NOT NULL REFERENCES project(id) ON DELETE CASCADE,
+    authority authority_type NOT NULL DEFAULT 'ENA',
+    status submission_status NOT NULL DEFAULT 'draft',
+
+    prepared_payload JSONB,
+    response_payload JSONB,
+
+    accession TEXT,
+
+    -- constant to help the composite FK
+    entity_type_const entity_type NOT NULL DEFAULT 'project' CHECK (entity_type_const = 'project'),
+
+    submitted_at TIMESTAMP,
+    created_at TIMESTAMP NOT NULL DEFAULT NOW(),
+    updated_at TIMESTAMP NOT NULL DEFAULT NOW(),
+
+    -- attempt linkage
+    attempt_id UUID,
+    finalized_attempt_id UUID,
+
+    -- broker lease/claim fields (attempt-scoped)
+    lock_acquired_at TIMESTAMP,
+    lock_expires_at TIMESTAMP,
+
+    CONSTRAINT fk_self_project_accession
+      FOREIGN KEY (accession, authority, entity_type_const, project_id)
+      REFERENCES accession_registry (accession, authority, entity_type, entity_id)
+      DEFERRABLE INITIALLY DEFERRED
+);
+
+-- Only one accepted submission per project+authority with accession
+CREATE UNIQUE INDEX IF NOT EXISTS uq_project_one_accepted
+  ON project_submission (project_id, authority)
+  WHERE status = 'accepted' AND accession IS NOT NULL;
+
+-- Broker claim indexes
+CREATE INDEX IF NOT EXISTS idx_project_submission_attempt ON project_submission (attempt_id);
+CREATE INDEX IF NOT EXISTS idx_project_submission_finalized_attempt ON project_submission (finalized_attempt_id);
+
 -- ==========================================
 -- Sample tables
 -- ==========================================

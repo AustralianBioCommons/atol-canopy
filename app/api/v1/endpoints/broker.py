@@ -14,6 +14,7 @@ from sqlalchemy.dialects.postgresql import insert
 from app.models.experiment import Experiment, ExperimentSubmission
 from app.models.read import Read, ReadSubmission
 from app.models.broker import SubmissionAttempt, SubmissionEvent
+from app.models.project import Project, ProjectSubmission
 
 router = APIRouter(dependencies=[Depends(has_role(["broker"]))])
 
@@ -34,6 +35,7 @@ class ClaimResponse(BaseModel):
     samples: List[ClaimedEntity] = Field(default_factory=list)
     experiments: List[ClaimedEntity] = Field(default_factory=list)
     reads: List[ClaimedEntity] = Field(default_factory=list)
+    projects: List[ClaimedEntity] = Field(default_factory=list)
 
 
 class ClaimRequest(BaseModel):
@@ -41,6 +43,7 @@ class ClaimRequest(BaseModel):
     sample_submission_ids: Optional[List[UUID]] = None
     experiment_submission_ids: Optional[List[UUID]] = None
     read_submission_ids: Optional[List[UUID]] = None
+    project_submission_ids: Optional[List[UUID]] = None
     # option to override lease, in mins
     lease_duration_minutes: Optional[int] = Field(default=None, ge=1, le=180)
 
@@ -62,6 +65,7 @@ class ReportRequest(BaseModel):
     samples: List[ReportItem] = Field(default_factory=list)
     experiments: List[ReportItem] = Field(default_factory=list)
     reads: List[ReportItem] = Field(default_factory=list)
+    projects: List[ReportItem] = Field(default_factory=list)
 
 
 class ReportResult(BaseModel):
@@ -324,12 +328,85 @@ def claim_drafts_for_organism(
             )
         )
 
+    # Choose project rows by explicit IDs (if provided) else by organism/limit
+    claimed_projects: List[ClaimedEntity] = []
+    if payload and payload.project_submission_ids:
+        proj_rows = (
+            db.query(ProjectSubmission)
+            .filter(ProjectSubmission.id.in_(payload.project_submission_ids))
+            .filter(ProjectSubmission.status == "draft")
+            .with_for_update(skip_locked=True)
+            .all()
+        )
+    else:
+        proj_rank_subq = (
+            db.query(
+                ProjectSubmission.id.label("id"),
+                func.row_number()
+                    .over(
+                        partition_by=ProjectSubmission.project_id,
+                        order_by=ProjectSubmission.created_at.desc(),
+                    )
+                    .label("rn"),
+            )
+            .join(Project, ProjectSubmission.project_id == Project.id)
+            .filter(Project.organism_key == organism_key, ProjectSubmission.status == "draft")
+        ).subquery()
+
+        proj_ids_subq = (
+            db.query(proj_rank_subq.c.id)
+            .filter(proj_rank_subq.c.rn == 1)
+            .limit(per_type_limit)
+        ).subquery()
+
+        proj_rows = (
+            db.query(ProjectSubmission)
+            .filter(ProjectSubmission.id.in_(db.query(proj_ids_subq.c.id)))
+            .filter(ProjectSubmission.status == "draft")
+            .with_for_update(skip_locked=True)
+            .all()
+        )
+
+    for row in proj_rows:
+        row.status = "submitting"
+        row.attempt_id = attempt_id
+        row.lock_acquired_at = now
+        row.lock_expires_at = attempt.lock_expires_at
+        db.add(SubmissionEvent(attempt_id=attempt_id, entity_type="project", submission_id=row.id, action="claimed"))
+    db.commit()
+
+    if proj_rows:
+        # enrich relationships for project items
+        proj_ids = [r.project_id for r in proj_rows]
+        proj_meta = (
+            db.query(Project.id, Project.organism_key, Project.project_type)
+            .filter(Project.id.in_(proj_ids))
+            .all()
+        )
+        meta_map = {pid: {"organism_key": ok, "project_type": pt} for (pid, ok, pt) in proj_meta}
+    else:
+        meta_map = {}
+
+    for row in proj_rows:
+        pm = meta_map.get(row.project_id, {})
+        relationships = {"organism_key": pm.get("organism_key"), "project_type": pm.get("project_type")}
+        claimed_projects.append(
+            ClaimedEntity(
+                id=row.id,
+                status=row.status,
+                prepared_payload=row.prepared_payload,
+                accession=row.accession,
+                relationships=relationships,
+            )
+        )
+
     return ClaimResponse(
         attempt_id=attempt_id,
         organism_key=organism_key,
         samples=claimed_samples,
         experiments=claimed_experiments,
         reads=claimed_reads,
+        projects=claimed_projects,
     )
 
 @router.post("/attempts/{attempt_id}/lease/renew")
@@ -357,6 +434,8 @@ def renew_attempt_lease(
         sub.lock_expires_at = new_exp
     for sub in db.query(ReadSubmission).filter(ReadSubmission.attempt_id == attempt_id, ReadSubmission.status == "submitting").all():
         sub.lock_expires_at = new_exp
+    for sub in db.query(ProjectSubmission).filter(ProjectSubmission.attempt_id == attempt_id, ProjectSubmission.status == "submitting").all():
+        sub.lock_expires_at = new_exp
 
     db.commit()
     return {"attempt_id": str(attempt_id), "lock_expires_at": new_exp.isoformat()}
@@ -373,7 +452,7 @@ def finalize_attempt(
     if not attempt:
         raise HTTPException(status_code=404, detail="Attempt not found")
 
-    released = {"samples": 0, "experiments": 0, "reads": 0}
+    released = {"samples": 0, "experiments": 0, "reads": 0, "projects": 0}
 
     # Samples
     sample_rows = db.query(SampleSubmission).filter(SampleSubmission.attempt_id == attempt_id, SampleSubmission.status == "submitting").all()
@@ -405,6 +484,16 @@ def finalize_attempt(
         db.add(SubmissionEvent(attempt_id=attempt_id, entity_type="read", submission_id=sub.id, action="released"))
         released["reads"] += 1
 
+    # Projects
+    proj_rows = db.query(ProjectSubmission).filter(ProjectSubmission.attempt_id == attempt_id, ProjectSubmission.status == "submitting").all()
+    for sub in proj_rows:
+        sub.status = "draft"
+        sub.attempt_id = None
+        sub.lock_acquired_at = None
+        sub.lock_expires_at = None
+        db.add(SubmissionEvent(attempt_id=attempt_id, entity_type="project", submission_id=sub.id, action="released"))
+        released["projects"] += 1
+
     attempt.status = "complete"
     db.add(attempt)
     db.commit()
@@ -423,6 +512,7 @@ def report_results(
     updated_samples = 0
     updated_experiments = 0
     updated_reads = 0
+    updated_projects = 0
     provided_attempt_id = payload.attempt_id or attempt_id
 
     # Process SampleSubmission updates
@@ -595,6 +685,54 @@ def report_results(
 
         updated_reads += 1
 
+    # Process ProjectSubmission updates
+    for item in payload.projects:
+        sub = db.query(ProjectSubmission).filter(ProjectSubmission.id == item.id).first()
+        if not sub:
+            raise HTTPException(status_code=404, detail=f"ProjectSubmission {item.id} not found")
+
+        if sub.status != "submitting":
+            raise HTTPException(status_code=409, detail=f"ProjectSubmission {item.id} not in 'submitting' state")
+        if sub.attempt_id != provided_attempt_id:
+            raise HTTPException(status_code=409, detail=f"ProjectSubmission {item.id} belongs to different attempt")
+
+        sub.status = item.status
+        sub.response_payload = item.response_payload
+        if item.accession:
+            sub.accession = item.accession
+        if item.submitted_at and hasattr(sub, "submitted_at"):
+            sub.submitted_at = item.submitted_at
+
+        db.add(sub)
+        db.flush()
+
+        if item.accession and sub.project_id is not None:
+            stmt = insert(AccessionRegistry).values(
+                authority=sub.authority or "ENA",
+                accession=item.accession,
+                entity_type="project",
+                entity_id=sub.project_id,
+                accepted_at=item.submitted_at or datetime.now(timezone.utc),
+            )
+            stmt = stmt.on_conflict_do_nothing(index_elements=[AccessionRegistry.accession])
+            db.execute(stmt)
+
+        if item.status != "submitting":
+            sub.attempt_id = None
+            sub.lock_acquired_at = None
+            sub.lock_expires_at = None
+            sub.finalized_attempt_id = attempt_id
+            db.add(SubmissionEvent(
+                attempt_id=attempt_id,
+                entity_type="project",
+                submission_id=sub.id,
+                action=("accepted" if item.status == "accepted" else ("rejected" if item.status == "rejected" else "released")),
+                accession=item.accession,
+                details=item.response_payload,
+            ))
+
+        updated_projects += 1
+
     db.commit()
 
     return ReportResult(
@@ -602,6 +740,7 @@ def report_results(
             "samples": updated_samples,
             "experiments": updated_experiments,
             "reads": updated_reads,
+            "projects": updated_projects,
         }
     )
 
@@ -639,6 +778,11 @@ def _counts_by_entity_for_attempt(db: Session, attempt_id: UUID) -> Dict[str, Di
             db,
             ReadSubmission,
             [or_(ReadSubmission.attempt_id == attempt_id, ReadSubmission.finalized_attempt_id == attempt_id)],
+        ),
+        "projects": _counts_for_model(
+            db,
+            ProjectSubmission,
+            [or_(ProjectSubmission.attempt_id == attempt_id, ProjectSubmission.finalized_attempt_id == attempt_id)],
         ),
     }
 
@@ -682,6 +826,12 @@ def _get_attempt_items_with_relationships(db: Session, attempt_id: UUID) -> Dict
             or_(ReadSubmission.attempt_id == attempt_id, ReadSubmission.finalized_attempt_id == attempt_id)
         ).all()
     )
+    project_ids: set[UUID] = set(
+        x[0]
+        for x in db.query(ProjectSubmission.id).filter(
+            or_(ProjectSubmission.attempt_id == attempt_id, ProjectSubmission.finalized_attempt_id == attempt_id)
+        ).all()
+    )
 
     # Include event-only membership (e.g., released-after-claim)
     ev_samples = db.query(SubmissionEvent.submission_id).filter(
@@ -696,9 +846,14 @@ def _get_attempt_items_with_relationships(db: Session, attempt_id: UUID) -> Dict
         SubmissionEvent.attempt_id == attempt_id,
         SubmissionEvent.entity_type == "read",
     ).all()
+    ev_projects = db.query(SubmissionEvent.submission_id).filter(
+        SubmissionEvent.attempt_id == attempt_id,
+        SubmissionEvent.entity_type == "project",
+    ).all()
     sample_ids.update(sid for (sid,) in ev_samples)
     experiment_ids.update(sid for (sid,) in ev_experiments)
     read_ids.update(sid for (sid,) in ev_reads)
+    project_ids.update(sid for (sid,) in ev_projects)
 
     # Load rows
     samples = (
@@ -712,6 +867,10 @@ def _get_attempt_items_with_relationships(db: Session, attempt_id: UUID) -> Dict
     reads = (
         db.query(ReadSubmission).filter(ReadSubmission.id.in_(read_ids)).all()
         if read_ids else []
+    )
+    projects = (
+        db.query(ProjectSubmission).filter(ProjectSubmission.id.in_(project_ids)).all()
+        if project_ids else []
     )
 
     # Build Sample entities (no parent relationships for samples)
@@ -803,7 +962,35 @@ def _get_attempt_items_with_relationships(db: Session, attempt_id: UUID) -> Dict
                 )
             )
 
-    return {"samples": out_samples, "experiments": exp_entity_list, "reads": read_entity_list}
+    # Build Projects entities with relationships to project metadata
+    proj_entity_list: List[ClaimedEntity] = []
+    if projects:
+        proj_ids = [r.project_id for r in projects]
+        proj_meta = (
+            db.query(Project.id, Project.organism_key, Project.project_type)
+            .filter(Project.id.in_(proj_ids))
+            .all()
+        )
+        meta_map: Dict[UUID, Dict[str, Any]] = {
+            pid: {"organism_key": ok, "project_type": pt} for (pid, ok, pt) in proj_meta
+        }
+        for row in projects:
+            meta = meta_map.get(row.project_id, {})
+            rel = {
+                "organism_key": meta.get("organism_key"),
+                "project_type": meta.get("project_type"),
+            }
+            proj_entity_list.append(
+                ClaimedEntity(
+                    id=row.id,
+                    status=row.status,
+                    prepared_payload=row.prepared_payload,
+                    accession=row.accession,
+                    relationships=rel,
+                )
+            )
+
+    return {"samples": out_samples, "experiments": exp_entity_list, "reads": read_entity_list, "projects": proj_entity_list}
 
 @router.get("/attempts")
 def list_attempts(

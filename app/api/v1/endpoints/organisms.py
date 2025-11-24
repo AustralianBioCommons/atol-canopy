@@ -21,7 +21,7 @@ from app.schemas.organism import (
     OrganismCreate,
     OrganismUpdate,
 )
-from app.models.project import Project
+from app.models.project import Project, ProjectSubmission
 from app.schemas.bulk_import import BulkOrganismImport, BulkImportResponse
 from app.schemas.aggregate import OrganismSubmissionJsonResponse, SampleSubmissionJson, ExperimentSubmissionJson, ReadSubmissionJson
 
@@ -222,6 +222,7 @@ def create_organism(
         root_project = Project(
             organism_key=organism.grouping_key,
             project_type="root",
+            study_type="Whole Genome Sequencing",
             project_accession=None,
             alias=f"{organism_in.scientific_name} genome assembly and related data",
             title=f"{organism_in.scientific_name}",
@@ -235,6 +236,7 @@ def create_organism(
         genomic_data_project = Project(
             organism_key=organism.grouping_key,
             project_type="genomic_data",
+            study_type="Whole Genome Sequencing",
             project_accession=None,
             alias=f"Genomic data for {organism_in.scientific_name}",
             title=f"{organism_in.scientific_name} - genomic data",
@@ -247,6 +249,30 @@ def create_organism(
         )
         db.add(root_project)
         db.add(genomic_data_project)
+        db.flush()  # ensure IDs for submissions
+        # create matching draft project submissions with prepared payload snapshots
+        root_payload = {
+            "organism_key": root_project.organism_key,
+            "project_type": root_project.project_type,
+            "study_type": root_project.study_type,
+            "alias": root_project.alias,
+            "title": root_project.title,
+            "description": root_project.description,
+            "centre_name": root_project.centre_name,
+            "study_attributes": root_project.study_attributes,
+        }
+        genomic_payload = {
+            "organism_key": genomic_data_project.organism_key,
+            "project_type": genomic_data_project.project_type,
+            "study_type": genomic_data_project.study_type,
+            "alias": genomic_data_project.alias,
+            "title": genomic_data_project.title,
+            "description": genomic_data_project.description,
+            "centre_name": genomic_data_project.centre_name,
+            "study_attributes": genomic_data_project.study_attributes,
+        }
+        db.add(ProjectSubmission(project_id=root_project.id, prepared_payload=root_payload))
+        db.add(ProjectSubmission(project_id=genomic_data_project.id, prepared_payload=genomic_payload))
     except Exception as e:
         db.rollback()
         raise HTTPException(status_code=500, detail=str(e))
@@ -418,6 +444,29 @@ def bulk_import_organisms(
             db.add(organism)
             db.add(root_project)
             db.add(genomic_data_project)
+            db.flush()
+            root_payload = {
+                "organism_key": root_project.organism_key,
+                "project_type": root_project.project_type,
+                "study_type": root_project.study_type,
+                "alias": root_project.alias,
+                "title": root_project.title,
+                "description": root_project.description,
+                "centre_name": root_project.centre_name,
+                "study_attributes": root_project.study_attributes,
+            }
+            genomic_payload = {
+                "organism_key": genomic_data_project.organism_key,
+                "project_type": genomic_data_project.project_type,
+                "study_type": genomic_data_project.study_type,
+                "alias": genomic_data_project.alias,
+                "title": genomic_data_project.title,
+                "description": genomic_data_project.description,
+                "centre_name": genomic_data_project.centre_name,
+                "study_attributes": genomic_data_project.study_attributes,
+            }
+            db.add(ProjectSubmission(project_id=root_project.id, prepared_payload=root_payload))
+            db.add(ProjectSubmission(project_id=genomic_data_project.id, prepared_payload=genomic_payload))
             db.commit()
             created_count += 1
         except Exception as e:
