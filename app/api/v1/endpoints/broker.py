@@ -24,6 +24,8 @@ class ClaimedEntity(BaseModel):
     status: Optional[str] = None
     prepared_payload: Optional[Dict[str, Any]] = None
     accession: Optional[str] = None
+    # Derived relationship info for dependency resolution at client side
+    relationships: Optional[Dict[str, Any]] = None
 
 
 class ClaimResponse(BaseModel):
@@ -79,7 +81,7 @@ def claim_drafts_for_organism(
     This acts as a short lease to prevent concurrent edits.
     """
     # Create an attempt for this claim (attempt-only model)
-    lease_minutes = 15
+    lease_minutes = 30
     if payload and payload.lease_duration_minutes:
         lease_minutes = payload.lease_duration_minutes
     ttl = timedelta(minutes=lease_minutes)
@@ -199,13 +201,46 @@ def claim_drafts_for_organism(
         db.add(SubmissionEvent(attempt_id=attempt_id, entity_type="experiment", submission_id=row.id, action="claimed"))
     db.commit()
 
+    # Build relationships for experiments -> sample/sample_submission
+    exp_ids = [r.experiment_id for r in exp_rows]
+    exp_sample_pairs = (
+        db.query(Experiment.id, Experiment.sample_id)
+        .filter(Experiment.id.in_(exp_ids))
+        .all()
+        if exp_rows else []
+    )
+    sample_id_by_experiment_id: Dict[UUID, UUID] = {eid: sid for (eid, sid) in exp_sample_pairs}
+
+    # Map of claimed sample submissions in this attempt: sample_id -> SampleSubmission row
+    claimed_sample_by_sample_id: Dict[UUID, SampleSubmission] = {r.sample_id: r for r in sample_rows}
+
+    # For experiments whose samples weren't claimed, fall back to latest accepted sample submission
+    missing_sample_ids = [sid for sid in set(sample_id_by_experiment_id.values()) if sid not in claimed_sample_by_sample_id]
+    accepted_sample_by_sample_id: Dict[UUID, SampleSubmission] = {}
+    if missing_sample_ids:
+        accepted_samples = (
+            db.query(SampleSubmission)
+            .filter(SampleSubmission.sample_id.in_(missing_sample_ids), SampleSubmission.status == "accepted")
+            .all()
+        )
+        accepted_sample_by_sample_id = {r.sample_id: r for r in accepted_samples}
+
     for row in exp_rows:
+        sid = sample_id_by_experiment_id.get(row.experiment_id)
+        parent_ss = claimed_sample_by_sample_id.get(sid) or accepted_sample_by_sample_id.get(sid)
+        relationships = {
+            "sample_id": sid,
+            "sample_submission_id": (parent_ss.id if parent_ss else None),
+            "sample_accession": (parent_ss.accession if parent_ss else row.sample_accession if hasattr(row, "sample_accession") else None),
+            "project_accession": (row.project_accession if hasattr(row, "project_accession") else None),
+        }
         claimed_experiments.append(
             ClaimedEntity(
                 id=row.id,
                 status=row.status,
                 prepared_payload=row.prepared_payload,
                 accession=row.accession,
+                relationships=relationships,
             )
         )
 
@@ -256,13 +291,36 @@ def claim_drafts_for_organism(
         db.add(SubmissionEvent(attempt_id=attempt_id, entity_type="read", submission_id=row.id, action="claimed"))
     db.commit()
 
+    # Build relationships for reads -> experiment/experiment_submission
+    read_exp_ids = [r.experiment_id for r in read_rows]
+    # Map of claimed experiment submissions: experiment_id -> ExperimentSubmission row
+    claimed_exp_by_experiment_id: Dict[UUID, ExperimentSubmission] = {r.experiment_id: r for r in exp_rows}
+
+    # For reads whose experiments weren't claimed, fall back to latest accepted experiment submission
+    missing_exp_ids = [eid for eid in set(read_exp_ids) if eid not in claimed_exp_by_experiment_id]
+    accepted_exp_by_experiment_id: Dict[UUID, ExperimentSubmission] = {}
+    if missing_exp_ids:
+        accepted_exps = (
+            db.query(ExperimentSubmission)
+            .filter(ExperimentSubmission.experiment_id.in_(missing_exp_ids), ExperimentSubmission.status == "accepted")
+            .all()
+        )
+        accepted_exp_by_experiment_id = {r.experiment_id: r for r in accepted_exps}
+
     for row in read_rows:
+        exp_parent = claimed_exp_by_experiment_id.get(row.experiment_id) or accepted_exp_by_experiment_id.get(row.experiment_id)
+        relationships = {
+            "experiment_id": row.experiment_id,
+            "experiment_submission_id": (exp_parent.id if exp_parent else None),
+            "experiment_accession": (exp_parent.accession if exp_parent else row.experiment_accession if hasattr(row, "experiment_accession") else None),
+        }
         claimed_reads.append(
             ClaimedEntity(
                 id=row.id,
                 status=row.status,
                 prepared_payload=row.prepared_payload,
                 accession=row.accession,
+                relationships=relationships,
             )
         )
 
@@ -601,6 +659,115 @@ def _derive_attempt_status(counts_by_entity: Dict[str, Dict[str, int]], lock_exp
     return "idle"
 
 
+def _collect_attempt_items(db: Session, attempt_id: UUID) -> Dict[str, List[ClaimedEntity]]:
+    """Return attempt items (both active and finalized) with derived relationships.
+    Samples: straightforward list.
+    Experiments: include relationships to sample/sample_submission.
+    Reads: include relationships to experiment/experiment_submission.
+    """
+    # Load rows included in this attempt (active or finalized)
+    sample_rows = (
+        db.query(SampleSubmission)
+        .filter(or_(SampleSubmission.attempt_id == attempt_id, SampleSubmission.finalized_attempt_id == attempt_id))
+        .all()
+    )
+    exp_rows = (
+        db.query(ExperimentSubmission)
+        .filter(or_(ExperimentSubmission.attempt_id == attempt_id, ExperimentSubmission.finalized_attempt_id == attempt_id))
+        .all()
+    )
+    read_rows = (
+        db.query(ReadSubmission)
+        .filter(or_(ReadSubmission.attempt_id == attempt_id, ReadSubmission.finalized_attempt_id == attempt_id))
+        .all()
+    )
+
+    # Samples
+    samples_out: List[ClaimedEntity] = [
+        ClaimedEntity(
+            id=r.id,
+            status=r.status,
+            prepared_payload=r.prepared_payload,
+            accession=r.accession,
+        )
+        for r in sample_rows
+    ]
+
+    # Experiments -> derive sample linkage
+    experiments_out: List[ClaimedEntity] = []
+    if exp_rows:
+        exp_ids = [r.experiment_id for r in exp_rows]
+        exp_sample_pairs = (
+            db.query(Experiment.id, Experiment.sample_id)
+            .filter(Experiment.id.in_(exp_ids))
+            .all()
+        )
+        sample_id_by_experiment_id: Dict[UUID, UUID] = {eid: sid for (eid, sid) in exp_sample_pairs}
+
+        claimed_sample_by_sample_id: Dict[UUID, SampleSubmission] = {r.sample_id: r for r in sample_rows}
+        missing_sample_ids = [sid for sid in set(sample_id_by_experiment_id.values()) if sid not in claimed_sample_by_sample_id]
+        accepted_sample_by_sample_id: Dict[UUID, SampleSubmission] = {}
+        if missing_sample_ids:
+            accepted_samples = (
+                db.query(SampleSubmission)
+                .filter(SampleSubmission.sample_id.in_(missing_sample_ids), SampleSubmission.status == "accepted")
+                .all()
+            )
+            accepted_sample_by_sample_id = {r.sample_id: r for r in accepted_samples}
+
+        for r in exp_rows:
+            sid = sample_id_by_experiment_id.get(r.experiment_id)
+            parent_ss = claimed_sample_by_sample_id.get(sid) or accepted_sample_by_sample_id.get(sid)
+            relationships = {
+                "sample_id": sid,
+                "sample_submission_id": (parent_ss.id if parent_ss else None),
+                "sample_accession": (parent_ss.accession if parent_ss else getattr(r, "sample_accession", None)),
+                "project_accession": getattr(r, "project_accession", None),
+            }
+            experiments_out.append(
+                ClaimedEntity(
+                    id=r.id,
+                    status=r.status,
+                    prepared_payload=r.prepared_payload,
+                    accession=r.accession,
+                    relationships=relationships,
+                )
+            )
+
+    # Reads -> derive experiment linkage
+    reads_out: List[ClaimedEntity] = []
+    if read_rows:
+        claimed_exp_by_experiment_id: Dict[UUID, ExperimentSubmission] = {r.experiment_id: r for r in exp_rows}
+        read_exp_ids = [r.experiment_id for r in read_rows]
+        missing_exp_ids = [eid for eid in set(read_exp_ids) if eid not in claimed_exp_by_experiment_id]
+        accepted_exp_by_experiment_id: Dict[UUID, ExperimentSubmission] = {}
+        if missing_exp_ids:
+            accepted_exps = (
+                db.query(ExperimentSubmission)
+                .filter(ExperimentSubmission.experiment_id.in_(missing_exp_ids), ExperimentSubmission.status == "accepted")
+                .all()
+            )
+            accepted_exp_by_experiment_id = {r.experiment_id: r for r in accepted_exps}
+
+        for r in read_rows:
+            exp_parent = claimed_exp_by_experiment_id.get(r.experiment_id) or accepted_exp_by_experiment_id.get(r.experiment_id)
+            relationships = {
+                "experiment_id": r.experiment_id,
+                "experiment_submission_id": (exp_parent.id if exp_parent else None),
+                "experiment_accession": (exp_parent.accession if exp_parent else getattr(r, "experiment_accession", None)),
+            }
+            reads_out.append(
+                ClaimedEntity(
+                    id=r.id,
+                    status=r.status,
+                    prepared_payload=r.prepared_payload,
+                    accession=r.accession,
+                    relationships=relationships,
+                )
+            )
+
+    return {"samples": samples_out, "experiments": experiments_out, "reads": reads_out}
+
 @router.get("/attempts")
 def list_attempts(
     *,
@@ -644,13 +811,14 @@ def get_attempt(
     *,
     attempt_id: UUID,
     db: Session = Depends(get_db),
+    include_items: bool = Query(False),
 ) -> Dict[str, Any]:
     a = db.query(SubmissionAttempt).filter(SubmissionAttempt.id == attempt_id).first()
     if not a:
         raise HTTPException(status_code=404, detail="Attempt not found")
     counts = _counts_by_entity_for_attempt(db, attempt_id)
     status = _derive_attempt_status(counts, a.lock_expires_at)
-    return {
+    out = {
         "attempt_id": str(a.id),
         "organism_key": a.organism_key,
         "campaign_label": a.campaign_label,
@@ -660,6 +828,22 @@ def get_attempt(
         "updated_at": a.updated_at,
         "counts_by_entity": counts,
     }
+    if include_items:
+        out.update(_collect_attempt_items(db, attempt_id))
+    return out
+
+
+@router.get("/attempts/{attempt_id}/items")
+def list_attempt_items(
+    *,
+    attempt_id: UUID,
+    db: Session = Depends(get_db),
+) -> Dict[str, Any]:
+    # Ensure attempt exists
+    a = db.query(SubmissionAttempt).filter(SubmissionAttempt.id == attempt_id).first()
+    if not a:
+        raise HTTPException(status_code=404, detail="Attempt not found")
+    return _collect_attempt_items(db, attempt_id)
 
 
 @router.get("/organisms/{organism_key}/summary")
