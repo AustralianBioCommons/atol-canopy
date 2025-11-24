@@ -5,7 +5,7 @@ from uuid import UUID, uuid4
 from fastapi import APIRouter, Depends, HTTPException, Path, Query, Body
 from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session
-from sqlalchemy import func
+from sqlalchemy import func, or_
 
 from app.core.dependencies import get_db, has_role
 from app.models.sample import Sample, SampleSubmission
@@ -562,10 +562,26 @@ def _counts_for_model(db: Session, model, filters) -> Dict[str, int]:
 
 
 def _counts_by_entity_for_attempt(db: Session, attempt_id: UUID) -> Dict[str, Dict[str, int]]:
+    """Aggregate counts for an attempt including both active and finalized items.
+    Counts rows where attempt_id == attempt_id (active lease) OR
+    finalized_attempt_id == attempt_id (finalized outcomes).
+    """
     return {
-        "samples": _counts_for_model(db, SampleSubmission, [SampleSubmission.attempt_id == attempt_id]),
-        "experiments": _counts_for_model(db, ExperimentSubmission, [ExperimentSubmission.attempt_id == attempt_id]),
-        "reads": _counts_for_model(db, ReadSubmission, [ReadSubmission.attempt_id == attempt_id]),
+        "samples": _counts_for_model(
+            db,
+            SampleSubmission,
+            [or_(SampleSubmission.attempt_id == attempt_id, SampleSubmission.finalized_attempt_id == attempt_id)],
+        ),
+        "experiments": _counts_for_model(
+            db,
+            ExperimentSubmission,
+            [or_(ExperimentSubmission.attempt_id == attempt_id, ExperimentSubmission.finalized_attempt_id == attempt_id)],
+        ),
+        "reads": _counts_for_model(
+            db,
+            ReadSubmission,
+            [or_(ReadSubmission.attempt_id == attempt_id, ReadSubmission.finalized_attempt_id == attempt_id)],
+        ),
     }
 
 
@@ -725,7 +741,7 @@ def organism_summary(
             active.append({"attempt_id": str(a.id), "lock_expires_at": a.lock_expires_at})
     return {
         "organism_key": organism_key,
-        "latest_batches": latest,
+        "latest_attempts": latest,
         "active_attempts": active,
         "counts_by_entity": counts_by_entity,
     }
