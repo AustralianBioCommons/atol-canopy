@@ -21,6 +21,7 @@ from app.schemas.organism import (
     OrganismCreate,
     OrganismUpdate,
 )
+from app.models.project import Project
 from app.schemas.bulk_import import BulkOrganismImport, BulkImportResponse
 from app.schemas.aggregate import OrganismSubmissionJsonResponse, SampleSubmissionJson, ExperimentSubmissionJson, ReadSubmissionJson
 
@@ -217,6 +218,40 @@ def create_organism(
         bpa_json=organism_in.dict(exclude_unset=True),
     )
     db.add(organism)
+    try:
+        root_project = Project(
+            organism_key=organism.grouping_key,
+            project_type="root",
+            project_accession=None,
+            alias=f"{organism_in.scientific_name} genome assembly and related data",
+            title=f"{organism_in.scientific_name}",
+            description=f"Genome assemblies and related data for the organism {organism_in.scientific_name}, brokered on behalf of the Australian Tree of Life (AToL) project",
+            centre_name="Australian Tree of Life (AToL)",
+            study_attributes=None,
+            submitted_at=None,
+            status="draft",
+            authority="ENA",
+        )
+        genomic_data_project = Project(
+            organism_key=organism.grouping_key,
+            project_type="genomic_data",
+            project_accession=None,
+            alias=f"Genomic data for {organism_in.scientific_name}",
+            title=f"{organism_in.scientific_name} - genomic data",
+            description=f"Genomic data for the organism {organism_in.scientific_name}, brokered on behalf of the Australian Tree of Life (AToL) project",
+            centre_name="Australian Tree of Life (AToL)",
+            study_attributes=None,
+            submitted_at=None,
+            status="draft",
+            authority="ENA",
+        )
+        db.add(root_project)
+        db.add(genomic_data_project)
+    except Exception as e:
+        db.rollback()
+        raise HTTPException(status_code=500, detail=str(e))
+    
+    
     db.commit()
     db.refresh(organism)
     return organism
@@ -352,7 +387,37 @@ def bulk_import_organisms(
                 scientific_name=scientific_name,
                 bpa_json=organism_data
             )
+            root_project = Project(
+                organism_key=organism.grouping_key,
+                project_type="root",
+                study_type="Whole Genome Sequencing",
+                project_accession=None,
+                alias=f"{organism.scientific_name} genome assembly and related data",
+                title=f"{organism.scientific_name}",
+                description=f"Genome assemblies and related data for the organism {organism.scientific_name}, brokered on behalf of the Australian Tree of Life (AToL) project",
+                centre_name="Australian Tree of Life (AToL)",
+                study_attributes=None,
+                submitted_at=None,
+                status="draft",
+                authority="ENA",
+            )
+            genomic_data_project = Project(
+                organism_key=organism.grouping_key,
+                project_type="genomic_data",
+                study_type="Whole Genome Sequencing",
+                project_accession=None,
+                alias=f"Genomic data for {organism.scientific_name}",
+                title=f"{organism.scientific_name} - genomic data",
+                description=f"Genomic data for the organism {organism.scientific_name}, brokered on behalf of the Australian Tree of Life (AToL) project",
+                centre_name="Australian Tree of Life (AToL)",
+                study_attributes=None,
+                submitted_at=None,
+                status="draft",
+                authority="ENA",
+            )
             db.add(organism)
+            db.add(root_project)
+            db.add(genomic_data_project)
             db.commit()
             created_count += 1
         except Exception as e:

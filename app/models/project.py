@@ -17,7 +17,8 @@ class Project(Base):
     __tablename__ = "project"
     
     id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
-    project_type = Column(SQLAlchemyEnum("organism", "genomic_data", "assembly", name="project_type"), nullable=False)
+    organism_key = Column("organism_key", ForeignKey("organism.grouping_key", ondelete="CASCADE"), nullable=False)
+    project_type = Column(SQLAlchemyEnum("root", "genomic_data", "assembly", name="project_type"), nullable=False)
     project_accession = Column(Text, unique=True, nullable=True)
     study_type = Column(Text, nullable=False)
     alias = Column(Text, nullable=False)

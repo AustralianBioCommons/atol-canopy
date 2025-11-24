@@ -10,7 +10,7 @@ CREATE TYPE authority_type AS ENUM ('ENA', 'NCBI', 'DDBJ');
 CREATE TYPE molecule_type AS ENUM ('genomic DNA', 'genomic RNA');
 CREATE TYPE assembly_output_file_type AS ENUM ('QC', 'Other'); -- TODO define more specific types as needed
 CREATE TYPE entity_type AS ENUM ('organism', 'sample', 'experiment', 'read', 'assembly', 'project');
-CREATE TYPE project_type AS ENUM ('organism', 'genomic_data', 'assembly');
+CREATE TYPE project_type AS ENUM ('root', 'genomic_data', 'assembly');
 -- ==========================================
 -- Users and Authentication
 -- ==========================================
@@ -98,6 +98,7 @@ CREATE UNIQUE INDEX uq_registry_full
 -- Main project table
 CREATE TABLE project (
     id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    organism_key TEXT NOT NULL REFERENCES organism(grouping_key) ON DELETE CASCADE,
     project_type project_type NOT NULL,
     project_accession TEXT UNIQUE,
     study_type TEXT NOT NULL,
@@ -114,6 +115,9 @@ CREATE TABLE project (
     created_at TIMESTAMP NOT NULL DEFAULT NOW(),
     updated_at TIMESTAMP NOT NULL DEFAULT NOW()
 );
+
+CREATE UNIQUE INDEX uq_one_project_type_per_organism
+  ON project (organism_key, project_type);
 
 -- ==========================================
 -- Sample tables
@@ -314,13 +318,6 @@ CREATE UNIQUE INDEX uq_exp_one_accepted
         OR (project_accession IS NOT NULL AND sample_accession IS NOT NULL AND accession IS NOT NULL)
     )
 */
-
--- project experiment table
-CREATE TABLE project_experiment (
-    project_id UUID REFERENCES project(id) NOT NULL,
-    experiment_id UUID REFERENCES experiment(id) NOT NULL,
-    PRIMARY KEY (project_id, experiment_id)
-);
 
 -- ==========================================
 -- Read tables
