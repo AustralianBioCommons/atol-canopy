@@ -110,7 +110,6 @@ CREATE TABLE project (
     submitted_at TIMESTAMP,
     status submission_status NOT NULL DEFAULT 'draft',
     authority authority_type NOT NULL DEFAULT 'ENA',
-    -- TODO consider if we want to track status of project submission
     -- TODO confirm if we want study attributes, and enforece schema for json (or include as seperate table)
     created_at TIMESTAMP NOT NULL DEFAULT NOW(),
     updated_at TIMESTAMP NOT NULL DEFAULT NOW()
@@ -119,7 +118,7 @@ CREATE TABLE project (
 CREATE UNIQUE INDEX uq_one_project_type_per_organism
   ON project (organism_key, project_type);
 
--- Project submission table (attempt-only model)
+-- Project submission table
 CREATE TABLE IF NOT EXISTS project_submission (
     id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
     project_id UUID NOT NULL REFERENCES project(id) ON DELETE CASCADE,
@@ -437,7 +436,7 @@ CREATE INDEX IF NOT EXISTS idx_read_submission_attempt ON read_submission (attem
 CREATE INDEX IF NOT EXISTS idx_read_submission_finalized_attempt ON read_submission (finalized_attempt_id);
 
 -- ==========================================
--- Broker Attempt table (attempt-only model)
+-- Broker Attempt table
 -- ==========================================
 
 CREATE TABLE submission_attempt (

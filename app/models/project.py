@@ -33,7 +33,6 @@ class Project(Base):
     updated_at = Column(DateTime, nullable=False, default=datetime.now(timezone.utc), onupdate=datetime.now(timezone.utc))
 
 class ProjectSubmission(Base):
-    """ProjectSubmission mirrors other *_submission tables for attempt-only brokering."""
     __tablename__ = "project_submission"
 
     id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)

@@ -53,10 +53,10 @@ def get_sample_xml(
             detail="Sample submission data not found",
         )
     
-    if not sample_submission.submission_json:
+    if not sample_submission.prepared_payload:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Sample has no submission_json data",
+            detail="Sample has no prepared_payload data",
         )
         
     # Get the organism data
@@ -78,7 +78,7 @@ def get_sample_xml(
     # Generate XML using the utility function
     xml_content = generate_sample_xml(
         organism=organism,
-        submission_json=sample_submission.submission_json,
+        prepared_payload=sample_submission.prepared_payload,
         alias=sample_submission.sample.bpa_sample_id if sample_submission.sample else f"sample_{sample_submission.sample_id}",
         accession=sample_submission.sample.sample_accession if sample_submission.sample and sample_submission.sample.sample_accession else None
     )
@@ -124,10 +124,10 @@ def get_experiment_sample_xml(
             detail=f"No submission sample records found for experiment with bpa_package_id {bpa_package_id}"
         )
     
-    if not sample_submission.submission_json:
+    if not sample_submission.prepared_payload:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Sample has no submission_json data",
+            detail="Sample has no prepared_payload data",
         )
     
     # Get the organism data
@@ -149,7 +149,7 @@ def get_experiment_sample_xml(
     # Generate XML using the utility function
     xml_content = generate_sample_xml(
         organism=organism,
-        submission_json=sample_submission.submission_json,
+        prepared_payload=sample_submission.prepared_payload,
         alias=sample_submission.sample.bpa_sample_id if sample_submission.sample else f"sample_{sample_submission.sample_id}",
         accession=sample_submission.sample.sample_accession if sample_submission.sample and sample_submission.sample.sample_accession else None
     )
@@ -188,16 +188,16 @@ def get_experiment_xml(
             detail="Experiment submission data not found",
         )
     
-    if not experiment_submission.submission_json:
+    if not experiment_submission.prepared_payload:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Experiment has no submission_json data",
+            detail="Experiment has no prepared_payload data",
         )
     
     # Generate XML using the utility function
     xml_content = generate_experiment_xml(
-        submission_json=experiment_submission.submission_json,
-        alias=experiment_submission.submission_json.get("alias"),
+        prepared_payload=experiment_submission.prepared_payload,
+        alias=experiment_submission.prepared_payload.get("alias"),
         study_accession=study_accession,
         study_alias=study_alias,
         sample_accession=sample_accession,
@@ -243,16 +243,16 @@ def get_experiment_by_package_id_xml(
             detail=f"No submission experiment records found for experiment with bpa_package_id {bpa_package_id}"
         )
     
-    if not experiment_submission.submission_json:
+    if not experiment_submission.prepared_payload:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Experiment has no submission_json data",
+            detail="Experiment has no prepared_payload data",
         )
     
     # Generate XML using the utility function
     xml_content = generate_experiment_xml(
-        submission_json=experiment_submission.submission_json,
-        alias=experiment_submission.submission_json.get("alias"),
+        prepared_payload=experiment_submission.prepared_payload,
+        alias=experiment_submission.prepared_payload.get("alias"),
         study_accession=study_accession,
         study_alias=study_alias,
         sample_accession=sample_accession,
@@ -290,19 +290,19 @@ def get_read_xml(
             detail="Read not found",
         )
     
-    if not read.submission_json:
+    if not read.prepared_payload:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Read has no submission_json data",
+            detail="Read has no prepared_payload data",
         )
     
     # Generate XML using the utility function
     xml_content = generate_run_xml(
-        submission_json=read.submission_json,
+        prepared_payload=read.prepared_payload,
         alias=read.bpa_dataset_id if read.bpa_dataset_id else f"read_{read_id}",
         experiment_accession=experiment_accession,
         experiment_alias=experiment_alias,
-        accession=read.submission_json.get("run_accession")
+        accession=read.prepared_payload.get("run_accession")
     )
     
     return xml_content
@@ -350,17 +350,17 @@ def get_reads_xml(
     # Prepare the data for XML generation
     reads_data = []
     for read in reads:
-        if not read.submission_json:
+        if not read.prepared_payload:
             continue
             
         # Get the run accession if available
-        accession = read.submission_json.get("run_accession")
+        accession = read.prepared_payload.get("run_accession")
             
         # Use the BPA dataset ID as the alias if available
         alias = read.bpa_dataset_id if read.bpa_dataset_id else f"read_{read.id}"
             
         reads_data.append({
-            "submission_json": read.submission_json,
+            "prepared_payload": read.prepared_payload,
             "alias": alias,
             "accession": accession
         })
@@ -368,7 +368,7 @@ def get_reads_xml(
     if not reads_data:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail="None of the selected reads have submission_json data",
+            detail="None of the selected reads have prepared_payload data",
         )
     
     # Generate XML using the utility function
@@ -407,17 +407,17 @@ def get_experiment_reads_xml(
     # Prepare the data for XML generation
     reads_data = []
     for read in reads:
-        if not read.submission_json:
+        if not read.prepared_payload:
             continue
             
         # Get the run accession if available
-        accession = read.submission_json.get("run_accession")
+        accession = read.prepared_payload.get("run_accession")
             
         # Use the BPA dataset ID as the alias if available
         alias = read.bpa_dataset_id if read.bpa_dataset_id else f"read_{read.id}"
             
         reads_data.append({
-            "submission_json": read.submission_json,
+            "prepared_payload": read.prepared_payload,
             "alias": alias,
             "accession": accession
         })
@@ -425,7 +425,7 @@ def get_experiment_reads_xml(
     if not reads_data:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail="None of the reads for this experiment have submission_json data",
+            detail="None of the reads for this experiment have prepared_payload data",
         )
     
     # Generate XML using the utility function

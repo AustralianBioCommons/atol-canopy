@@ -13,5 +13,5 @@ class SubmissionStatus(str, Enum):
 
 
 class SubmissionJsonResponse(BaseModel):
-    """Schema for returning submission_json data"""
+    """Schema for returning prepared_payload data"""
     prepared_payload: Optional[Dict[str, Any]] = None

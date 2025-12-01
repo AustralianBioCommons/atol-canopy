@@ -15,6 +15,7 @@ from app.models.experiment import Experiment, ExperimentSubmission
 from app.models.read import Read, ReadSubmission
 from app.models.broker import SubmissionAttempt, SubmissionEvent
 from app.models.project import Project, ProjectSubmission
+from app.models.organism import Organism
 
 router = APIRouter(dependencies=[Depends(has_role(["broker"]))])
 
@@ -29,9 +30,17 @@ class ClaimedEntity(BaseModel):
     relationships: Optional[Dict[str, Any]] = None
 
 
+class OrganismInfo(BaseModel):
+    organism_key: str
+    scientific_name: Optional[str] = None
+    tax_id: Optional[int] = None
+    culture_or_strain_id: Optional[str] = None
+
+
 class ClaimResponse(BaseModel):
     attempt_id: UUID
     organism_key: str
+    organism: Optional[OrganismInfo] = None
     samples: List[ClaimedEntity] = Field(default_factory=list)
     experiments: List[ClaimedEntity] = Field(default_factory=list)
     reads: List[ClaimedEntity] = Field(default_factory=list)
@@ -84,7 +93,7 @@ def claim_drafts_for_organism(
     """Claim latest draft SampleSubmissions for an organism and mark them 'submitting'.
     This acts as a short lease to prevent concurrent edits.
     """
-    # Create an attempt for this claim (attempt-only model)
+    # Create an attempt for this claim
     lease_minutes = 30
     if payload and payload.lease_duration_minutes:
         lease_minutes = payload.lease_duration_minutes
@@ -400,9 +409,27 @@ def claim_drafts_for_organism(
             )
         )
 
+    # Enrich response with organism info
+    org_row = db.query(Organism).filter(Organism.grouping_key == organism_key).first()
+    org_info = None
+    if org_row:
+        culture_id = None
+        try:
+            if isinstance(org_row.bpa_json, dict):
+                culture_id = org_row.bpa_json.get("culture_or_strain_id")
+        except Exception:
+            culture_id = None
+        org_info = OrganismInfo(
+            organism_key=organism_key,
+            scientific_name=org_row.scientific_name,
+            tax_id=org_row.tax_id,
+            culture_or_strain_id=culture_id,
+        )
+
     return ClaimResponse(
         attempt_id=attempt_id,
         organism_key=organism_key,
+        organism=org_info,
         samples=claimed_samples,
         experiments=claimed_experiments,
         reads=claimed_reads,
@@ -745,7 +772,7 @@ def report_results(
     )
 
 
-# ---------- Dashboard Helpers (attempt-only) ----------
+# ---------- Dashboard Helpers ----------
 def _counts_for_model(db: Session, model, filters) -> Dict[str, int]:
     q = db.query(model.status, func.count()).filter(*filters).group_by(model.status)
     rows = q.all()

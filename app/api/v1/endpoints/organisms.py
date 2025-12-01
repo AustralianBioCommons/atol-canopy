@@ -104,16 +104,16 @@ def get_experiments_for_organism(
 
 
 @router.get("/submissions/{grouping_key}", response_model=OrganismSubmissionJsonResponse)
-def get_organism_submission_json(
+def get_organism_prepared_payload(
     *,
     db: Session = Depends(get_db),
     grouping_key: str,
     current_user: User = Depends(get_current_active_user),
 ) -> Any:
     """
-    Get all submission_json data for samples, experiments, and reads related to a specific grouping_key.
+    Get all prepared_payload data for samples, experiments, and reads related to a specific grouping_key.
     """
-    # Admin, curator, broker and genome_launcher can get submission_json data
+    # Admin, curator, broker and genome_launcher can get prepared_payload data
     require_role(current_user, ["admin", "curator", "broker", "genome_launcher"])
     
     # Find the organism by grouping key
