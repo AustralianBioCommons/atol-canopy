@@ -10,7 +10,7 @@ from app.core.dependencies import (
     get_db,
     require_role,
 )
-from app.models.assembly import Assembly, AssemblyFetched, AssemblySubmission
+from app.models.assembly import Assembly, AssemblySubmission
 from app.models.organism import Organism
 from app.models.sample import Sample
 from app.models.experiment import Experiment
@@ -21,8 +21,6 @@ from app.services.organism_service import organism_service
 from app.schemas.assembly import (
     Assembly as AssemblySchema,
     AssemblyCreate,
-    AssemblyFetched as AssemblyFetchedSchema,
-    AssemblyFetchedCreate,
     AssemblySubmission as AssemblySubmissionSchema,
     AssemblySubmissionCreate,
     AssemblySubmissionUpdate,
@@ -32,7 +30,7 @@ from app.schemas.assembly import (
 
 router = APIRouter()
 
-
+"""
 @router.get("/", response_model=List[AssemblySchema])
 def read_assemblies(
     db: Session = Depends(get_db),
@@ -43,9 +41,7 @@ def read_assemblies(
     experiment_id: Optional[UUID] = Query(None, description="Filter by experiment ID"),
     current_user: User = Depends(get_current_active_user),
 ) -> Any:
-    """
     Retrieve assemblies.
-    """
     # All users can read assemblies
     query = db.query(Assembly)
     if organism_id:
@@ -57,7 +53,7 @@ def read_assemblies(
     
     assemblies = query.offset(skip).limit(limit).all()
     return assemblies
-
+"""
 
 @router.get("/pipeline-inputs")
 def get_pipeline_inputs(
@@ -81,13 +77,13 @@ def get_pipeline_inputs(
     if db is None:
         raise HTTPException(status_code=422, detail="database session is required")
     # Get the organism by organism_grouping_key
-    organism = organism_service.get_by_organism_grouping_key(db, organism_grouping_key)
+    organism = organism_service.get_by_grouping_key(db, organism_grouping_key)
     if not organism:
         print(f"Organism with grouping key '{organism_grouping_key}' not found")
         raise HTTPException(status_code=404, detail=f"Organism with grouping key '{organism_grouping_key}' not found")
     
     # Get all samples for this organism
-    samples = db.query(Sample).filter(Sample.organism_id == organism.id).all()
+    samples = db.query(Sample).filter(Sample.organism_key == organism.grouping_key).all()
     if not samples:
         print(f"No samples found for organism with grouping key '{organism_grouping_key}'")
         return [{
@@ -110,6 +106,9 @@ def get_pipeline_inputs(
             print(f"Experiment {experiment.id} found for sample {sample.id}")
             # Get reads for this experiment
             reads = db.query(Read).filter(Read.experiment_id == experiment.id).all()
+
+            if reads is None:
+                continue
             
             for read in reads:
                 print(f"Read {read.id} found for experiment {experiment.id}")
@@ -157,22 +156,22 @@ def get_pipeline_inputs_by_tax_id(
     
     # Process each organism
     for organism in organisms:
-        print(f"Found organism {organism.id} with tax ID '{tax_id}'")
-        organism_key = organism.organism_grouping_key
+        print(f"Found organism {organism.grouping_key} with tax ID '{tax_id}'")
+        organism_key = organism.grouping_key
         result[tax_id][organism_key] = {
             "scientific_name": organism.scientific_name,
             "files": {}
         }
         
         # Get all samples for this organism
-        samples = db.query(Sample).filter(Sample.organism_id == organism.id).all()
+        samples = db.query(Sample).filter(Sample.organism_key == organism.grouping_key).all()
         if not samples:
-            print(f"No samples found for organism with ID {organism.id}")
+            print(f"No samples found for organism with ID {organism.grouping_key}")
             continue
         
         # Collect all reads for this organism through the sample->experiment->read relationship
         for sample in samples:
-            print(f"Sample {sample.id} found for organism {organism.id}")
+            print(f"Sample {sample.id} found for organism {organism.grouping_key}")
             # Get experiments for this sample
             experiments = db.query(Experiment).filter(Experiment.sample_id == sample.id).all()
             
@@ -188,7 +187,7 @@ def get_pipeline_inputs_by_tax_id(
     
     return result
 
-
+"""
 @router.post("/", response_model=AssemblySchema)
 def create_assembly(
     *,
@@ -196,9 +195,7 @@ def create_assembly(
     assembly_in: AssemblyCreate,
     current_user: User = Depends(get_current_active_user),
 ) -> Any:
-    """
-    Create new assembly.
-    """
+    # Create new assembly.
     # Only users with 'curator' or 'admin' role can create assemblies
     require_role(current_user, ["curator", "admin"])
     
@@ -223,9 +220,7 @@ def read_assembly(
     assembly_id: UUID,
     current_user: User = Depends(get_current_active_user),
 ) -> Any:
-    """
-    Get assembly by ID.
-    """
+    # Get assembly by ID.
     # All users can read assembly details
     assembly = db.query(Assembly).filter(Assembly.id == assembly_id).first()
     if not assembly:
@@ -241,9 +236,7 @@ def update_assembly(
     assembly_in: AssemblyUpdate,
     current_user: User = Depends(get_current_active_user),
 ) -> Any:
-    """
-    Update an assembly.
-    """
+    # Update an assembly.
     # Only users with 'curator' or 'admin' role can update assemblies
     require_role(current_user, ["curator", "admin"])
     
@@ -268,9 +261,7 @@ def delete_assembly(
     assembly_id: UUID,
     current_user: User = Depends(get_current_superuser),
 ) -> Any:
-    """
-    Delete an assembly.
-    """
+    # Delete an assembly.
     # Only superusers can delete assemblies
     assembly = db.query(Assembly).filter(Assembly.id == assembly_id).first()
     if not assembly:
@@ -290,9 +281,7 @@ def read_assembly_submissions(
     status: Optional[SchemaSubmissionStatus] = Query(None, description="Filter by submission status"),
     current_user: User = Depends(get_current_active_user),
 ) -> Any:
-    """
-    Retrieve assembly submissions.
-    """
+    # Retrieve assembly submissions.
     # All users can read assembly submissions
     query = db.query(AssemblySubmission)
     if status:
@@ -309,9 +298,7 @@ def create_assembly_submission(
     submission_in: AssemblySubmissionCreate,
     current_user: User = Depends(get_current_active_user),
 ) -> Any:
-    """
-    Create new assembly submission.
-    """
+    # Create new assembly submission.
     # Only users with 'curator' or 'admin' role can create assembly submissions
     require_role(current_user, ["curator", "admin"])
     
@@ -340,9 +327,7 @@ def update_assembly_submission(
     submission_in: AssemblySubmissionUpdate,
     current_user: User = Depends(get_current_active_user),
 ) -> Any:
-    """
-    Update an assembly submission.
-    """
+    # Update an assembly submission.
     # Only users with 'curator' or 'admin' role can update assembly submissions
     require_role(current_user, ["curator", "admin"])
     
@@ -359,49 +344,4 @@ def update_assembly_submission(
     db.refresh(submission)
     return submission
 
-
-# Assembly Fetched endpoints
-@router.get("/fetched/", response_model=List[AssemblyFetchedSchema])
-def read_assembly_fetches(
-    db: Session = Depends(get_db),
-    skip: int = 0,
-    limit: int = 100,
-    current_user: User = Depends(get_current_active_user),
-) -> Any:
-    """
-    Retrieve assembly fetch records.
-    """
-    # All users can read assembly fetch records
-    fetches = db.query(AssemblyFetched).offset(skip).limit(limit).all()
-    return fetches
-
-
-@router.post("/fetched/", response_model=AssemblyFetchedSchema)
-def create_assembly_fetch(
-    *,
-    db: Session = Depends(get_db),
-    fetch_in: AssemblyFetchedCreate,
-    current_user: User = Depends(get_current_active_user),
-) -> Any:
-    """
-    Create new assembly fetch record.
-    """
-    # Only users with 'curator' or 'admin' role can create assembly fetch records
-    require_role(current_user, ["curator", "admin"])
-    
-    fetch = AssemblyFetched(
-        assembly_id=fetch_in.assembly_id,
-        assembly_accession=fetch_in.assembly_accession,
-        organism_id=fetch_in.organism_id,
-        sample_id=fetch_in.sample_id,
-        experiment_id=fetch_in.experiment_id,
-        fetched_json=fetch_in.fetched_json,
-        fetched_at=fetch_in.fetched_at,
-    )
-    db.add(fetch)
-    db.commit()
-    db.refresh(fetch)
-    return fetch
-
-
-
+"""

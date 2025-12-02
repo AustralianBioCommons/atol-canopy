@@ -9,15 +9,14 @@ from app.db.session import Base
 
 class BPAInitiative(Base):
     """
-    BPA Initiative model for storing information about physical sample shipments.
+    BPA Initiative model for storing information about BPA initiatives.
     
     This model corresponds to the 'bpa_initiative' table in the database.
     """
     __tablename__ = "bpa_initiative"
     
-    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
-    bpa_initiative_id_serial = Column(String, unique=True, nullable=False)
-    name = Column(Text, nullable=False)
-    shipment_accession = Column(Text, nullable=True)
+    project_code = Column(Text, primary_key=True)
+    title = Column(Text, nullable=False)
+    url = Column(Text, nullable=True)
     created_at = Column(DateTime, nullable=False, default=datetime.now(timezone.utc))
     updated_at = Column(DateTime, nullable=False, default=datetime.now(timezone.utc), onupdate=datetime.now(timezone.utc))

@@ -12,6 +12,7 @@ from app.schemas.common import SubmissionStatus
 # Base Organism schema
 class OrganismBase(BaseModel):
     """Base Organism schema with common attributes."""
+    grouping_key: str
     tax_id: int
     scientific_name: str
     common_name: Optional[str] = None
@@ -33,7 +34,6 @@ class OrganismUpdate(BaseModel):
     scientific_name: Optional[str] = None
     common_name: Optional[str] = None
     common_name_source: Optional[str] = None
-    bpa_json: Optional[Dict] = None
     taxonomy_lineage_json: Optional[Dict] = None
 
 

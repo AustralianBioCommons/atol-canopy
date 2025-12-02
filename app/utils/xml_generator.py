@@ -13,13 +13,13 @@ from fastapi import APIRouter, Depends, HTTPException, Query, Response, status
 from app.core.dependencies import get_db
 
 
-def generate_sample_xml(organism: Organism, submission_json: Dict[str, Any], alias: str, center_name: str = "AToL", 
+def generate_sample_xml(organism: Organism, prepared_payload: Dict[str, Any], alias: str, center_name: str = "AToL", 
                        broker_name: str = "AToL", accession: Optional[str] = None) -> str:
     """
     Generate ENA sample XML from submission JSON data.
     
     Args:
-        submission_json: Dictionary containing the sample data in the internal format
+        prepared_payload: Dictionary containing the sample data in the internal format
         alias: Sample alias (typically the sample ID)
         center_name: Center name for the submission
         broker_name: Broker name for the submission
@@ -49,7 +49,7 @@ def generate_sample_xml(organism: Organism, submission_json: Dict[str, Any], ali
     submitter_id.text = alias
     
     title = ET.SubElement(sample, "TITLE")
-    title.text = submission_json.get("title", f"{alias}")
+    title.text = prepared_payload.get("title", f"{alias}")
     
     sample_name = ET.SubElement(sample, "SAMPLE_NAME")
     
@@ -62,9 +62,9 @@ def generate_sample_xml(organism: Organism, submission_json: Dict[str, Any], ali
     common_name = ET.SubElement(sample_name, "COMMON_NAME")
     common_name.text = organism.common_name
     
-    if "description" in submission_json:
+    if "description" in prepared_payload:
         description = ET.SubElement(sample, "DESCRIPTION")
-        description.text = submission_json["description"]
+        description.text = prepared_payload["description"]
     
     # Add sample attributes
     sample_attributes = ET.SubElement(sample, "SAMPLE_ATTRIBUTES")
@@ -73,7 +73,7 @@ def generate_sample_xml(organism: Organism, submission_json: Dict[str, Any], ali
     skip_keys = ["title", "taxon_id", "scientific_name", "common_name", "description", "alias"]
     
     # Process all other keys as sample attributes
-    for key, value in submission_json.items():
+    for key, value in prepared_payload.items():
         if key in skip_keys:
             continue
 
@@ -132,14 +132,14 @@ def generate_sample_xml(organism: Organism, submission_json: Dict[str, Any], ali
     reparsed = minidom.parseString(rough_string)
     return reparsed.toprettyxml(indent="  ", encoding="UTF-8").decode('UTF-8')
 
-def generate_experiment_xml(submission_json: Dict[str, Any], alias: str, study_accession: Optional[str] = None,
+def generate_experiment_xml(prepared_payload: Dict[str, Any], alias: str, study_accession: Optional[str] = None,
                           study_alias: Optional[str] = None, sample_accession: Optional[str] = None, sample_alias: Optional[str] = None,
                           center_name: str = "AToL", broker_name: str = "AToL", accession: Optional[str] = None) -> str:
     """
     Generate ENA experiment XML from submission JSON data.
     
     Args:
-        submission_json: Dictionary containing the experiment data in the internal format
+        prepared_payload: Dictionary containing the experiment data in the internal format
         alias: Experiment alias (typically the experiment ID or BPA package ID)
         center_name: Center name for the submission
         broker_name: Broker name for the submission
@@ -167,7 +167,7 @@ def generate_experiment_xml(submission_json: Dict[str, Any], alias: str, study_a
     submitter_id.text = alias
     
     title = ET.SubElement(experiment, "TITLE")
-    title.text = submission_json.get("title", alias)
+    title.text = prepared_payload.get("title", alias)
     
     study_ref = ET.SubElement(experiment, "STUDY_REF")
     if study_accession:
@@ -180,7 +180,7 @@ def generate_experiment_xml(submission_json: Dict[str, Any], alias: str, study_a
     design = ET.SubElement(experiment, "DESIGN")
     
     design_description = ET.SubElement(design, "DESIGN_DESCRIPTION")
-    design_description.text = submission_json.get("design_description", "")
+    design_description.text = prepared_payload.get("design_description", "")
     
     sample_descriptor = ET.SubElement(design, "SAMPLE_DESCRIPTOR")
     if sample_accession:
@@ -193,39 +193,39 @@ def generate_experiment_xml(submission_json: Dict[str, Any], alias: str, study_a
     library_descriptor = ET.SubElement(design, "LIBRARY_DESCRIPTOR")
     
     library_name = ET.SubElement(library_descriptor, "LIBRARY_NAME")
-    library_name.text = submission_json.get("library_name", None)
+    library_name.text = prepared_payload.get("library_name", None)
     
     library_strategy = ET.SubElement(library_descriptor, "LIBRARY_STRATEGY")
-    library_strategy.text = submission_json.get("library_strategy", None)
+    library_strategy.text = prepared_payload.get("library_strategy", None)
     
     library_source = ET.SubElement(library_descriptor, "LIBRARY_SOURCE")
-    library_source.text = submission_json.get("library_source", None)
+    library_source.text = prepared_payload.get("library_source", None)
     
     library_selection = ET.SubElement(library_descriptor, "LIBRARY_SELECTION")
-    library_selection.text = submission_json.get("library_selection", None)
+    library_selection.text = prepared_payload.get("library_selection", None)
     
     library_construction_protocol = ET.SubElement(library_descriptor, "LIBRARY_CONSTRUCTION_PROTOCOL")
-    library_construction_protocol.text = submission_json.get("library_construction_protocol", None)
+    library_construction_protocol.text = prepared_payload.get("library_construction_protocol", None)
 
     insert_size = ET.SubElement(library_descriptor, "INSERT_SIZE")
-    insert_size.text = submission_json.get("insert_size", None)
+    insert_size.text = prepared_payload.get("insert_size", None)
 
     library_layout = ET.SubElement(library_descriptor, "LIBRARY_LAYOUT")
-    layout_type = submission_json.get("library_layout", "SINGLE")
+    layout_type = prepared_payload.get("library_layout", "SINGLE")
     if layout_type == "PAIRED":
         ET.SubElement(library_layout, "PAIRED")
-        if "nominal_length" in submission_json:
+        if "nominal_length" in prepared_payload:
             paired = library_layout.find("PAIRED")
-            paired.set("NOMINAL_LENGTH", str(submission_json["nominal_length"]))
+            paired.set("NOMINAL_LENGTH", str(prepared_payload["nominal_length"]))
     else:
         ET.SubElement(library_layout, "SINGLE") #TODO check if this is correct
     
     platform = ET.SubElement(experiment, "PLATFORM")
-    platform_type = submission_json.get("platform", None)
+    platform_type = prepared_payload.get("platform", None)
     platform_element = ET.SubElement(platform, platform_type)
     
     instrument_model = ET.SubElement(platform_element, "INSTRUMENT_MODEL")
-    instrument_model.text = submission_json.get("instrument_model", None)
+    instrument_model.text = prepared_payload.get("instrument_model", None)
     
     rough_string = ET.tostring(experiment_set, 'utf-8')
     reparsed = minidom.parseString(rough_string)
@@ -241,14 +241,14 @@ import xml.etree.ElementTree as ET
 from xml.dom import minidom
 
 
-def _create_run_element(submission_json: Dict[str, Any], alias: str, experiment_accession: Optional[str] = None,
+def _create_run_element(prepared_payload: Dict[str, Any], alias: str, experiment_accession: Optional[str] = None,
                       experiment_alias: Optional[str] = None, center_name: str = "AToL",
                       broker_name: str = "AToL", accession: Optional[str] = None) -> ET.Element:
     """
     Helper function to create a RUN element with all its children.
     
     Args:
-        submission_json: Dictionary containing the run data
+        prepared_payload: Dictionary containing the run data
         alias: Run alias
         experiment_accession: Optional experiment accession
         experiment_alias: Optional experiment alias/refname
@@ -279,8 +279,8 @@ def _create_run_element(submission_json: Dict[str, Any], alias: str, experiment_
     
     experiment_ref = ET.SubElement(run, "EXPERIMENT_REF")
     
-    exp_accession = experiment_accession or submission_json.get("experiment_accession")
-    exp_alias = experiment_alias or submission_json.get("experiment_alias")
+    exp_accession = experiment_accession or prepared_payload.get("experiment_accession")
+    exp_alias = experiment_alias or prepared_payload.get("experiment_alias")
     
     if exp_accession:
         experiment_ref.set("accession", exp_accession)
@@ -294,27 +294,27 @@ def _create_run_element(submission_json: Dict[str, Any], alias: str, experiment_
     files = ET.SubElement(data_block, "FILES")
     file_element = ET.SubElement(files, "FILE")
     
-    if "file_checksum" in submission_json:
-        file_element.set("checksum", submission_json["file_checksum"])
+    if "file_checksum" in prepared_payload:
+        file_element.set("checksum", prepared_payload["file_checksum"])
         file_element.set("checksum_method", "MD5")
     
-    if "file_name" in submission_json:
-        file_element.set("filename", submission_json["file_name"])
+    if "file_name" in prepared_payload:
+        file_element.set("filename", prepared_payload["file_name"])
         
-    if "file_format" in submission_json:
-        file_element.set("filetype", submission_json["file_format"])
+    if "file_format" in prepared_payload:
+        file_element.set("filetype", prepared_payload["file_format"])
     
     return run
 
 
-def generate_run_xml(submission_json: Dict[str, Any], alias: str, experiment_accession: Optional[str] = None,
+def generate_run_xml(prepared_payload: Dict[str, Any], alias: str, experiment_accession: Optional[str] = None,
                     experiment_alias: Optional[str] = None, center_name: str = "AToL",
                     broker_name: str = "AToL", accession: Optional[str] = None) -> str:
     """
     Generate ENA run XML from submission JSON data.
     
     Args:
-        submission_json: Dictionary containing the run data in the internal format
+        prepared_payload: Dictionary containing the run data in the internal format
         alias: Run alias (typically the run ID or BPA dataset ID)
         experiment_accession: Optional experiment accession
         experiment_alias: Optional experiment alias/refname
@@ -328,7 +328,7 @@ def generate_run_xml(submission_json: Dict[str, Any], alias: str, experiment_acc
     run_set = ET.Element("RUN_SET")
     
     run = _create_run_element(
-        submission_json=submission_json,
+        prepared_payload=prepared_payload,
         alias=alias,
         experiment_accession=experiment_accession,
         experiment_alias=experiment_alias,
@@ -351,7 +351,7 @@ def generate_runs_xml(runs_data: List[Dict[str, Any]], experiment_accession: Opt
     
     Args:
         runs_data: List of dictionaries, each containing:
-            - submission_json: Dictionary with the run data
+            - prepared_payload: Dictionary with the run data
             - alias: Run alias
             - accession: Optional accession number
         experiment_accession: Optional experiment accession to override all runs
@@ -363,14 +363,14 @@ def generate_runs_xml(runs_data: List[Dict[str, Any]], experiment_accession: Opt
     run_set = ET.Element("RUN_SET")
     
     for run_data in runs_data:
-        submission_json = run_data["submission_json"]
+        prepared_payload = run_data["prepared_payload"]
         alias = run_data["alias"]
         accession = run_data.get("accession")
         center_name = run_data.get("center_name", "AToL")
         broker_name = run_data.get("broker_name", "AToL")
         
         run = _create_run_element(
-            submission_json=submission_json,
+            prepared_payload=prepared_payload,
             alias=alias,
             experiment_accession=experiment_accession,
             experiment_alias=experiment_alias,

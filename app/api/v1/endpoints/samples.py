@@ -1,10 +1,12 @@
 import json
 import uuid
+from datetime import datetime
 from typing import Any, Dict, List, Optional
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy.orm import Session
+from sqlalchemy.orm.attributes import flag_modified
 
 from app.core.dependencies import (
     get_current_active_user,
@@ -12,34 +14,31 @@ from app.core.dependencies import (
     get_db,
     require_role,
 )
-from app.models.sample import Sample, SampleFetched, SampleSubmission
+from app.models.sample import Sample, SampleSubmission
 from app.models.organism import Organism
 from app.models.experiment import Experiment
 from app.models.user import User
 from app.schemas.sample import (
     Sample as SampleSchema,
     SampleCreate,
-    SampleFetched as SampleFetchedSchema,
-    SampleFetchedCreate,
     SampleSubmission as SampleSubmissionSchema,
     SampleSubmissionCreate,
     SampleSubmissionUpdate,
-    SampleUpdate,
-    SubmissionStatus as SchemaSubmissionStatus,
+    SampleUpdate
 )
+from app.utils.mapping import to_float
 from app.schemas.bulk_import import BulkSampleImport, BulkImportResponse
-from app.schemas.common import SubmissionJsonResponse
+from app.schemas.common import SubmissionJsonResponse, SubmissionStatus
 import os
 
 router = APIRouter()
-
 
 @router.get("/", response_model=List[SampleSchema])
 def read_samples(
     db: Session = Depends(get_db),
     skip: int = 0,
     limit: int = 100,
-    organism_id: Optional[UUID] = Query(None, description="Filter by organism ID"),
+    organism_key: Optional[str] = Query(None, description="Filter by organism key"),
     current_user: User = Depends(get_current_active_user),
 ) -> Any:
     """
@@ -47,8 +46,8 @@ def read_samples(
     """
     # All users can read samples
     query = db.query(Sample)
-    if organism_id:
-        query = query.filter(Sample.organism_id == organism_id)
+    if organism_key:
+        query = query.filter(Sample.organism_key == organism_key)
     
     samples = query.offset(skip).limit(limit).all()
     return samples
@@ -66,36 +65,109 @@ def create_sample(
     """
     # Only users with 'curator' or 'admin' role can create samples
     require_role(current_user, ["curator", "admin"])
-    
-    sample = Sample(
-        organism_id=sample_in.organism_id,
+
+    sample_data = sample_in.dict(exclude_unset=True)
+    sample_id = uuid.uuid4()
+
+    # Compute required NOT NULL fields and fallbacks
+    lifestage = sample_in.lifestage or "unknown"
+    sex = sample_in.sex or "unknown"
+    organism_part = sample_in.organism_part or "unknown"
+    region_and_locality = getattr(sample_in, "region_and_locality", None) or "unknown"
+    country_or_sea = getattr(sample_in, "country_or_sea", None) or "unknown"
+    habitat = sample_in.habitat or "unknown"
+    collection_date_val = getattr(sample_in, "collection_date", None) or None
+    # Accept raw string and allow missing collection_date
+
+    # Build kwargs dynamically so we don't pass None for DB server_default columns
+    sample_kwargs = dict(
+        id=sample_id,
+        organism_key=sample_in.organism_key,
         bpa_sample_id=sample_in.bpa_sample_id,
-        sample_accession=sample_in.sample_accession,
-        source_json=sample_in.source_json,
+        specimen_id=sample_in.specimen_id,
+        identified_by=sample_in.identified_by,
+        specimen_id_description=sample_in.specimen_id_description,
+        specimen_custodian=sample_in.specimen_custodian,
+        sample_custodian=sample_in.sample_custodian,
+        lifestage=lifestage,
+        sex=sex,
+        organism_part=organism_part,
+        region_and_locality=region_and_locality,
+        state_or_region=sample_in.state_or_region,
+        country_or_sea=country_or_sea,
+        indigenous_location=sample_in.indigenous_location,
+        latitude=to_float(sample_in.decimal_latitude),
+        longitude=to_float(sample_in.decimal_longitude),
+        elevation=to_float(sample_in.elevation),
+        depth=to_float(sample_in.depth),
+        habitat=habitat,
+        collection_method=sample_in.description_of_collection_method,
+        collection_date=collection_date_val,
+        collected_by=sample_in.collected_by,
+        collecting_institute=sample_in.collector_institute,
+        collection_permit=sample_in.collection_permit,
+        data_context=sample_in.data_context,
+        bioplatforms_project_id=sample_in.bioplatforms_project_id,
+        title=sample_in.title,
+        sample_same_as=sample_in.sample_same_as,
+        sample_derived_from=sample_in.sample_derived_from,
+        specimen_voucher=sample_in.specimen_voucher,
+        tolid=sample_in.tolid,
+        preservation_method=sample_in.preservation_method,
+        preservation_temperature=sample_in.preservation_temperature,
+        # bpa_json=sample_in.model_dump(mode="json", exclude_unset=True),
     )
+    # Only set these if provided (DB has server defaults for NOT NULL)
+    if sample_in.collected_by:
+        sample_kwargs["collected_by"] = sample_in.collected_by
+    if sample_in.collector_institute:
+        sample_kwargs["collecting_institution"] = sample_in.collector_institute
+
+    sample = Sample(**sample_kwargs)
     db.add(sample)
+
+     # Load the ENA-ATOL mapping file
+    ena_atol_map_path = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(__file__)))), "config", "ena-atol-map.json")
+    with open(ena_atol_map_path, "r") as f:
+        ena_atol_map = json.load(f)
+    # Generate ENA-mapped data for submission to ENA
+    prepared_payload = {}
+    for ena_key, atol_key in ena_atol_map["sample"].items():
+        if atol_key in sample_data:
+            prepared_payload[ena_key] = sample_data[atol_key]
+
+    sample_submission = SampleSubmission(
+        sample_id=sample_id,
+        authority=sample_in.authority,
+        entity_type_const="sample",
+        prepared_payload=prepared_payload,
+        status=SubmissionStatus.DRAFT,
+    )
+    db.add(sample_submission)
     db.commit()
     db.refresh(sample)
+    db.refresh(sample_submission)
     return sample
 
-
-@router.get("/{sample_id}/submission-json", response_model=SubmissionJsonResponse)
-def get_sample_submission_json(
+@router.get("/{sample_id}/prepared-payload", response_model=SubmissionJsonResponse)
+def get_sample_prepared_payload(
     *,
     db: Session = Depends(get_db),
     sample_id: UUID,
     current_user: User = Depends(get_current_active_user),
 ) -> Any:
     """
-    Get submission_json for a specific sample.
+    Get prepared_payload for a specific sample.
     """
+    # Admin, curator, broker and genome_launcher can get submission data
+    require_role(current_user, ["admin", "curator", "broker", "genome_launcher"])
     sample_submission = db.query(SampleSubmission).filter(SampleSubmission.sample_id == sample_id).first()
     if not sample_submission:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="Sample submission data not found",
         )
-    return {"submission_json": sample_submission.submission_json}
+    return {"prepared_payload": getattr(sample_submission, "prepared_payload")}
 
 
 @router.get("/{sample_id}", response_model=SampleSchema)
@@ -129,18 +201,95 @@ def update_sample(
     # Only users with 'curator' or 'admin' role can update samples
     require_role(current_user, ["curator", "admin"])
     
-    sample = db.query(Sample).filter(Sample.id == sample_id).first()
-    if not sample:
-        raise HTTPException(status_code=404, detail="Sample not found")
-    
-    update_data = sample_in.dict(exclude_unset=True)
-    for field, value in update_data.items():
-        setattr(sample, field, value)
-    
-    db.add(sample)
-    db.commit()
-    db.refresh(sample)
-    return sample
+    try:
+        sample = db.query(Sample).filter(Sample.id == sample_id).first()
+        if not sample:
+            raise HTTPException(status_code=404, detail="Sample not found")
+
+        sample_data = sample_in.dict(exclude_unset=True)
+        # Load the ENA-ATOL mapping file
+        ena_atol_map_path = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(__file__)))), "config", "ena-atol-map.json")
+        with open(ena_atol_map_path, "r") as f:
+            ena_atol_map = json.load(f)
+        # Generate ENA-mapped data for submission to ENA
+        prepared_payload = {}
+        for ena_key, atol_key in ena_atol_map["sample"].items():
+            if atol_key in sample_data:
+                prepared_payload[ena_key] = sample_data[atol_key]
+        sample_submission = db.query(SampleSubmission).filter(SampleSubmission.sample_id == sample_id).order_by(SampleSubmission.updated_at.desc()).first()
+        new_sample_submission = None
+        latest_sample_submission = {}
+        if not sample_submission:
+            new_sample_submission = SampleSubmission(
+                    sample_id=sample_id,
+                    authority=sample_submission.authority,
+                    entity_type_const="sample",
+                    prepared_payload=prepared_payload,
+                    status="draft",
+                )
+            db.add(new_sample_submission)
+        else:
+            latest_sample_submission = sample_submission
+            
+            if latest_sample_submission.status == "submitting":
+                raise HTTPException(status_code=404, detail=f"Sample with id: {sample_id} is currently being submitted to ENA and could not be updated. Please try again later.")
+            elif latest_sample_submission.status == "rejected" or sample_submission.status == "replaced":
+                # leave the old record for logs and create a new record
+                # retain accessions if they exist (accessions may not exist if status is 'rejected' and the sample has not successfully been submitted in the past)
+                new_sample_submission = SampleSubmission(
+                    sample_id=sample_id,
+                    authority=sample_submission.authority,
+                    entity_type_const="sample",
+                    prepared_payload=prepared_payload,
+                    response_payload=None,
+                    accession=sample_submission.accession,
+                    biosample_accession=sample_submission.biosample_accession,
+                    status="draft",
+                )
+                db.add(new_sample_submission)
+                
+            elif latest_sample_submission.status == "accepted":
+                # change old record's status to "replaced" and create a new record
+                # retain accessions
+                setattr(latest_sample_submission, "status", "replaced")
+                db.add(latest_sample_submission)
+                new_sample_submission = SampleSubmission(
+                    sample_id=sample_id,
+                    authority=sample_submission.authority,
+                    entity_type_const="sample",
+                    prepared_payload=prepared_payload,
+                    response_payload=None,
+                    accession=sample_submission.accession,
+                    biosample_accession=sample_submission.biosample_accession,
+                    status="draft",
+                )
+                db.add(new_sample_submission)
+            elif latest_sample_submission.status == "draft" or latest_sample_submission.status == "ready":
+                # update the existing record, since it has not yet been submitted to ENA (set status = 'draft')
+                setattr(latest_sample_submission, "prepared_payload", prepared_payload)
+                setattr(latest_sample_submission, "status", "draft")
+                db.add(latest_sample_submission)
+                # update the sample_submission object
+                
+        # initiate new bpa_json object to the previous bpa_json object
+        """
+        new_bpa_json = sample.bpa_json
+        setattr(sample, "organism_key", sample_in.organism_key)
+        setattr(sample, "bpa_sample_id", sample_in.bpa_sample_id)
+        for field, value in sample_data.items():
+            new_bpa_json[field] = value
+        sample.bpa_json = new_bpa_json
+        flag_modified(sample, "bpa_json")
+        """
+        db.add(sample)
+        db.commit()
+        db.refresh(sample)
+        return sample
+    except Exception as e:
+        print(f"Error updating sample with sample_id: {sample_id}")
+        print(e)
+        db.rollback()
+        raise HTTPException(status_code=500, detail="Failed to update sample")
 
 
 @router.delete("/{sample_id}", response_model=SampleSchema)
@@ -154,6 +303,7 @@ def delete_sample(
     Delete a sample.
     """
     # Only superusers can delete samples
+    require_role(current_user, ["superuser", "admin"])
     sample = db.query(Sample).filter(Sample.id == sample_id).first()
     if not sample:
         raise HTTPException(status_code=404, detail="Sample not found")
@@ -162,125 +312,7 @@ def delete_sample(
     db.commit()
     return sample
 
-
-# Sample Submission endpoints
-@router.get("/submission/", response_model=List[SampleSubmissionSchema])
-def read_sample_submissions(
-    db: Session = Depends(get_db),
-    skip: int = 0,
-    limit: int = 100,
-    status: Optional[SchemaSubmissionStatus] = Query(None, description="Filter by submission status"),
-    current_user: User = Depends(get_current_active_user),
-) -> Any:
-    """
-    Retrieve sample submissions.
-    """
-    # All users can read sample submissions
-    query = db.query(SampleSubmission)
-    if status:
-        query = query.filter(SampleSubmission.status == status)
-    
-    submissions = query.offset(skip).limit(limit).all()
-    return submissions
-
-
-@router.post("/submission/", response_model=SampleSubmissionSchema)
-def create_sample_submission(
-    *,
-    db: Session = Depends(get_db),
-    submission_in: SampleSubmissionCreate,
-    current_user: User = Depends(get_current_active_user),
-) -> Any:
-    """
-    Create new sample submission.
-    """
-    # Only users with 'curator' or 'admin' role can create sample submissions
-    require_role(current_user, ["curator", "admin"])
-    
-    submission = SampleSubmission(
-        sample_id=submission_in.sample_id,
-        organism_id=submission_in.organism_id,
-        bpa_sample_id=submission_in.bpa_sample_id,
-        sample_accession=submission_in.sample_accession,
-        submission_json=submission_in.submission_json,
-        internal_json=submission_in.internal_json,
-        status=submission_in.status,
-        submission_at=submission_in.submission_at,
-    )
-    db.add(submission)
-    db.commit()
-    db.refresh(submission)
-    return submission
-
-
-@router.put("/submission/{submission_id}", response_model=SampleSubmissionSchema)
-def update_sample_submission(
-    *,
-    db: Session = Depends(get_db),
-    submission_id: UUID,
-    submission_in: SampleSubmissionUpdate,
-    current_user: User = Depends(get_current_active_user),
-) -> Any:
-    """
-    Update a sample submission.
-    """
-    # Only users with 'curator' or 'admin' role can update sample submissions
-    require_role(current_user, ["curator", "admin"])
-    
-    submission = db.query(SampleSubmission).filter(SampleSubmission.id == submission_id).first()
-    if not submission:
-        raise HTTPException(status_code=404, detail="Sample submission not found")
-    
-    update_data = submission_in.dict(exclude_unset=True)
-    for field, value in update_data.items():
-        setattr(submission, field, value)
-    
-    db.add(submission)
-    db.commit()
-    db.refresh(submission)
-    return submission
-
-
-# Sample Fetched endpoints
-@router.get("/fetched/", response_model=List[SampleFetchedSchema])
-def read_sample_fetches(
-    db: Session = Depends(get_db),
-    skip: int = 0,
-    limit: int = 100,
-    current_user: User = Depends(get_current_active_user),
-) -> Any:
-    """
-    Retrieve sample fetch records.
-    """
-    # All users can read sample fetch records
-    fetches = db.query(SampleFetched).offset(skip).limit(limit).all()
-    return fetches
-
-
-@router.post("/fetched/", response_model=SampleFetchedSchema)
-def create_sample_fetch(
-    *,
-    db: Session = Depends(get_db),
-    fetch_in: SampleFetchedCreate,
-    current_user: User = Depends(get_current_active_user),
-) -> Any:
-    """
-    Create new sample fetch record.
-    """
-    # Only users with 'curator' or 'admin' role can create sample fetch records
-    require_role(current_user, ["curator", "admin"])
-    
-    fetch = SampleFetched(
-        sample_id=fetch_in.sample_id,
-        sample_accession=fetch_in.sample_accession,
-        organism_id=fetch_in.organism_id,
-        raw_json=fetch_in.raw_json,
-        fetched_at=fetch_in.fetched_at,
-    )
-    db.add(fetch)
-    db.commit()
-    db.refresh(fetch)
-    return fetch
+# Sample Fetched endpoints have been removed as they are no longer in the schema
 
 @router.post("/bulk-import", response_model=BulkImportResponse)
 def bulk_import_samples(
@@ -318,45 +350,79 @@ def bulk_import_samples(
             continue
         
         # Get organism reference from sample data
-        organism_id = None
+        organism_key = None
         if "organism_grouping_key" in sample_data:
-            organism_grouping_key = sample_data["organism_grouping_key"]
-            # Look up the organism ID by grouping key
-            organism = db.query(Organism).filter(Organism.organism_grouping_key == organism_grouping_key).first()
-            if organism:
-                organism_id = organism.id
+            organism_key = sample_data["organism_grouping_key"]
+            # Look up the organism by grouping key
+            organism = db.query(Organism).filter(Organism.grouping_key == organism_key).first()
         else:
             print(f"Organism not found for sample {bpa_sample_id}, Skipping")
             skipped_count += 1
             continue
         if not organism:
-            print(f"Organism not found with organism_grouping_key {organism_grouping_key}, Skipping")
+            print(f"Organism not found with grouping_key {organism_key}, Skipping")
             skipped_count += 1
             continue
         try:
             # Create new sample
             sample_id = uuid.uuid4()
-            sample = Sample(
+
+            # Required fields with fallbacks
+            lifestage = sample_data.get("lifestage") or "unknown"
+            sex = sample_data.get("sex") or "unknown"
+            organism_part = sample_data.get("organism_part") or "unknown"
+            region_and_locality = sample_data.get("region_and_locality") or sample_data.get("collection_location") or "unknown"
+            country_or_sea = sample_data.get("country_or_sea") or "unknown"
+            habitat = sample_data.get("habitat") or "unknown"
+            collection_date_val = sample_data.get("date_of_collection") or sample_data.get("collection_date")
+            # Accept raw string and allow missing collection_date
+
+            sample_kwargs = dict(
                 id=sample_id,
-                organism_id=organism_id,
+                organism_key=organism_key,
                 bpa_sample_id=bpa_sample_id,
-                source_json=sample_data
+                specimen_id=sample_data.get("specimen_id"),
+                identified_by=sample_data.get("identified_by"),
+                specimen_custodian=sample_data.get("specimen_custodian"),
+                sample_custodian=sample_data.get("sample_custodian"),
+                lifestage=lifestage,
+                sex=sex,
+                organism_part=organism_part,
+                region_and_locality=region_and_locality,
+                country_or_sea=country_or_sea,
+                habitat=habitat,
+                collection_method=sample_data.get("description_of_collection_method") or sample_data.get("collection_method"),
+                collection_date=collection_date_val,
+                collection_permit=sample_data.get("collection_permit"),
+                data_context=sample_data.get("data_context"),
+                bioplatforms_project_id=sample_data.get("bioplatforms_project_id"),
+                latitude=to_float(sample_data.get("decimal_latitude")),
+                longitude=to_float(sample_data.get("decimal_longitude")),
+                elevation=to_float(sample_data.get("elevation")),
+                depth=to_float(sample_data.get("depth")),
+                # bpa_json=sample_data
             )
+            if sample_data.get("collected_by"):
+                sample_kwargs["collected_by"] = sample_data.get("collected_by")
+            if (sample_data.get("collector_institute") or sample_data.get("collecting_institution")):
+                sample_kwargs["collecting_institution"] = sample_data.get("collector_institute") or sample_data.get("collecting_institution")
+
+            sample = Sample(**sample_kwargs)
             db.add(sample)
             
-            # Create submission_json based on the mapping
-            submission_json = {}
+            # Create prepared_payload based on the mapping
+            prepared_payload = {}
             for ena_key, atol_key in sample_mapping.items():
                 if atol_key in sample_data:
-                    submission_json[ena_key] = sample_data[atol_key]
+                    prepared_payload[ena_key] = sample_data[atol_key]
             
             # Create sample_submission record
             sample_submission = SampleSubmission(
                 id=uuid.uuid4(),
                 sample_id=sample_id,
-                organism_id=organism_id,
-                internal_json=sample_data,
-                submission_json=submission_json
+                authority="ENA",
+                entity_type_const="sample",
+                prepared_payload=prepared_payload
             )
             db.add(sample_submission)
             

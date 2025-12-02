@@ -199,6 +199,6 @@ Replace `{experiment_id}` with the UUID of your experiment and `{your_token}` wi
 ## Notes
 
 - All endpoints require authentication
-- The XML is generated from the `submission_json` field in the respective database tables
-- If a record has no `submission_json` data, a 400 Bad Request error will be returned
+- The XML is generated from the `prepared_payload` field in the respective database tables
+- If a record has no `prepared_payload` data, a 400 Bad Request error will be returned
 - The XML is formatted according to ENA submission requirements

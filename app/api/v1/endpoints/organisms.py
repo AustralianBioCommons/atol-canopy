@@ -14,17 +14,22 @@ from app.core.dependencies import (
 from app.models.organism import Organism
 from app.models.sample import Sample, SampleSubmission
 from app.models.experiment import Experiment, ExperimentSubmission
-from app.models.read import Read
+from app.models.read import Read, ReadSubmission
 from app.models.user import User
 from app.schemas.organism import (
     Organism as OrganismSchema,
     OrganismCreate,
     OrganismUpdate,
 )
+from app.models.project import Project, ProjectSubmission
 from app.schemas.bulk_import import BulkOrganismImport, BulkImportResponse
 from app.schemas.aggregate import OrganismSubmissionJsonResponse, SampleSubmissionJson, ExperimentSubmissionJson, ReadSubmissionJson
 
 router = APIRouter()
+
+def _sa_obj_to_dict(obj):
+    """Serialize all SQLAlchemy column fields for a model instance."""
+    return {c.name: getattr(obj, c.name) for c in obj.__table__.columns}
 
 
 @router.get("/", response_model=List[OrganismSchema])
@@ -42,42 +47,104 @@ def read_organisms(
     return organisms
 
 
-@router.get("/grouping-key/{organism_grouping_key}/submission-json", response_model=OrganismSubmissionJsonResponse)
-def get_organism_submission_json(
+@router.get("/{grouping_key}/experiments")
+def get_experiments_for_organism(
     *,
     db: Session = Depends(get_db),
-    organism_grouping_key: str,
+    grouping_key: str,
+    includeReads: bool = Query(False, description="Include reads for each experiment"),
     current_user: User = Depends(get_current_active_user),
 ) -> Any:
     """
-    Get all submission_json data for samples, experiments, and reads related to a specific organism_grouping_key.
+    Return all experiments for the organism, and optionally all reads for each experiment when includeReads is true.
     """
+    # Admin, curator, broker and genome_launcher can get expanded organism data
+    require_role(current_user, ["admin", "curator", "broker", "genome_launcher"])
+
+    organism = db.query(Organism).filter(Organism.grouping_key == grouping_key).first()
+    if not organism:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=f"Organism with grouping key '{grouping_key}' not found")
+
+    # Find all samples for this organism
+    samples = db.query(Sample.id).filter(Sample.organism_key == grouping_key).all()
+    sample_ids = [sid for (sid,) in samples]
+
+    # Load experiments
+    experiments = []
+    if sample_ids:
+        experiments = db.query(Experiment).filter(Experiment.sample_id.in_(sample_ids)).all()
+
+    # Build response
+    if not includeReads:
+        # Return all experiment fields
+        exp_list = [_sa_obj_to_dict(e) for e in experiments]
+        return {"grouping_key": grouping_key, "experiments": exp_list}
+
+    # includeReads = True
+    exp_ids = [e.id for e in experiments]
+    reads_by_exp: Dict[str, List[Dict[str, Any]]] = {}
+    if exp_ids:
+        reads = db.query(Read).filter(Read.experiment_id.in_(exp_ids)).all()
+        for r in reads:
+            key = str(r.experiment_id) if r.experiment_id else "null"
+            if key not in reads_by_exp:
+                reads_by_exp[key] = []
+            reads_by_exp[key].append(_sa_obj_to_dict(r))
+
+    exp_with_reads = []
+    for e in experiments:
+        item = _sa_obj_to_dict(e)
+        item["reads"] = reads_by_exp.get(str(e.id), [])
+        exp_with_reads.append(item)
+
+    return {
+        "grouping_key": grouping_key,
+        "experiments": exp_with_reads,
+    }
+
+
+@router.get("/submissions/{grouping_key}", response_model=OrganismSubmissionJsonResponse)
+def get_organism_prepared_payload(
+    *,
+    db: Session = Depends(get_db),
+    grouping_key: str,
+    current_user: User = Depends(get_current_active_user),
+) -> Any:
+    """
+    Get all prepared_payload data for samples, experiments, and reads related to a specific grouping_key.
+    """
+    # Admin, curator, broker and genome_launcher can get prepared_payload data
+    require_role(current_user, ["admin", "curator", "broker", "genome_launcher"])
+    
     # Find the organism by grouping key
-    organism = db.query(Organism).filter(Organism.organism_grouping_key == organism_grouping_key).first()
+    organism = db.query(Organism).filter(Organism.grouping_key == grouping_key).first()
     if not organism:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
-            detail=f"Organism with grouping key '{organism_grouping_key}' not found",
+            detail=f"Organism with grouping key '{grouping_key}' not found",
         )
     
     # Initialize response object
     response = OrganismSubmissionJsonResponse(
-        organism_id=organism.id,
-        organism_grouping_key=organism.organism_grouping_key,
+        grouping_key=organism.grouping_key,
+        tax_id=organism.tax_id,
         scientific_name=organism.scientific_name,
         common_name=organism.common_name,
+        common_name_source=organism.common_name_source,
         samples=[],
         experiments=[],
         reads=[]
     )
     
     # Get samples for this organism
-    samples = db.query(Sample).filter(Sample.organism_id == organism.id).all()
+    samples = db.query(Sample).filter(Sample.organism_key == organism.grouping_key).all()
     sample_ids = [sample.id for sample in samples]
     
     # Get sample submission data
     if sample_ids:
         sample_submission_records = db.query(SampleSubmission).filter(SampleSubmission.sample_id.in_(sample_ids)).all()
+        response.samples = sample_submission_records
+        """
         for record in sample_submission_records:
             # Find the corresponding sample to get the bpa_sample_id
             sample = next((s for s in samples if s.id == record.sample_id), None)
@@ -86,9 +153,10 @@ def get_organism_submission_json(
             response.samples.append(SampleSubmissionJson(
                 sample_id=record.sample_id,
                 bpa_sample_id=bpa_sample_id,
-                submission_json=record.submission_json,
+                prepared_payload=record.prepared_payload,
                 status=record.status
             ))
+        """
     
     # Get experiments for these samples
     if sample_ids:
@@ -98,30 +166,29 @@ def get_organism_submission_json(
         # Get experiment submission data
         if experiment_ids:
             experiment_submission_records = db.query(ExperimentSubmission).filter(ExperimentSubmission.experiment_id.in_(experiment_ids)).all()
+            response.experiments = experiment_submission_records
             for record in experiment_submission_records:
                 # Find the corresponding experiment to get the bpa_package_id
-                experiment = next((e for e in experiments if e.id == record.experiment_id), None)
-                bpa_package_id = experiment.bpa_package_id if experiment else None
-                
+                # experiment = next((e for e in experiments if e.id == record.experiment_id), None)
+                # bpa_package_id = experiment.bpa_package_id if experiment else None
+                """
                 response.experiments.append(ExperimentSubmissionJson(
                     experiment_id=record.experiment_id,
                     bpa_package_id=bpa_package_id,
-                    submission_json=record.submission_json,
+                    prepared_payload=record.prepared_payload,
                     status=record.status
                 ))
-            
-            # Get reads for these experiments
-            reads = db.query(Read).filter(Read.experiment_id.in_(experiment_ids)).all()
-            for read in reads:
-                if read.submission_json:  # Only include reads that have submission_json
-                    response.reads.append(ReadSubmissionJson(
-                        read_id=read.id,
-                        experiment_id=read.experiment_id,
-                        file_name=read.file_name,
-                        submission_json=read.submission_json,
-                        status=read.status
-                    ))
-    
+                """
+                reads = db.query(Read).filter(Read.experiment_id.in_(experiment_ids)).all()
+                read_ids = [read.id for read in reads]
+                print("reads: ",read_ids)
+                
+                # Get read submission data
+                if read_ids:
+                    read_submission_records = db.query(ReadSubmission).filter(ReadSubmission.read_id.in_(read_ids)).all()
+                    response.reads = read_submission_records
+
+        # TO DO append reads    
     return response
 
 
@@ -137,43 +204,107 @@ def create_organism(
     """
     # Only users with 'curator' or 'admin' role can create organisms
     require_role(current_user, ["curator", "admin"])
-    
+    common_name = organism_in.common_name
+    common_name_source = organism_in.common_name_source
+    if common_name and not common_name_source:
+        common_name_source = "BPA"
     organism = Organism(
+        grouping_key=organism_in.grouping_key,
         tax_id=organism_in.tax_id,
         scientific_name=organism_in.scientific_name,
-        common_name=organism_in.common_name,
-        common_name_source=organism_in.common_name_source,
+        common_name=common_name,
+        common_name_source=common_name_source,
         taxonomy_lineage_json=organism_in.taxonomy_lineage_json,
-        bpa_json=organism_in.bpa_json,
+        bpa_json=organism_in.dict(exclude_unset=True),
     )
     db.add(organism)
+    try:
+        root_project = Project(
+            organism_key=organism.grouping_key,
+            project_type="root",
+            study_type="Whole Genome Sequencing",
+            project_accession=None,
+            alias=f"{organism_in.scientific_name} genome assembly and related data",
+            title=f"{organism_in.scientific_name}",
+            description=f"Genome assemblies and related data for the organism {organism_in.scientific_name}, brokered on behalf of the Australian Tree of Life (AToL) project",
+            centre_name="Australian Tree of Life (AToL)",
+            study_attributes=None,
+            submitted_at=None,
+            status="draft",
+            authority="ENA",
+        )
+        genomic_data_project = Project(
+            organism_key=organism.grouping_key,
+            project_type="genomic_data",
+            study_type="Whole Genome Sequencing",
+            project_accession=None,
+            alias=f"Genomic data for {organism_in.scientific_name}",
+            title=f"{organism_in.scientific_name} - genomic data",
+            description=f"Genomic data for the organism {organism_in.scientific_name}, brokered on behalf of the Australian Tree of Life (AToL) project",
+            centre_name="Australian Tree of Life (AToL)",
+            study_attributes=None,
+            submitted_at=None,
+            status="draft",
+            authority="ENA",
+        )
+        db.add(root_project)
+        db.add(genomic_data_project)
+        db.flush()  # ensure IDs for submissions
+        # create matching draft project submissions with prepared payload snapshots
+        root_payload = {
+            "organism_key": root_project.organism_key,
+            "project_type": root_project.project_type,
+            "study_type": root_project.study_type,
+            "alias": root_project.alias,
+            "title": root_project.title,
+            "description": root_project.description,
+            "centre_name": root_project.centre_name,
+            "study_attributes": root_project.study_attributes,
+        }
+        genomic_payload = {
+            "organism_key": genomic_data_project.organism_key,
+            "project_type": genomic_data_project.project_type,
+            "study_type": genomic_data_project.study_type,
+            "alias": genomic_data_project.alias,
+            "title": genomic_data_project.title,
+            "description": genomic_data_project.description,
+            "centre_name": genomic_data_project.centre_name,
+            "study_attributes": genomic_data_project.study_attributes,
+        }
+        db.add(ProjectSubmission(project_id=root_project.id, prepared_payload=root_payload))
+        db.add(ProjectSubmission(project_id=genomic_data_project.id, prepared_payload=genomic_payload))
+    except Exception as e:
+        db.rollback()
+        raise HTTPException(status_code=500, detail=str(e))
+    
+    
     db.commit()
     db.refresh(organism)
     return organism
 
 
-@router.get("/{organism_id}", response_model=OrganismSchema)
+@router.get("/{grouping_key}", response_model=OrganismSchema)
 def read_organism(
     *,
     db: Session = Depends(get_db),
-    organism_id: UUID,
+    grouping_key: str,
     current_user: User = Depends(get_current_active_user),
 ) -> Any:
     """
-    Get organism by ID.
+    Get organism by grouping_key.
     """
     # All users can read organism details
-    organism = db.query(Organism).filter(Organism.id == organism_id).first()
+    organism = db.query(Organism).filter(Organism.grouping_key == grouping_key).first()
     if not organism:
         raise HTTPException(status_code=404, detail="Organism not found")
     return organism
 
 
-@router.put("/{organism_id}", response_model=OrganismSchema)
+@router.patch("/{grouping_key}", response_model=OrganismSchema)
 def update_organism(
     *,
     db: Session = Depends(get_db),
-    organism_id: UUID,
+    grouping_key: str,
     organism_in: OrganismUpdate,
     current_user: User = Depends(get_current_active_user),
 ) -> Any:
@@ -183,32 +314,40 @@ def update_organism(
     # Only users with 'curator' or 'admin' role can update organisms
     require_role(current_user, ["curator", "admin"])
     
-    organism = db.query(Organism).filter(Organism.id == organism_id).first()
+    organism = db.query(Organism).filter(Organism.grouping_key == grouping_key).first()
     if not organism:
         raise HTTPException(status_code=404, detail="Organism not found")
-    
+    new_bpa_json = organism.bpa_json
     update_data = organism_in.dict(exclude_unset=True)
     for field, value in update_data.items():
         setattr(organism, field, value)
+        if field == "common_name_source":
+            continue
+        setattr(new_bpa_json, field, value)
     
+    setattr(organism, "bpa_json", new_bpa_json)
     db.add(organism)
     db.commit()
     db.refresh(organism)
     return organism
 
 
-@router.delete("/{organism_id}", response_model=OrganismSchema)
+@router.delete("/{grouping_key}", response_model=OrganismSchema)
 def delete_organism(
     *,
     db: Session = Depends(get_db),
-    organism_id: UUID,
+    grouping_key: str,
     current_user: User = Depends(get_current_superuser),
 ) -> Any:
     """
     Delete an organism.
     """
-    # Only superusers can delete organisms
-    organism = db.query(Organism).filter(Organism.id == organism_id).first()
+    # Only users with 'superuser' or 'admin' role can delete organisms
+    require_role(current_user, ["admin", "superuser"])
+
+    print("deleting organism with grouping key: ", grouping_key)
+    
+    organism = db.query(Organism).filter(Organism.grouping_key == grouping_key).first()
     if not organism:
         raise HTTPException(status_code=404, detail="Organism not found")
     
@@ -251,7 +390,7 @@ def bulk_import_organisms(
             continue
         
         # Check if organism already exists by grouping key
-        existing = db.query(Organism).filter(Organism.organism_grouping_key == organism_grouping_key).first()
+        existing = db.query(Organism).filter(Organism.grouping_key == organism_grouping_key).first()
         if existing:
             skipped_count += 1
             continue
@@ -263,15 +402,71 @@ def bulk_import_organisms(
             continue
         
         try:
+            common_name = organism_data.get("common_name", None)
+            common_name_source = organism_data.get("common_name_source", "BPA") if common_name is not None else None
             # Create new organism
             organism = Organism(
-                id=uuid.uuid4(),
-                organism_grouping_key=organism_grouping_key,
+                grouping_key=organism_grouping_key,
                 tax_id=tax_id,
+                common_name=common_name,
+                common_name_source=common_name_source,
                 scientific_name=scientific_name,
                 bpa_json=organism_data
             )
+            root_project = Project(
+                organism_key=organism.grouping_key,
+                project_type="root",
+                study_type="Whole Genome Sequencing",
+                project_accession=None,
+                alias=f"{organism.scientific_name} genome assembly and related data",
+                title=f"{organism.scientific_name}",
+                description=f"Genome assemblies and related data for the organism {organism.scientific_name}, brokered on behalf of the Australian Tree of Life (AToL) project",
+                centre_name="Australian Tree of Life (AToL)",
+                study_attributes=None,
+                submitted_at=None,
+                status="draft",
+                authority="ENA",
+            )
+            genomic_data_project = Project(
+                organism_key=organism.grouping_key,
+                project_type="genomic_data",
+                study_type="Whole Genome Sequencing",
+                project_accession=None,
+                alias=f"Genomic data for {organism.scientific_name}",
+                title=f"{organism.scientific_name} - genomic data",
+                description=f"Genomic data for the organism {organism.scientific_name}, brokered on behalf of the Australian Tree of Life (AToL) project",
+                centre_name="Australian Tree of Life (AToL)",
+                study_attributes=None,
+                submitted_at=None,
+                status="draft",
+                authority="ENA",
+            )
             db.add(organism)
+            db.add(root_project)
+            db.add(genomic_data_project)
+            db.flush()
+            root_payload = {
+                "organism_key": root_project.organism_key,
+                "project_type": root_project.project_type,
+                "study_type": root_project.study_type,
+                "alias": root_project.alias,
+                "title": root_project.title,
+                "description": root_project.description,
+                "centre_name": root_project.centre_name,
+                "study_attributes": root_project.study_attributes,
+            }
+            genomic_payload = {
+                "organism_key": genomic_data_project.organism_key,
+                "project_type": genomic_data_project.project_type,
+                "study_type": genomic_data_project.study_type,
+                "alias": genomic_data_project.alias,
+                "title": genomic_data_project.title,
+                "description": genomic_data_project.description,
+                "centre_name": genomic_data_project.centre_name,
+                "study_attributes": genomic_data_project.study_attributes,
+            }
+            db.add(ProjectSubmission(project_id=root_project.id, prepared_payload=root_payload))
+            db.add(ProjectSubmission(project_id=genomic_data_project.id, prepared_payload=genomic_payload))
             db.commit()
             created_count += 1
         except Exception as e:

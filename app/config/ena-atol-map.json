@@ -1,5 +1,6 @@
 {
   "sample": {
+    "scientific_name": "organism.scientific_name",
     "tax_id": "organism.taxon_id",
     "culture_or_strain_id": "organism.culture_or_strain_id",
     "specimen_voucher": "specimen_voucher",
@@ -28,7 +29,7 @@
   },
   "experiment": {
     "design_description": "design_description",
-    "alias": "bpa_library_id",
+    "alias": "bpa_package_id",
     "library_strategy": "library_strategy",
     "library_source": "library_source",
     "insert_size": "insert_size",
@@ -40,12 +41,9 @@
     "platform": "platform"
   },
   "run": {
-    "alias": "bpa_dataset_id",
+    "alias": "bpa_resource_id",
     "file_name": "file_name",
     "file_format": "file_format",
-    "file_checksum": "file_checksum",
-    "bioplatforms_url": "bioplatforms_url",
-    "bpa_resource_id": "bpa_resource_id",
-    "file_submission_date": "file_submission_date"
+    "file_checksum": "file_checksum"
   }
 }

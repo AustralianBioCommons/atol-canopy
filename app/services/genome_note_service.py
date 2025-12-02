@@ -11,17 +11,13 @@ from app.services.base_service import BaseService
 class GenomeNoteService(BaseService[GenomeNote, GenomeNoteCreate, GenomeNoteUpdate]):
     """Service for GenomeNote operations."""
     
-    def get_by_organism_id(self, db: Session, organism_id: UUID) -> List[GenomeNote]:
-        """Get genome notes by organism ID."""
-        return db.query(GenomeNote).filter(GenomeNote.organism_id == organism_id).all()
+    def get_by_organism_key(self, db: Session, organism_key: str) -> List[GenomeNote]:
+        """Get genome notes by organism key."""
+        return db.query(GenomeNote).filter(GenomeNote.organism_key == organism_key).all()
     
-    def get_by_note_content(self, db: Session, note_content: str) -> List[GenomeNote]:
-        """Get genome notes by note content."""
-        return db.query(GenomeNote).filter(GenomeNote.note.ilike(f"%{note_content}%")).all()
-    
-    def get_by_version_chain_id(self, db: Session, version_chain_id: str) -> List[GenomeNote]:
-        """Get genome notes by version chain ID."""
-        return db.query(GenomeNote).filter(GenomeNote.version_chain_id == version_chain_id).all()
+    def get_by_title(self, db: Session, title: str) -> List[GenomeNote]:
+        """Get genome notes by title."""
+        return db.query(GenomeNote).filter(GenomeNote.title.ilike(f"%{title}%")).all()
     
     def get_published_notes(self, db: Session) -> List[GenomeNote]:
         """Get all published genome notes."""
@@ -33,15 +29,18 @@ class GenomeNoteService(BaseService[GenomeNote, GenomeNoteCreate, GenomeNoteUpda
         *, 
         skip: int = 0, 
         limit: int = 100,
-        organism_id: Optional[UUID] = None,
-        is_published: Optional[bool] = None
+        organism_key: Optional[str] = None,
+        is_published: Optional[bool] = None,
+        title: Optional[str] = None
     ) -> List[GenomeNote]:
         """Get genome notes with filters."""
         query = db.query(GenomeNote)
-        if organism_id:
-            query = query.filter(GenomeNote.organism_id == organism_id)
+        if organism_key:
+            query = query.filter(GenomeNote.organism_key == organism_key)
         if is_published is not None:
             query = query.filter(GenomeNote.is_published == is_published)
+        if title:
+            query = query.filter(GenomeNote.title.ilike(f"%{title}%"))
         return query.offset(skip).limit(limit).all()
 
 
