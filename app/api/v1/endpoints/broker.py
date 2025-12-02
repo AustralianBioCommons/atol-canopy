@@ -468,8 +468,8 @@ def renew_attempt_lease(
     return {"attempt_id": str(attempt_id), "lock_expires_at": new_exp.isoformat()}
 
 
-@router.post("/attempts/{attempt_id}/finalize")
-def finalize_attempt(
+@router.post("/attempts/{attempt_id}/finalise")
+def finalise_attempt(
     *,
     attempt_id: UUID,
     db: Session = Depends(get_db),
@@ -580,12 +580,12 @@ def report_results(
             stmt = stmt.on_conflict_do_nothing(index_elements=[AccessionRegistry.accession])
             db.execute(stmt)
 
-        # Clear lease on finalize (anything other than submitting)
+        # Clear lease on finalise (anything other than submitting)
         if item.status != "submitting":
             sub.attempt_id = None
             sub.lock_acquired_at = None
             sub.lock_expires_at = None
-            sub.finalized_attempt_id = attempt_id
+            sub.finalised_attempt_id = attempt_id
             # event
             action = "accepted" if item.status == "accepted" else ("rejected" if item.status == "rejected" else "released")
             db.add(SubmissionEvent(attempt_id=attempt_id, entity_type="sample", submission_id=sub.id, action=action, accession=item.accession, details=item.response_payload))
@@ -642,7 +642,7 @@ def report_results(
             sub.attempt_id = None
             sub.lock_acquired_at = None
             sub.lock_expires_at = None
-            sub.finalized_attempt_id = attempt_id
+            sub.finalised_attempt_id = attempt_id
             db.add(SubmissionEvent(
                 attempt_id=attempt_id,
                 entity_type="experiment",
@@ -700,7 +700,7 @@ def report_results(
             sub.attempt_id = None
             sub.lock_acquired_at = None
             sub.lock_expires_at = None
-            sub.finalized_attempt_id = attempt_id
+            sub.finalised_attempt_id = attempt_id
             db.add(SubmissionEvent(
                 attempt_id=attempt_id,
                 entity_type="read",
@@ -748,7 +748,7 @@ def report_results(
             sub.attempt_id = None
             sub.lock_acquired_at = None
             sub.lock_expires_at = None
-            sub.finalized_attempt_id = attempt_id
+            sub.finalised_attempt_id = attempt_id
             db.add(SubmissionEvent(
                 attempt_id=attempt_id,
                 entity_type="project",
@@ -786,30 +786,30 @@ def _counts_for_model(db: Session, model, filters) -> Dict[str, int]:
 
 
 def _counts_by_entity_for_attempt(db: Session, attempt_id: UUID) -> Dict[str, Dict[str, int]]:
-    """Aggregate counts for an attempt including both active and finalized items.
+    """Aggregate counts for an attempt including both active and finalised items.
     Counts rows where attempt_id == attempt_id (active lease) OR
-    finalized_attempt_id == attempt_id (finalized outcomes).
+    finalised_attempt_id == attempt_id (finalised outcomes).
     """
     return {
         "samples": _counts_for_model(
             db,
             SampleSubmission,
-            [or_(SampleSubmission.attempt_id == attempt_id, SampleSubmission.finalized_attempt_id == attempt_id)],
+            [or_(SampleSubmission.attempt_id == attempt_id, SampleSubmission.finalised_attempt_id == attempt_id)],
         ),
         "experiments": _counts_for_model(
             db,
             ExperimentSubmission,
-            [or_(ExperimentSubmission.attempt_id == attempt_id, ExperimentSubmission.finalized_attempt_id == attempt_id)],
+            [or_(ExperimentSubmission.attempt_id == attempt_id, ExperimentSubmission.finalised_attempt_id == attempt_id)],
         ),
         "reads": _counts_for_model(
             db,
             ReadSubmission,
-            [or_(ReadSubmission.attempt_id == attempt_id, ReadSubmission.finalized_attempt_id == attempt_id)],
+            [or_(ReadSubmission.attempt_id == attempt_id, ReadSubmission.finalised_attempt_id == attempt_id)],
         ),
         "projects": _counts_for_model(
             db,
             ProjectSubmission,
-            [or_(ProjectSubmission.attempt_id == attempt_id, ProjectSubmission.finalized_attempt_id == attempt_id)],
+            [or_(ProjectSubmission.attempt_id == attempt_id, ProjectSubmission.finalised_attempt_id == attempt_id)],
         ),
     }
 
@@ -831,32 +831,32 @@ def _derive_attempt_status(counts_by_entity: Dict[str, Dict[str, int]], lock_exp
 
 
 def _get_attempt_items_with_relationships(db: Session, attempt_id: UUID) -> Dict[str, List[ClaimedEntity]]:
-    """Return items associated with an attempt (active, finalized, or released via events)
+    """Return items associated with an attempt (active, finalised, or released via events)
     and include derived parent submission relationships for experiments and reads.
     """
-    # Membership by state: active (attempt_id), finalized (finalized_attempt_id), or events (released/claimed/etc.)
+    # Membership by state: active (attempt_id), finalised (finalised_attempt_id), or events (released/claimed/etc.)
     sample_ids: set[UUID] = set(
         x[0]
         for x in db.query(SampleSubmission.id).filter(
-            or_(SampleSubmission.attempt_id == attempt_id, SampleSubmission.finalized_attempt_id == attempt_id)
+            or_(SampleSubmission.attempt_id == attempt_id, SampleSubmission.finalised_attempt_id == attempt_id)
         ).all()
     )
     experiment_ids: set[UUID] = set(
         x[0]
         for x in db.query(ExperimentSubmission.id).filter(
-            or_(ExperimentSubmission.attempt_id == attempt_id, ExperimentSubmission.finalized_attempt_id == attempt_id)
+            or_(ExperimentSubmission.attempt_id == attempt_id, ExperimentSubmission.finalised_attempt_id == attempt_id)
         ).all()
     )
     read_ids: set[UUID] = set(
         x[0]
         for x in db.query(ReadSubmission.id).filter(
-            or_(ReadSubmission.attempt_id == attempt_id, ReadSubmission.finalized_attempt_id == attempt_id)
+            or_(ReadSubmission.attempt_id == attempt_id, ReadSubmission.finalised_attempt_id == attempt_id)
         ).all()
     )
     project_ids: set[UUID] = set(
         x[0]
         for x in db.query(ProjectSubmission.id).filter(
-            or_(ProjectSubmission.attempt_id == attempt_id, ProjectSubmission.finalized_attempt_id == attempt_id)
+            or_(ProjectSubmission.attempt_id == attempt_id, ProjectSubmission.finalised_attempt_id == attempt_id)
         ).all()
     )
 

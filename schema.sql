@@ -139,7 +139,7 @@ CREATE TABLE IF NOT EXISTS project_submission (
 
     -- attempt linkage
     attempt_id UUID,
-    finalized_attempt_id UUID,
+    finalised_attempt_id UUID,
 
     -- broker lease/claim fields (attempt-scoped)
     lock_acquired_at TIMESTAMP,
@@ -158,7 +158,7 @@ CREATE UNIQUE INDEX IF NOT EXISTS uq_project_one_accepted
 
 -- Broker claim indexes
 CREATE INDEX IF NOT EXISTS idx_project_submission_attempt ON project_submission (attempt_id);
-CREATE INDEX IF NOT EXISTS idx_project_submission_finalized_attempt ON project_submission (finalized_attempt_id);
+CREATE INDEX IF NOT EXISTS idx_project_submission_finalised_attempt ON project_submission (finalised_attempt_id);
 
 -- ==========================================
 -- Sample tables
@@ -228,7 +228,7 @@ CREATE TABLE sample_submission (
 
     -- attempt linkage
     attempt_id UUID,
-    finalized_attempt_id UUID,
+    finalised_attempt_id UUID,
 
     -- broker lease/claim fields (attempt-scoped)
     lock_acquired_at TIMESTAMP,
@@ -248,7 +248,7 @@ CREATE UNIQUE INDEX uq_sample_one_accepted
 
 -- Broker claim indexes
 CREATE INDEX IF NOT EXISTS idx_sample_submission_attempt ON sample_submission (attempt_id);
-CREATE INDEX IF NOT EXISTS idx_sample_submission_finalized_attempt ON sample_submission (finalized_attempt_id);
+CREATE INDEX IF NOT EXISTS idx_sample_submission_finalised_attempt ON sample_submission (finalised_attempt_id);
 
 -- UNIQUE (sample_id, authority) WHERE status = 'accepted' AND accession IS NOT NULL
 
@@ -321,7 +321,7 @@ CREATE TABLE experiment_submission (
     updated_at TIMESTAMP NOT NULL DEFAULT NOW(),
 
     attempt_id UUID,
-    finalized_attempt_id UUID,
+    finalised_attempt_id UUID,
 
     -- broker lease/claim fields
     lock_acquired_at TIMESTAMP,
@@ -344,7 +344,7 @@ CREATE TABLE experiment_submission (
 
 -- Broker lease/claim index
 CREATE INDEX IF NOT EXISTS idx_experiment_submission_attempt ON experiment_submission (attempt_id);
-CREATE INDEX IF NOT EXISTS idx_experiment_submission_finalized_attempt ON experiment_submission (finalized_attempt_id);
+CREATE INDEX IF NOT EXISTS idx_experiment_submission_finalised_attempt ON experiment_submission (finalised_attempt_id);
      
 -- TODO consider if we want to keep track of former submissions that have been replaced/modified
 CREATE UNIQUE INDEX uq_exp_one_accepted
@@ -405,7 +405,7 @@ CREATE TABLE read_submission (
 
     -- attempt linkage
     attempt_id UUID,
-    finalized_attempt_id UUID,
+    finalised_attempt_id UUID,
 
     -- broker lease/claim fields (attempt-scoped)
     lock_acquired_at TIMESTAMP,
@@ -433,7 +433,7 @@ CREATE UNIQUE INDEX uq_read_one_accepted
 -- Broker lease/claim index
 -- removed batch index; attempt-only
 CREATE INDEX IF NOT EXISTS idx_read_submission_attempt ON read_submission (attempt_id);
-CREATE INDEX IF NOT EXISTS idx_read_submission_finalized_attempt ON read_submission (finalized_attempt_id);
+CREATE INDEX IF NOT EXISTS idx_read_submission_finalised_attempt ON read_submission (finalised_attempt_id);
 
 -- ==========================================
 -- Broker Attempt table

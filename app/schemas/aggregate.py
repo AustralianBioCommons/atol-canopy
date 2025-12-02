@@ -20,7 +20,7 @@ class SampleSubmissionJson(BaseModel):
     created_at: Optional[datetime] = None
     updated_at: Optional[datetime] = None
     attempt_id: Optional[UUID] = None
-    finalized_attempt_id: Optional[UUID] = None
+    finalised_attempt_id: Optional[UUID] = None
     lock_acquired_at: Optional[datetime] = None
     lock_expires_at: Optional[datetime] = None
 
@@ -41,7 +41,7 @@ class ExperimentSubmissionJson(BaseModel):
     created_at: Optional[datetime] = None
     updated_at: Optional[datetime] = None
     attempt_id: Optional[UUID] = None
-    finalized_attempt_id: Optional[UUID] = None
+    finalised_attempt_id: Optional[UUID] = None
     lock_acquired_at: Optional[datetime] = None
     lock_expires_at: Optional[datetime] = None
 
@@ -62,7 +62,7 @@ class ReadSubmissionJson(BaseModel):
     created_at: Optional[datetime] = None
     updated_at: Optional[datetime] = None
     attempt_id: Optional[UUID] = None
-    finalized_attempt_id: Optional[UUID] = None
+    finalised_attempt_id: Optional[UUID] = None
     lock_acquired_at: Optional[datetime] = None
     lock_expires_at: Optional[datetime] = None
 

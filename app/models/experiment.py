@@ -82,7 +82,7 @@ class ExperimentSubmission(Base):
     
     # Broker lease/claim fields
     attempt_id = Column(UUID(as_uuid=True), nullable=True)
-    finalized_attempt_id = Column(UUID(as_uuid=True), nullable=True)
+    finalised_attempt_id = Column(UUID(as_uuid=True), nullable=True)
     lock_acquired_at = Column(DateTime, nullable=True)
     lock_expires_at = Column(DateTime, nullable=True)
     

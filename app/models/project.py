@@ -50,7 +50,7 @@ class ProjectSubmission(Base):
 
     # attempt linkage
     attempt_id = Column(UUID(as_uuid=True), nullable=True)
-    finalized_attempt_id = Column(UUID(as_uuid=True), nullable=True)
+    finalised_attempt_id = Column(UUID(as_uuid=True), nullable=True)
 
     # broker lease/claim fields
     lock_acquired_at = Column(DateTime, nullable=True)
