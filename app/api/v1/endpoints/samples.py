@@ -26,6 +26,7 @@ from app.schemas.sample import (
     SampleSubmissionUpdate,
     SampleUpdate
 )
+from app.utils.mapping import to_float
 from app.schemas.bulk_import import BulkSampleImport, BulkImportResponse
 from app.schemas.common import SubmissionJsonResponse, SubmissionStatus
 import os
@@ -67,21 +68,6 @@ def create_sample(
 
     sample_data = sample_in.dict(exclude_unset=True)
     sample_id = uuid.uuid4()
-    # helpers for type parsing
-    def _to_float(v):
-        try:
-            return float(v) if v not in (None, "") else None
-        except Exception:
-            return None
-
-    def _to_date(v):
-        if not v:
-            return None
-        try:
-            # Support simple YYYY-MM-DD
-            return datetime.fromisoformat(v).date()
-        except Exception:
-            return None
 
     # Compute required NOT NULL fields and fallbacks
     lifestage = sample_in.lifestage or "unknown"
@@ -110,10 +96,10 @@ def create_sample(
         state_or_region=sample_in.state_or_region,
         country_or_sea=country_or_sea,
         indigenous_location=sample_in.indigenous_location,
-        latitude=_to_float(sample_in.decimal_latitude),
-        longitude=_to_float(sample_in.decimal_longitude),
-        elevation=_to_float(sample_in.elevation),
-        depth=_to_float(sample_in.depth),
+        latitude=to_float(sample_in.decimal_latitude),
+        longitude=to_float(sample_in.decimal_longitude),
+        elevation=to_float(sample_in.elevation),
+        depth=to_float(sample_in.depth),
         habitat=habitat,
         collection_method=sample_in.description_of_collection_method,
         collection_date=collection_date_val,
@@ -380,20 +366,6 @@ def bulk_import_samples(
         try:
             # Create new sample
             sample_id = uuid.uuid4()
-            # helpers for type parsing
-            def _to_float(v):
-                try:
-                    return float(v) if v not in (None, "") else None
-                except Exception:
-                    return None
-
-            def _to_date(v):
-                if not v:
-                    return None
-                try:
-                    return datetime.fromisoformat(v).date()
-                except Exception:
-                    return None
 
             # Required fields with fallbacks
             lifestage = sample_data.get("lifestage") or "unknown"
@@ -424,10 +396,10 @@ def bulk_import_samples(
                 collection_permit=sample_data.get("collection_permit"),
                 data_context=sample_data.get("data_context"),
                 bioplatforms_project_id=sample_data.get("bioplatforms_project_id"),
-                latitude=_to_float(sample_data.get("decimal_latitude")),
-                longitude=_to_float(sample_data.get("decimal_longitude")),
-                elevation=_to_float(sample_data.get("elevation")),
-                depth=_to_float(sample_data.get("depth")),
+                latitude=to_float(sample_data.get("decimal_latitude")),
+                longitude=to_float(sample_data.get("decimal_longitude")),
+                elevation=to_float(sample_data.get("elevation")),
+                depth=to_float(sample_data.get("depth")),
                 # bpa_json=sample_data
             )
             if sample_data.get("collected_by"):
