@@ -342,6 +342,7 @@ The system implements role-based access control with the following roles:
 
   - Install hooks: `uv run pre-commit install`
   - Run all checks: `uv run pre-commit run --all-files`
+  - Install commit message hook: `uv run pre-commit install --hook-type commit-msg` (requires commitlint hook configured)
 
   ### Environment configuration
 
