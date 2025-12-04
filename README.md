@@ -87,6 +87,7 @@ pyproject.toml, uv.lock, docker-compose.yml, Dockerfile, schema.sql, scripts/, d
 
   - Docker and Docker Compose
   - [uv](https://docs.astral.sh/uv/) for local (non-Docker) development
+  - Postgres available for Alembic migrations
 
   ### Running the Application (Docker)
 
@@ -98,7 +99,7 @@ pyproject.toml, uv.lock, docker-compose.yml, Dockerfile, schema.sql, scripts/, d
 
   2) Edit `.env` and set the required values. At minimum:
   - `POSTGRES_USER=postgres`
-  - `POSTGRES_PASSWORD=<enter password>`
+  - `POSTGRES_PASSWORD=<enter password>` (default example uses `postgres`)
   - `POSTGRES_DB=atol_db`
   - `POSTGRES_PORT=5432`  # container port (host is mapped to 5433)
   - `POSTGRES_SERVER=db`  # do not change; this is the Docker service name
@@ -318,9 +319,8 @@ The system implements role-based access control with the following roles:
 
   ```bash
   # Ensure Postgres is running locally (port 5432)
-  # Create the database and apply the schema
+  # Create the database (migrations will handle schema)
   createdb -h localhost -U postgres atol_db || true
-  psql -h localhost -U postgres -d atol_db -f schema.sql
 
   # In your .env (or environment), point to your local instance
   POSTGRES_SERVER=localhost
@@ -333,6 +333,7 @@ The system implements role-based access control with the following roles:
   3) Run the application
 
   ```bash
+  uv run alembic upgrade head
   uv run uvicorn app.main:app --reload --host 0.0.0.0 --port 8000
   ```
 
@@ -343,6 +344,12 @@ The system implements role-based access control with the following roles:
   - Install hooks: `uv run pre-commit install`
   - Run all checks: `uv run pre-commit run --all-files`
   - Install commit message hook: `uv run pre-commit install --hook-type commit-msg` (requires commitlint hook configured)
+
+  ### Database migrations (Alembic)
+
+  - Apply migrations: `uv run alembic upgrade head`
+  - Create a new revision: `uv run alembic revision --autogenerate -m "description"`
+  - Docker Compose runs migrations automatically on container start via `scripts/entrypoint.sh`.
 
   ### Environment configuration
 

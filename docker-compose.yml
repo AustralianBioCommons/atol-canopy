@@ -9,10 +9,9 @@ services:
       - .env
     environment:
       - POSTGRES_SERVER=db
+      - DATABASE_URI=postgresql://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD:-postgres}@db:${POSTGRES_PORT:-5432}/${POSTGRES_DB:-atol_db}
     depends_on:
       - db
-    volumes:
-      - ./app:/app/app
     restart: always
 
   db:
@@ -26,7 +25,6 @@ services:
       - POSTGRES_SERVER=db
     volumes:
       - postgres_data:/var/lib/postgresql/data
-      - ./schema.sql:/docker-entrypoint-initdb.d/schema.sql
     restart: always
 
 volumes:
