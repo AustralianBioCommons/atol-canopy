@@ -78,7 +78,7 @@ app/
     └── (Pydantic schemas)
 
 # Top-level
-docker-compose.yml, Dockerfile, schema.sql, requirements.txt, scripts/, docs/, data/
+pyproject.toml, uv.lock, docker-compose.yml, Dockerfile, schema.sql, scripts/, docs/, data/
 ```
 
 ## Getting Started
@@ -86,6 +86,7 @@ docker-compose.yml, Dockerfile, schema.sql, requirements.txt, scripts/, docs/, d
   ### Prerequisites
   
   - Docker and Docker Compose
+  - [uv](https://docs.astral.sh/uv/) for local (non-Docker) development
   
   ### Running the Application (Docker)
   
@@ -287,12 +288,11 @@ The system implements role-based access control with the following roles:
   
   Prefer Docker for a consistent setup. This section shows how to run the FastAPI app directly on your machine as an alternative.
   
-  1) Python environment
+  1) Sync the environment with uv (creates `.venv` in the project root):
   
   ```bash
-  python -m venv venv
-  source venv/bin/activate  # Windows: venv\Scripts\activate
-  pip install -r requirements.txt
+  uv sync --dev
+  # Optional: source .venv/bin/activate
   ```
   
   2) Configure environment
@@ -333,7 +333,7 @@ The system implements role-based access control with the following roles:
   3) Run the application
   
   ```bash
-  uvicorn app.main:app --reload
+  uv run uvicorn app.main:app --reload --host 0.0.0.0 --port 8000
   ```
   
   4) Open the docs at http://localhost:8000/api/v1/docs
@@ -360,4 +360,4 @@ When using Docker, the database is initialized automatically on first run using 
 
 ## License
 
-This project is licensed under the MIT License.
+This project is licensed under the GPL-3.0-or-later License.

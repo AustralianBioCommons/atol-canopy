@@ -8,3 +8,9 @@ data/
 *__pycache__*
 
 postman/
+.venv/
+.uv/
+.pytest_cache/
+.coverage
+htmlcov/
+coverage.xml

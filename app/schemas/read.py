@@ -2,7 +2,7 @@ from datetime import datetime
 from typing import Optional, Dict, Any, Literal
 from uuid import UUID
 
-from pydantic import BaseModel
+from pydantic import BaseModel, ConfigDict
 
 
 # Base Read schema
@@ -55,8 +55,7 @@ class ReadInDBBase(ReadBase):
     created_at: datetime
     updated_at: datetime
 
-    class Config:
-        from_attributes = True
+    model_config = ConfigDict(from_attributes=True)
 
 
 # Schema for returning Read information
@@ -113,8 +112,7 @@ class ReadSubmissionInDBBase(ReadSubmissionBase):
     created_at: datetime
     updated_at: datetime
 
-    class Config:
-        from_attributes = True
+    model_config = ConfigDict(from_attributes=True)
 
 
 # Schema for returning read submission information

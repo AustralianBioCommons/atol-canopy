@@ -1,21 +1,26 @@
-FROM python:3.10-slim
+FROM ghcr.io/astral-sh/uv:python3.10-slim
 
 WORKDIR /app
 
-# Copy requirements first for better layer caching
-COPY requirements.txt .
-RUN pip install --no-cache-dir -r requirements.txt && \
-    pip install --no-cache-dir email-validator
+# Ensure uv installs into a local virtual environment for the project
+ENV UV_PROJECT_ENVIRONMENT=/app/.venv
 
-# Copy the rest of the application
-COPY . .
+# Install dependencies using the lockfile for reproducibility
+COPY pyproject.toml uv.lock ./
+RUN uv sync --frozen --no-dev
 
-# Set environment variables
+# Copy application source
+COPY app app
+COPY scripts scripts
+COPY schema.sql .
+COPY README.md .
+COPY .env.example .
+
+ENV PATH="/app/.venv/bin:${PATH}"
 ENV PYTHONPATH=/app
 ENV PORT=8000
 
-# Expose the port
 EXPOSE 8000
 
-# Command to run the application
-CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000"]
+# Run the FastAPI app via uv (respects the lockfile)
+CMD ["uv", "run", "--frozen", "uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000"]
