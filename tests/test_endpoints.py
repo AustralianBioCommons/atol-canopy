@@ -20,7 +20,6 @@ from app.api.v1.endpoints import organisms
 from app.api.v1.endpoints import assemblies, experiment_reads_xml, experiment_submissions, genome_notes, reads, samples, users, xml_export, broker
 from app.core.security import hash_token
 from app.core.settings import settings
-from app.services import organism_service
 
 
 class FakeQuery:
@@ -294,7 +293,7 @@ def test_create_organism(monkeypatch):
     assert body["grouping_key"] == "g1"
 
 
-def test_assemblies_pipeline_inputs_missing_param(monkeypatch):
+def test_assemblies_pipeline_inputs_missing_param():
     client = TestClient(app)
     app.dependency_overrides[assemblies.get_current_active_user] = lambda: SimpleNamespace(is_active=True, roles=["admin"], is_superuser=False)
     app.dependency_overrides[assemblies.get_db] = override_db_map()
@@ -313,7 +312,7 @@ def test_assemblies_pipeline_inputs_not_found(monkeypatch):
     assert resp.status_code == 404
 
 
-def test_experiment_reads_xml_not_found(monkeypatch):
+def test_experiment_reads_xml_not_found():
     with pytest.raises(HTTPException) as exc:
         experiment_reads_xml.get_experiment_reads_xml(
             db=FakeSessionMap({}),
@@ -332,7 +331,7 @@ def test_experiment_submission_by_attr_not_found(monkeypatch):
     assert resp.status_code == 404
 
 
-def test_experiment_submission_by_attr_no_submission(monkeypatch):
+def test_experiment_submission_by_attr_no_submission():
     client = TestClient(app)
     exp_id = uuid.uuid4()
     app.dependency_overrides[experiment_submissions.get_current_active_user] = lambda: SimpleNamespace(is_active=True, roles=["admin"], is_superuser=False)
@@ -345,7 +344,7 @@ def test_experiment_submission_by_attr_no_submission(monkeypatch):
     assert resp.status_code == 404
 
 
-def test_genome_note_not_found(monkeypatch):
+def test_genome_note_not_found():
     client = TestClient(app)
     app.dependency_overrides[genome_notes.get_current_active_user] = lambda: SimpleNamespace(is_active=True, roles=["admin"], is_superuser=False)
     app.dependency_overrides[genome_notes.get_db] = override_db_map({})
@@ -354,7 +353,7 @@ def test_genome_note_not_found(monkeypatch):
     assert resp.status_code == 404
 
 
-def test_read_not_found(monkeypatch):
+def test_read_not_found():
     client = TestClient(app)
     app.dependency_overrides[reads.get_current_active_user] = lambda: SimpleNamespace(is_active=True, roles=["admin"], is_superuser=False)
     app.dependency_overrides[reads.get_db] = override_db_map({})
@@ -363,7 +362,7 @@ def test_read_not_found(monkeypatch):
     assert resp.status_code == 404
 
 
-def test_sample_not_found(monkeypatch):
+def test_sample_not_found():
     client = TestClient(app)
     app.dependency_overrides[samples.get_current_active_user] = lambda: SimpleNamespace(is_active=True, roles=["admin"], is_superuser=False)
     app.dependency_overrides[samples.get_db] = override_db_map({})
@@ -372,7 +371,7 @@ def test_sample_not_found(monkeypatch):
     assert resp.status_code == 404
 
 
-def test_user_not_found(monkeypatch):
+def test_user_not_found():
     client = TestClient(app)
     app.dependency_overrides[users.get_db] = override_db_map({})
 
