@@ -1,4 +1,4 @@
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 import uuid
 from typing import Any
 
@@ -62,7 +62,7 @@ def login_access_token(
         id=uuid.uuid4(),
         token_hash=hash_token(refresh_token_value),
         user_id=user.id,
-        expires_at=datetime.utcnow() + refresh_token_expires,
+        expires_at=datetime.now(timezone.utc) + refresh_token_expires,
         revoked=False
     )
     
@@ -97,7 +97,7 @@ def refresh_token(
     token_hash = hash_token(request.refresh_token)
     stored_token = db.query(RefreshToken).filter(
         RefreshToken.token_hash == token_hash,
-        RefreshToken.expires_at > datetime.utcnow(),
+        RefreshToken.expires_at > datetime.now(timezone.utc),
         RefreshToken.revoked == False
     ).first()
     
@@ -139,7 +139,7 @@ def refresh_token(
         id=uuid.uuid4(),
         token_hash=hash_token(new_refresh_token_value),
         user_id=user.id,
-        expires_at=datetime.utcnow() + refresh_token_expires,
+        expires_at=datetime.now(timezone.utc) + refresh_token_expires,
         revoked=False
     )
     
