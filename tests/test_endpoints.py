@@ -4,8 +4,8 @@ from datetime import datetime, timedelta, timezone
 from types import SimpleNamespace
 
 import pytest
-from fastapi.testclient import TestClient
 from fastapi import HTTPException
+from fastapi.testclient import TestClient
 
 # Ensure settings have usable DB values before importing the app (engine creation is lazy)
 os.environ.setdefault("POSTGRES_USER", "test")
@@ -14,12 +14,22 @@ os.environ.setdefault("POSTGRES_SERVER", "localhost")
 os.environ.setdefault("POSTGRES_PORT", "5432")
 os.environ.setdefault("POSTGRES_DB", "testdb")
 
-from app.main import app
-from app.api.v1.endpoints import auth
-from app.api.v1.endpoints import organisms
-from app.api.v1.endpoints import assemblies, experiment_reads_xml, experiment_submissions, genome_notes, reads, samples, users, xml_export, broker
+from app.api.v1.endpoints import (
+    assemblies,
+    auth,
+    broker,
+    experiment_reads_xml,
+    experiment_submissions,
+    genome_notes,
+    organisms,
+    reads,
+    samples,
+    users,
+    xml_export,
+)
 from app.core.security import hash_token
 from app.core.settings import settings
+from app.main import app
 
 
 class FakeQuery:
@@ -107,6 +117,7 @@ class FakeSessionMap:
 def override_db_map(data=None):
     def _gen():
         yield FakeSessionMap(data)
+
     return _gen
 
 
@@ -295,7 +306,9 @@ def test_create_organism(monkeypatch):
 
 def test_assemblies_pipeline_inputs_missing_param():
     client = TestClient(app)
-    app.dependency_overrides[assemblies.get_current_active_user] = lambda: SimpleNamespace(is_active=True, roles=["admin"], is_superuser=False)
+    app.dependency_overrides[assemblies.get_current_active_user] = lambda: SimpleNamespace(
+        is_active=True, roles=["admin"], is_superuser=False
+    )
     app.dependency_overrides[assemblies.get_db] = override_db_map()
 
     resp = client.get("/api/v1/assemblies/pipeline-inputs")
@@ -304,9 +317,13 @@ def test_assemblies_pipeline_inputs_missing_param():
 
 def test_assemblies_pipeline_inputs_not_found(monkeypatch):
     client = TestClient(app)
-    app.dependency_overrides[assemblies.get_current_active_user] = lambda: SimpleNamespace(is_active=True, roles=["admin"], is_superuser=False)
+    app.dependency_overrides[assemblies.get_current_active_user] = lambda: SimpleNamespace(
+        is_active=True, roles=["admin"], is_superuser=False
+    )
     app.dependency_overrides[assemblies.get_db] = override_db_map({})
-    monkeypatch.setattr(assemblies.organism_service, "get_by_grouping_key", lambda db, grouping_key: None)
+    monkeypatch.setattr(
+        assemblies.organism_service, "get_by_grouping_key", lambda db, grouping_key: None
+    )
 
     resp = client.get("/api/v1/assemblies/pipeline-inputs?organism_grouping_key=missing")
     assert resp.status_code == 404
@@ -324,7 +341,9 @@ def test_experiment_reads_xml_not_found():
 
 def test_experiment_submission_by_attr_not_found(monkeypatch):
     client = TestClient(app)
-    app.dependency_overrides[experiment_submissions.get_current_active_user] = lambda: SimpleNamespace(is_active=True, roles=["admin"], is_superuser=False)
+    app.dependency_overrides[experiment_submissions.get_current_active_user] = (
+        lambda: SimpleNamespace(is_active=True, roles=["admin"], is_superuser=False)
+    )
     app.dependency_overrides[experiment_submissions.get_db] = override_db_map({})
 
     resp = client.get("/api/v1/experiment-submissions/by-experiment-attr?bpa_package_id=missing")
@@ -334,11 +353,15 @@ def test_experiment_submission_by_attr_not_found(monkeypatch):
 def test_experiment_submission_by_attr_no_submission():
     client = TestClient(app)
     exp_id = uuid.uuid4()
-    app.dependency_overrides[experiment_submissions.get_current_active_user] = lambda: SimpleNamespace(is_active=True, roles=["admin"], is_superuser=False)
-    app.dependency_overrides[experiment_submissions.get_db] = override_db_map({
-        experiment_submissions.Experiment: [SimpleNamespace(id=exp_id)],
-        experiment_submissions.ExperimentSubmission: [],
-    })
+    app.dependency_overrides[experiment_submissions.get_current_active_user] = (
+        lambda: SimpleNamespace(is_active=True, roles=["admin"], is_superuser=False)
+    )
+    app.dependency_overrides[experiment_submissions.get_db] = override_db_map(
+        {
+            experiment_submissions.Experiment: [SimpleNamespace(id=exp_id)],
+            experiment_submissions.ExperimentSubmission: [],
+        }
+    )
 
     resp = client.get(f"/api/v1/experiment-submissions/by-experiment-attr?experiment_id={exp_id}")
     assert resp.status_code == 404
@@ -346,7 +369,9 @@ def test_experiment_submission_by_attr_no_submission():
 
 def test_genome_note_not_found():
     client = TestClient(app)
-    app.dependency_overrides[genome_notes.get_current_active_user] = lambda: SimpleNamespace(is_active=True, roles=["admin"], is_superuser=False)
+    app.dependency_overrides[genome_notes.get_current_active_user] = lambda: SimpleNamespace(
+        is_active=True, roles=["admin"], is_superuser=False
+    )
     app.dependency_overrides[genome_notes.get_db] = override_db_map({})
 
     resp = client.get(f"/api/v1/genome-notes/{uuid.uuid4()}")
@@ -355,7 +380,9 @@ def test_genome_note_not_found():
 
 def test_read_not_found():
     client = TestClient(app)
-    app.dependency_overrides[reads.get_current_active_user] = lambda: SimpleNamespace(is_active=True, roles=["admin"], is_superuser=False)
+    app.dependency_overrides[reads.get_current_active_user] = lambda: SimpleNamespace(
+        is_active=True, roles=["admin"], is_superuser=False
+    )
     app.dependency_overrides[reads.get_db] = override_db_map({})
 
     resp = client.get(f"/api/v1/reads/{uuid.uuid4()}")
@@ -364,7 +391,9 @@ def test_read_not_found():
 
 def test_sample_not_found():
     client = TestClient(app)
-    app.dependency_overrides[samples.get_current_active_user] = lambda: SimpleNamespace(is_active=True, roles=["admin"], is_superuser=False)
+    app.dependency_overrides[samples.get_current_active_user] = lambda: SimpleNamespace(
+        is_active=True, roles=["admin"], is_superuser=False
+    )
     app.dependency_overrides[samples.get_db] = override_db_map({})
 
     resp = client.get(f"/api/v1/samples/{uuid.uuid4()}")
@@ -381,7 +410,9 @@ def test_user_not_found():
 
 def test_xml_export_read_not_found(monkeypatch):
     client = TestClient(app)
-    app.dependency_overrides[xml_export.get_current_active_user] = lambda: SimpleNamespace(is_active=True, roles=["admin"], is_superuser=False)
+    app.dependency_overrides[xml_export.get_current_active_user] = lambda: SimpleNamespace(
+        is_active=True, roles=["admin"], is_superuser=False
+    )
     app.dependency_overrides[xml_export.get_db] = override_db_map({})
 
     resp = client.get(f"/api/v1/xml-export/reads/{uuid.uuid4()}")

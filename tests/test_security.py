@@ -29,7 +29,9 @@ def test_create_access_token_uses_defaults():
 
     assert payload["sub"] == "user-123"
     exp = datetime.fromtimestamp(payload["exp"], tz=timezone.utc)
-    assert start < exp < start + timedelta(minutes=settings.JWT_ACCESS_TOKEN_EXPIRE_MINUTES, seconds=5)
+    assert (
+        start < exp < start + timedelta(minutes=settings.JWT_ACCESS_TOKEN_EXPIRE_MINUTES, seconds=5)
+    )
 
 
 def test_create_access_token_accepts_custom_expiry():
