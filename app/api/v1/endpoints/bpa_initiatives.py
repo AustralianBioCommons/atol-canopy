@@ -1,5 +1,4 @@
 from typing import Any, List
-from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
@@ -50,9 +49,9 @@ def create_bpa_initiative(
     require_role(current_user, ["curator", "admin"])
     
     initiative = BPAInitiative(
-        bpa_initiative_id_serial=initiative_in.bpa_initiative_id_serial,
-        name=initiative_in.name,
-        shipment_accession=initiative_in.shipment_accession,
+        project_code=getattr(initiative_in, "project_code", None),
+        title=getattr(initiative_in, "title", None),
+        url=getattr(initiative_in, "url", None),
     )
     db.add(initiative)
     db.commit()
@@ -64,14 +63,14 @@ def create_bpa_initiative(
 def read_bpa_initiative(
     *,
     db: Session = Depends(get_db),
-    initiative_id: UUID,
+    initiative_id: str,
     current_user: User = Depends(get_current_active_user),
 ) -> Any:
     """
     Get BPA initiative by ID.
     """
     # All users can read BPA initiative details
-    initiative = db.query(BPAInitiative).filter(BPAInitiative.id == initiative_id).first()
+    initiative = db.query(BPAInitiative).filter(BPAInitiative.project_code == initiative_id).first()
     if not initiative:
         raise HTTPException(status_code=404, detail="BPA initiative not found")
     return initiative
@@ -81,7 +80,7 @@ def read_bpa_initiative(
 def update_bpa_initiative(
     *,
     db: Session = Depends(get_db),
-    initiative_id: UUID,
+    initiative_id: str,
     initiative_in: BPAInitiativeUpdate,
     current_user: User = Depends(get_current_active_user),
 ) -> Any:
@@ -91,7 +90,7 @@ def update_bpa_initiative(
     # Only users with 'curator' or 'admin' role can update BPA initiatives
     require_role(current_user, ["curator", "admin"])
     
-    initiative = db.query(BPAInitiative).filter(BPAInitiative.id == initiative_id).first()
+    initiative = db.query(BPAInitiative).filter(BPAInitiative.project_code == initiative_id).first()
     if not initiative:
         raise HTTPException(status_code=404, detail="BPA initiative not found")
     
@@ -109,14 +108,14 @@ def update_bpa_initiative(
 def delete_bpa_initiative(
     *,
     db: Session = Depends(get_db),
-    initiative_id: UUID,
+    initiative_id: str,
     current_user: User = Depends(get_current_superuser),
 ) -> Any:
     """
     Delete a BPA initiative.
     """
     # Only superusers can delete BPA initiatives
-    initiative = db.query(BPAInitiative).filter(BPAInitiative.id == initiative_id).first()
+    initiative = db.query(BPAInitiative).filter(BPAInitiative.project_code == initiative_id).first()
     if not initiative:
         raise HTTPException(status_code=404, detail="BPA initiative not found")
     

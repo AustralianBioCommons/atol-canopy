@@ -107,7 +107,10 @@ def update_experiment(
     except RuntimeError as e:
         # Preserve previous semantics for locked/submitting states
         raise HTTPException(status_code=404, detail=str(e))
-    except Exception as e:
+    except HTTPException:
+        # Propagate explicit HTTP errors (e.g., 404) without converting to 500
+        raise
+    except Exception:
         raise HTTPException(status_code=500, detail="Failed to update experiment")
 
 @router.delete("/{experiment_id}", response_model=ExperimentSchema)
