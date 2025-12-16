@@ -11,10 +11,10 @@ echo "Waiting for database to be reachable at ${DB_URL} ..."
 for i in {1..30}; do
   if uv run python - <<PY
 import sys
-from sqlalchemy import create_engine
+from sqlalchemy import create_engine, text
 engine = create_engine("${DB_URL}")
 with engine.connect() as conn:
-    conn.execute("SELECT 1")
+    conn.execute(text("SELECT 1"))
 PY
   then
     echo "Database is up."
