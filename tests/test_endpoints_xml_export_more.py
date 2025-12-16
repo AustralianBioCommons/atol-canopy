@@ -61,14 +61,14 @@ def test_xml_sample_success():
     )
 
     sample_id = uuid.uuid4()
-    organism_id = uuid.uuid4()
+    organism_key = "g-1"
     ss = SimpleNamespace(
         sample_id=sample_id,
         prepared_payload={"title": "Sample Title", "alias": "s1"},
-        organism_id=organism_id,
+        organism_key=organism_key,
         sample=None,
     )
-    organism = SimpleNamespace(id=organism_id, tax_id=1, scientific_name="Sci", common_name="Com")
+    organism = SimpleNamespace(grouping_key=organism_key, tax_id=1, scientific_name="Sci", common_name="Com")
 
     app.dependency_overrides[xml_export.get_db] = override_db({
         SampleSubmission: [ss],
