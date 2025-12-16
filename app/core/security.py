@@ -8,6 +8,11 @@ from jose import jwt
 
 from app.core.settings import settings
 
+# TODO must enforce same byte limitation at input validation
+BCRYPT_MAX_BYTES = 72
+
+def _bcrypt_bytes(password: str) -> bytes:
+     return password.encode("utf-8")[:BCRYPT_MAX_BYTES]
 
 def create_access_token(
     subject: Union[str, Any], expires_delta: Optional[timedelta] = None
@@ -48,7 +53,7 @@ def verify_password(plain_password: str, hashed_password: str) -> bool:
         bool: True if password matches hash
     """
     try:
-        return bcrypt.checkpw(plain_password.encode("utf-8"), hashed_password.encode("utf-8"))
+        return bcrypt.checkpw(_bcrypt_bytes(plain_password), hashed_password.encode("utf-8"))
     except Exception:
         return False
 
@@ -64,7 +69,7 @@ def get_password_hash(password: str) -> str:
         str: Hashed password
     """
     salt = bcrypt.gensalt()
-    hashed = bcrypt.hashpw(password.encode("utf-8"), salt)
+    hashed = bcrypt.hashpw(_bcrypt_bytes(password), salt)
     return hashed.decode("utf-8")
 
 
