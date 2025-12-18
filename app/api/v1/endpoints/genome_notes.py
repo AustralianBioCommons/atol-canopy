@@ -29,7 +29,7 @@ def read_genome_notes(
     db: Session = Depends(get_db),
     skip: int = 0,
     limit: int = 100,
-    organism_id: Optional[UUID] = Query(None, description="Filter by organism ID"),
+    organism_key: Optional[UUID] = Query(None, description="Filter by organism key"),
     is_published: Optional[bool] = Query(None, description="Filter by publication status"),
     current_user: User = Depends(get_current_active_user),
 ) -> Any:
@@ -38,8 +38,8 @@ def read_genome_notes(
     """
     # All users can read genome notes
     query = db.query(GenomeNote)
-    if organism_id:
-        query = query.filter(GenomeNote.organism_id == organism_id)
+    if organism_key:
+        query = query.filter(GenomeNote.organism_key == organism_key)
     if is_published is not None:
         query = query.filter(GenomeNote.is_published == is_published)
     
@@ -61,7 +61,7 @@ def create_genome_note(
     require_role(current_user, ["curator", "admin"])
     
     genome_note = GenomeNote(
-        organism_id=genome_note_in.organism_id,
+        organism_key=genome_note_in.organism_key,
         note=genome_note_in.note,
         other_fields=genome_note_in.other_fields,
         version_chain_id=genome_note_in.version_chain_id,

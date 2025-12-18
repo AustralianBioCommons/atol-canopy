@@ -60,19 +60,19 @@ def get_sample_xml(
         )
         
     # Get the organism data
-    organism_id = sample_submission.organism_id
-    if not organism_id:
+    organism_key = sample_submission.organism_key
+    if not organism_key:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Sample_submitted object missing organism_id",
+            detail="Sample_submitted object missing organism_key",
         )
         
-    organism = db.query(Organism).filter(Organism.id == organism_id).first()
+    organism = db.query(Organism).filter(Organism.grouping_key == organism_key).first()
     
     if not organism:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
-            detail=f"Organism with id {organism_id} not found",
+            detail=f"Organism with id {organism_key} not found",
         )
     
     # Generate XML using the utility function
@@ -131,19 +131,19 @@ def get_experiment_sample_xml(
         )
     
     # Get the organism data
-    organism_id = sample_submission.organism_id
-    if not organism_id:
+    organism_key = sample_submission.organism_key
+    if not organism_key:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Sample_submitted object missing organism_id",
+            detail="Sample_submitted object missing organism_key",
         )
         
-    organism = db.query(Organism).filter(Organism.id == organism_id).first()
+    organism = db.query(Organism).filter(Organism.grouping_key == organism_key).first()
     
     if not organism:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
-            detail=f"Organism with id {organism_id} not found",
+            detail=f"Organism with id {organism_key} not found",
         )
     
     # Generate XML using the utility function
@@ -314,7 +314,7 @@ def get_reads_xml(
     db: Session = Depends(get_db),
     read_ids: List[UUID] = Query(None, description="List of read IDs to include in the XML"),
     experiment_id: Optional[UUID] = Query(None, description="Filter by experiment ID"),
-    status: Optional[str] = Query(None, description="Filter by submission status"),
+    read_status: Optional[str] = Query(None, description="Filter by submission status"),
     experiment_accession: Optional[str] = Query(None, description="Experiment accession to use in the XML"),
     experiment_alias: Optional[str] = Query(None, description="Experiment refname to use in the XML"),
     current_user: User = Depends(get_current_active_user),
@@ -335,8 +335,8 @@ def get_reads_xml(
     if experiment_id:
         query = query.filter(Read.experiment_id == experiment_id)
     
-    if status:
-        query = query.filter(Read.status == status)
+    if read_status:
+        query = query.filter(Read.status == read_status)
     
     # Get the reads
     reads = query.all()

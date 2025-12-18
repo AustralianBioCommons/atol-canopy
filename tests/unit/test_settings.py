@@ -7,6 +7,7 @@ def test_settings_builds_database_uri_from_env(monkeypatch):
     monkeypatch.setenv("POSTGRES_SERVER", "localhost")
     monkeypatch.setenv("POSTGRES_PORT", "5432")
     monkeypatch.setenv("POSTGRES_DB", "testdb")
+    monkeypatch.setenv("DATABASE_URI", "postgresql://testuser:testpass@localhost:5432/testdb")
 
     settings = Settings()
 
@@ -16,3 +17,4 @@ def test_settings_builds_database_uri_from_env(monkeypatch):
     assert settings.POSTGRES_SERVER == "localhost"
     assert settings.POSTGRES_PORT == "5432"
     assert settings.POSTGRES_DB == "testdb"
+    assert settings.DATABASE_URI == "postgresql://testuser:testpass@localhost:5432/testdb"

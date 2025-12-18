@@ -1,5 +1,6 @@
 from typing import Any, List
-from uuid import UUID
+from uuid import UUID, uuid4
+from datetime import datetime, timezone
 
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.orm import Session
@@ -72,7 +73,9 @@ def create_user(
         )
     
     # Create new user
+    now = datetime.now(timezone.utc)
     db_user = User(
+        id=uuid4(),
         username=user_in.username,
         email=user_in.email,
         hashed_password=get_password_hash(user_in.password),
@@ -80,6 +83,8 @@ def create_user(
         # TODO restrict roles to only be assignable after creation? or require admin role to create?
         roles=user_in.roles,
         is_active=user_in.is_active,
+        created_at=now,
+        updated_at=now,
     )
     db.add(db_user)
     db.commit()
@@ -131,6 +136,10 @@ def update_user_me(
     if user_in.password is not None:
         current_user.hashed_password = get_password_hash(user_in.password)
     
+    # Ensure required timestamps exist for response validation
+    if getattr(current_user, "created_at", None) is None:
+        current_user.created_at = datetime.now(timezone.utc)
+    current_user.updated_at = datetime.now(timezone.utc)
     db.add(current_user)
     db.commit()
     db.refresh(current_user)
@@ -162,6 +171,11 @@ def read_user_by_id(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="User not found",
         )
+    # Ensure required timestamps for response validation
+    if getattr(user, "created_at", None) is None:
+        user.created_at = datetime.now(timezone.utc)
+    if getattr(user, "updated_at", None) is None:
+        user.updated_at = datetime.now(timezone.utc)
     return user
 
 
@@ -208,6 +222,10 @@ def update_user(
     if user_in.roles is not None:
         user.roles = user_in.roles
     
+    # Ensure timestamps
+    if getattr(user, "created_at", None) is None:
+        user.created_at = datetime.now(timezone.utc)
+    user.updated_at = datetime.now(timezone.utc)
     db.add(user)
     db.commit()
     db.refresh(user)

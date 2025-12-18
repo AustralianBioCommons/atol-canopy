@@ -2,7 +2,7 @@ from datetime import datetime
 from typing import List, Optional
 from uuid import UUID
 
-from pydantic import BaseModel, EmailStr, Field
+from pydantic import BaseModel, EmailStr, Field, field_validator
 from pydantic import ConfigDict
 
 
@@ -19,6 +19,13 @@ class UserCreate(UserBase):
     """Schema for creating a new user."""
     password: str
 
+    @field_validator("password")
+    @classmethod
+    def _validate_password_max_72_bytes(cls, v: str) -> str:
+        if len(v.encode("utf-8")) > 72:
+            raise ValueError("Password must be at most 72 bytes when UTF-8 encoded.")
+        return v
+
 
 class UserUpdate(BaseModel):
     """Schema for updating an existing user."""
@@ -28,6 +35,13 @@ class UserUpdate(BaseModel):
     password: Optional[str] = None
     is_active: Optional[bool] = None
     roles: Optional[List[str]] = None
+
+    @field_validator("password")
+    @classmethod
+    def _validate_password_max_72_bytes_optional(cls, v: Optional[str]) -> Optional[str]:
+        if v is not None and len(v.encode("utf-8")) > 72:
+            raise ValueError("Password must be at most 72 bytes when UTF-8 encoded.")
+        return v
 
 
 class UserInDBBase(UserBase):

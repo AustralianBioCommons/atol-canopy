@@ -3,14 +3,16 @@ from typing import Any, Dict, Optional, Union
 import hashlib
 import secrets
 
+import bcrypt
 from jose import jwt
-from passlib.context import CryptContext
 
 from app.core.settings import settings
 
-# Password hashing context
-pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
+# TODO must enforce same byte limitation at input validation
+BCRYPT_MAX_BYTES = 72
 
+def _bcrypt_bytes(password: str) -> bytes:
+     return password.encode("utf-8")[:BCRYPT_MAX_BYTES]
 
 def create_access_token(
     subject: Union[str, Any], expires_delta: Optional[timedelta] = None
@@ -50,7 +52,10 @@ def verify_password(plain_password: str, hashed_password: str) -> bool:
     Returns:
         bool: True if password matches hash
     """
-    return pwd_context.verify(plain_password, hashed_password)
+    try:
+        return bcrypt.checkpw(_bcrypt_bytes(plain_password), hashed_password.encode("utf-8"))
+    except Exception:
+        return False
 
 
 def get_password_hash(password: str) -> str:
@@ -63,7 +68,9 @@ def get_password_hash(password: str) -> str:
     Returns:
         str: Hashed password
     """
-    return pwd_context.hash(password)
+    salt = bcrypt.gensalt()
+    hashed = bcrypt.hashpw(_bcrypt_bytes(password), salt)
+    return hashed.decode("utf-8")
 
 
 def generate_refresh_token(length: int = 32) -> str:

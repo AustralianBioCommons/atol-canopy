@@ -8,7 +8,7 @@ from pydantic import BaseModel, ConfigDict
 # Base GenomeNote schema
 class GenomeNoteBase(BaseModel):
     """Base GenomeNote schema with common attributes."""
-    organism_id: UUID
+    organism_key: str
     note: Optional[str] = None
     other_fields: Optional[str] = None
     version_chain_id: Optional[UUID] = None
@@ -24,7 +24,7 @@ class GenomeNoteCreate(GenomeNoteBase):
 # Schema for updating an existing GenomeNote
 class GenomeNoteUpdate(BaseModel):
     """Schema for updating an existing GenomeNote."""
-    organism_id: Optional[UUID] = None
+    organism_key: Optional[str] = None
     note: Optional[str] = None
     other_fields: Optional[str] = None
     version_chain_id: Optional[UUID] = None
