@@ -45,6 +45,9 @@ class FakeQuery:
     def count(self):
         return len(self.items)
 
+    def group_by(self, *_):
+        return self
+
 
 class FakeSession:
     def __init__(self, mapping=None):

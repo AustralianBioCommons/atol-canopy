@@ -209,3 +209,19 @@ def test_users_read_by_id_success():
     assert resp.status_code == 200
     body = resp.json()
     assert body["id"] == str(user_id)
+
+
+def test_user_not_found():
+    client = TestClient(app)
+    class _QueryNone:
+        def filter(self, *_a, **_k):
+            return self
+        def first(self):
+            return None
+    class _SessionNone:
+        def query(self, _m):
+            return _QueryNone()
+    app.dependency_overrides[users.get_db] = _override_db(_SessionNone())
+
+    resp = client.get(f"/api/v1/users/{uuid.uuid4()}")
+    assert resp.status_code == 404

@@ -46,3 +46,28 @@ def test_pipeline_inputs_no_samples_returns_empty_files(monkeypatch):
     assert isinstance(body, list) and body
     assert body[0]["scientific_name"] == "Sci"
     assert body[0]["files"] == {}
+
+
+def test_assemblies_pipeline_inputs_missing_param():
+    client = TestClient(app)
+    app.dependency_overrides[assemblies.get_current_active_user] = lambda: SimpleNamespace(
+        is_active=True, roles=["admin"], is_superuser=False
+    )
+    app.dependency_overrides[assemblies.get_db] = _override_db(_FakeSession())
+
+    resp = client.get("/api/v1/assemblies/pipeline-inputs")
+    assert resp.status_code == 422
+
+
+def test_assemblies_pipeline_inputs_not_found(monkeypatch):
+    client = TestClient(app)
+    app.dependency_overrides[assemblies.get_current_active_user] = lambda: SimpleNamespace(
+        is_active=True, roles=["admin"], is_superuser=False
+    )
+    app.dependency_overrides[assemblies.get_db] = _override_db(_FakeSession())
+    monkeypatch.setattr(
+        assemblies.organism_service, "get_by_grouping_key", lambda db, grouping_key: None
+    )
+
+    resp = client.get("/api/v1/assemblies/pipeline-inputs?organism_grouping_key=missing")
+    assert resp.status_code == 404

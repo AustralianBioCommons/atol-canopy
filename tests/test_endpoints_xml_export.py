@@ -120,3 +120,15 @@ def test_xml_reads_collection_none_have_payload_returns_400():
 
     resp = client.get("/api/v1/xml-export/reads")
     assert resp.status_code == 400
+
+
+def test_xml_export_read_not_found():
+    client = TestClient(app)
+    app.dependency_overrides[xml_export.get_current_active_user] = lambda: SimpleNamespace(
+        is_active=True, roles=["admin"], is_superuser=False
+    )
+
+    app.dependency_overrides[xml_export.get_db] = override_db({Read: []})
+
+    resp = client.get(f"/api/v1/xml-export/reads/{uuid.uuid4()}")
+    assert resp.status_code == 404
