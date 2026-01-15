@@ -14,7 +14,11 @@ from app.models.genome_note import GenomeNote, GenomeNoteAssembly
 from app.models.user import User
 from app.schemas.genome_note import (
     GenomeNote as GenomeNoteSchema,
+)
+from app.schemas.genome_note import (
     GenomeNoteAssembly as GenomeNoteAssemblySchema,
+)
+from app.schemas.genome_note import (
     GenomeNoteAssemblyCreate,
     GenomeNoteAssemblyUpdate,
     GenomeNoteCreate,
@@ -42,7 +46,7 @@ def read_genome_notes(
         query = query.filter(GenomeNote.organism_key == organism_key)
     if is_published is not None:
         query = query.filter(GenomeNote.is_published == is_published)
-    
+
     genome_notes = query.offset(skip).limit(limit).all()
     return genome_notes
 
@@ -59,7 +63,7 @@ def create_genome_note(
     """
     # Only users with 'curator' or 'admin' role can create genome notes
     require_role(current_user, ["curator", "admin"])
-    
+
     genome_note = GenomeNote(
         organism_key=genome_note_in.organism_key,
         note=genome_note_in.note,
@@ -103,15 +107,15 @@ def update_genome_note(
     """
     # Only users with 'curator' or 'admin' role can update genome notes
     require_role(current_user, ["curator", "admin"])
-    
+
     genome_note = db.query(GenomeNote).filter(GenomeNote.id == genome_note_id).first()
     if not genome_note:
         raise HTTPException(status_code=404, detail="Genome note not found")
-    
+
     update_data = genome_note_in.dict(exclude_unset=True)
     for field, value in update_data.items():
         setattr(genome_note, field, value)
-    
+
     db.add(genome_note)
     db.commit()
     db.refresh(genome_note)
@@ -132,7 +136,7 @@ def delete_genome_note(
     genome_note = db.query(GenomeNote).filter(GenomeNote.id == genome_note_id).first()
     if not genome_note:
         raise HTTPException(status_code=404, detail="Genome note not found")
-    
+
     db.delete(genome_note)
     db.commit()
     return genome_note
@@ -157,7 +161,7 @@ def read_genome_note_assemblies(
         query = query.filter(GenomeNoteAssembly.genome_note_id == genome_note_id)
     if assembly_id:
         query = query.filter(GenomeNoteAssembly.assembly_id == assembly_id)
-    
+
     relationships = query.offset(skip).limit(limit).all()
     return relationships
 
@@ -174,7 +178,7 @@ def create_genome_note_assembly(
     """
     # Only users with 'curator' or 'admin' role can create genome note-assembly relationships
     require_role(current_user, ["curator", "admin"])
-    
+
     relationship = GenomeNoteAssembly(
         genome_note_id=relationship_in.genome_note_id,
         assembly_id=relationship_in.assembly_id,
@@ -198,15 +202,17 @@ def update_genome_note_assembly(
     """
     # Only users with 'curator' or 'admin' role can update genome note-assembly relationships
     require_role(current_user, ["curator", "admin"])
-    
-    relationship = db.query(GenomeNoteAssembly).filter(GenomeNoteAssembly.id == relationship_id).first()
+
+    relationship = (
+        db.query(GenomeNoteAssembly).filter(GenomeNoteAssembly.id == relationship_id).first()
+    )
     if not relationship:
         raise HTTPException(status_code=404, detail="Genome note-assembly relationship not found")
-    
+
     update_data = relationship_in.dict(exclude_unset=True)
     for field, value in update_data.items():
         setattr(relationship, field, value)
-    
+
     db.add(relationship)
     db.commit()
     db.refresh(relationship)
@@ -225,11 +231,13 @@ def delete_genome_note_assembly(
     """
     # Only users with 'curator' or 'admin' role can delete genome note-assembly relationships
     require_role(current_user, ["curator", "admin"])
-    
-    relationship = db.query(GenomeNoteAssembly).filter(GenomeNoteAssembly.id == relationship_id).first()
+
+    relationship = (
+        db.query(GenomeNoteAssembly).filter(GenomeNoteAssembly.id == relationship_id).first()
+    )
     if not relationship:
         raise HTTPException(status_code=404, detail="Genome note-assembly relationship not found")
-    
+
     db.delete(relationship)
     db.commit()
     return relationship

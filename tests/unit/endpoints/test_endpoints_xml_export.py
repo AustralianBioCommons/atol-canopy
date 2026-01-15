@@ -1,13 +1,14 @@
-from types import SimpleNamespace
 import uuid
+from types import SimpleNamespace
+
 from fastapi.testclient import TestClient
 
 from app.api.v1.endpoints import xml_export
 from app.main import app
-from app.models.sample import SampleSubmission
 from app.models.experiment import Experiment, ExperimentSubmission
-from app.models.read import Read
 from app.models.organism import Organism
+from app.models.read import Read
+from app.models.sample import SampleSubmission
 
 
 class FakeQueryList:
@@ -35,6 +36,7 @@ class FakeSessionMap:
 def override_db(data=None):
     def _gen():
         yield FakeSessionMap(data)
+
     return _gen
 
 
@@ -46,7 +48,9 @@ def test_xml_sample_missing_prepared_payload_returns_400():
 
     sample_id = uuid.uuid4()
     # prepared_payload is None to trigger 400
-    ss = SimpleNamespace(sample_id=sample_id, prepared_payload=None, organism_id=uuid.uuid4(), sample=None)
+    ss = SimpleNamespace(
+        sample_id=sample_id, prepared_payload=None, organism_id=uuid.uuid4(), sample=None
+    )
 
     app.dependency_overrides[xml_export.get_db] = override_db({SampleSubmission: [ss]})
 
@@ -68,12 +72,16 @@ def test_xml_sample_success():
         organism_key=organism_key,
         sample=None,
     )
-    organism = SimpleNamespace(grouping_key=organism_key, tax_id=1, scientific_name="Sci", common_name="Com")
+    organism = SimpleNamespace(
+        grouping_key=organism_key, tax_id=1, scientific_name="Sci", common_name="Com"
+    )
 
-    app.dependency_overrides[xml_export.get_db] = override_db({
-        SampleSubmission: [ss],
-        Organism: [organism],
-    })
+    app.dependency_overrides[xml_export.get_db] = override_db(
+        {
+            SampleSubmission: [ss],
+            Organism: [organism],
+        }
+    )
 
     resp = client.get(f"/api/v1/xml-export/samples/{sample_id}")
     assert resp.status_code == 200

@@ -48,10 +48,10 @@ def update_user(db: Session, db_user: User, user_in: UserUpdate) -> User:
     update_data = user_in.dict(exclude_unset=True)
     if "password" in update_data:
         update_data["hashed_password"] = get_password_hash(update_data.pop("password"))
-    
+
     for field, value in update_data.items():
         setattr(db_user, field, value)
-    
+
     db.add(db_user)
     db.commit()
     db.refresh(db_user)

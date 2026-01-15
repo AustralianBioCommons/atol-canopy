@@ -1,4 +1,5 @@
 import json
+import os
 import uuid
 from typing import Any, Dict, List, Optional
 from uuid import UUID
@@ -13,31 +14,39 @@ from app.core.dependencies import (
     get_db,
     require_role,
 )
-from app.models.sample import Sample, SampleSubmission
-from app.models.organism import Organism
 from app.models.experiment import Experiment
+from app.models.organism import Organism
+from app.models.sample import Sample, SampleSubmission
 from app.models.user import User
+from app.schemas.bulk_import import BulkImportResponse, BulkSampleImport
+from app.schemas.common import SubmissionJsonResponse
 from app.schemas.sample import (
     Sample as SampleSchema,
+)
+from app.schemas.sample import (
     SampleCreate,
-    SampleSubmission as SampleSubmissionSchema,
     SampleSubmissionCreate,
     SampleSubmissionUpdate,
     SampleUpdate,
+)
+from app.schemas.sample import (
+    SampleSubmission as SampleSubmissionSchema,
+)
+from app.schemas.sample import (
     SubmissionStatus as SchemaSubmissionStatus,
 )
-from app.schemas.bulk_import import BulkSampleImport, BulkImportResponse
-from app.schemas.common import SubmissionJsonResponse
-import os
 
 router = APIRouter()
+
 
 @router.get("/", response_model=List[SampleSubmissionSchema])
 def read_sample_submissions(
     db: Session = Depends(get_db),
     skip: int = 0,
     limit: int = 100,
-    status: Optional[SchemaSubmissionStatus] = Query(None, description="Filter by submission status"),
+    status: Optional[SchemaSubmissionStatus] = Query(
+        None, description="Filter by submission status"
+    ),
     # sample_id: Optional[str] = Query(None, description="Filter by sample_id"),
     # organism_key: Optional[str] = Query(None, description="Filter by organism_key"),
     current_user: User = Depends(get_current_active_user),
@@ -51,9 +60,10 @@ def read_sample_submissions(
     query = db.query(SampleSubmission)
     if status:
         query = query.filter(SampleSubmission.status == status)
-    
+
     submissions = query.offset(skip).limit(limit).all()
     return submissions
+
 
 @router.get("/{submission_id}", response_model=SampleSubmissionSchema)
 def read_sample_submissions(
@@ -69,8 +79,11 @@ def read_sample_submissions(
 
     submission = db.query(SampleSubmission).filter(SampleSubmission.id == submission_id).first()
     if not submission:
-        raise HTTPException(status_code=404, detail="Sample submission not found for sample: {sample_id}")
+        raise HTTPException(
+            status_code=404, detail="Sample submission not found for sample: {sample_id}"
+        )
     return submission
+
 
 @router.post("/", response_model=SampleSubmissionSchema)
 def create_sample_submission(
@@ -84,7 +97,7 @@ def create_sample_submission(
     """
     # Only users with 'curator' or 'admin' role can create sample submissions
     require_role(current_user, ["curator", "admin"])
-    
+
     submission = SampleSubmission(
         sample_id=submission_in.sample_id,
         authority=submission_in.authority,
@@ -101,6 +114,7 @@ def create_sample_submission(
     db.refresh(submission)
     return submission
 
+
 """
 @router.put("/{submission_id}", response_model=SampleSubmissionSchema)
 def update_sample_submission(
@@ -113,15 +127,15 @@ def update_sample_submission(
     # Update a sample submission.
     # Only users with 'curator' or 'admin' role can update sample submissions
     require_role(current_user, ["curator", "admin"])
-    
+
     submission = db.query(SampleSubmission).filter(SampleSubmission.id == submission_id).first()
     if not submission:
         raise HTTPException(status_code=404, detail="Sample submission not found")
-    
+
     update_data = submission_in.dict(exclude_unset=True)
     for field, value in update_data.items():
         setattr(submission, field, value)
-    
+
     db.add(submission)
     db.commit()
     db.refresh(submission)

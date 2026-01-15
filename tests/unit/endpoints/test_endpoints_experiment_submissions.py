@@ -1,5 +1,6 @@
 import uuid
 from types import SimpleNamespace
+
 from fastapi.testclient import TestClient
 
 from app.api.v1.endpoints import experiment_submissions
@@ -9,14 +10,19 @@ from app.main import app
 class _FakeQueryList:
     def __init__(self, data):
         self.data = list(data)
+
     def filter(self, *_a, **_k):
         return self
+
     def order_by(self, *_a, **_k):
         return self
+
     def distinct(self, *_a, **_k):
         return self
+
     def all(self):
         return list(self.data)
+
     def first(self):
         return self.data[0] if self.data else None
 
@@ -24,6 +30,7 @@ class _FakeQueryList:
 class _FakeSessionMap:
     def __init__(self, data_map=None):
         self.data_map = data_map or {}
+
     def query(self, model):
         return _FakeQueryList(self.data_map.get(model, []))
 
@@ -31,6 +38,7 @@ class _FakeSessionMap:
 def _override_db(data=None):
     def _gen():
         yield _FakeSessionMap(data)
+
     return _gen
 
 

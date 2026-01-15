@@ -12,6 +12,7 @@ from app.main import app
 def _jwt_settings(monkeypatch):
     # Ensure predictable JWT config
     from app.core.settings import settings
+
     monkeypatch.setattr(settings, "JWT_SECRET_KEY", "test-secret")
     monkeypatch.setattr(settings, "JWT_ALGORITHM", "HS256")
     monkeypatch.setattr(settings, "JWT_ACCESS_TOKEN_EXPIRE_MINUTES", 30)
@@ -19,6 +20,7 @@ def _jwt_settings(monkeypatch):
 
 class _FakeCreateSession:
     """Fake session for create_user that returns successive results for first() calls."""
+
     def __init__(self, first_results):
         self._iter = iter(first_results)
         self.added = []
@@ -46,6 +48,7 @@ class _FakeCreateSession:
 def _override_db(fake):
     def _gen():
         yield fake
+
     return _gen
 
 
@@ -151,7 +154,14 @@ class _UpdateSession:
 def test_users_update_me_success(monkeypatch):
     client = TestClient(app)
 
-    current = SimpleNamespace(id=uuid.uuid4(), username="u", email="e@example.org", full_name=None, hashed_password="x", is_active=True)
+    current = SimpleNamespace(
+        id=uuid.uuid4(),
+        username="u",
+        email="e@example.org",
+        full_name=None,
+        hashed_password="x",
+        is_active=True,
+    )
 
     def override_user():
         return current
@@ -159,7 +169,10 @@ def test_users_update_me_success(monkeypatch):
     app.dependency_overrides[users.get_current_active_user] = override_user
     app.dependency_overrides[users.get_db] = _override_db(_UpdateSession())
 
-    resp = client.put("/api/v1/users/me", json={"username": "u2", "email": "e2@example.org", "password": "newpass"})
+    resp = client.put(
+        "/api/v1/users/me",
+        json={"username": "u2", "email": "e2@example.org", "password": "newpass"},
+    )
     assert resp.status_code == 200
     body = resp.json()
     assert body["username"] == "u2"
@@ -172,6 +185,7 @@ def test_users_update_not_found():
     class _QueryNone:
         def filter(self, *_a, **_k):
             return self
+
         def first(self):
             return None
 
@@ -189,13 +203,17 @@ def test_users_read_by_id_success():
     client = TestClient(app)
 
     user_id = uuid.uuid4()
-    expected = SimpleNamespace(id=user_id, username="u", email="e@example.org", full_name=None, roles=[], is_active=True)
+    expected = SimpleNamespace(
+        id=user_id, username="u", email="e@example.org", full_name=None, roles=[], is_active=True
+    )
 
     class _QueryOne:
         def __init__(self, obj):
             self.obj = obj
+
         def filter(self, *_a, **_k):
             return self
+
         def first(self):
             return self.obj
 
@@ -213,14 +231,18 @@ def test_users_read_by_id_success():
 
 def test_user_not_found():
     client = TestClient(app)
+
     class _QueryNone:
         def filter(self, *_a, **_k):
             return self
+
         def first(self):
             return None
+
     class _SessionNone:
         def query(self, _m):
             return _QueryNone()
+
     app.dependency_overrides[users.get_db] = _override_db(_SessionNone())
 
     resp = client.get(f"/api/v1/users/{uuid.uuid4()}")

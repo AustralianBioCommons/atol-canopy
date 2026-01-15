@@ -24,9 +24,7 @@ def test_create_user_rejects_password_over_72_bytes():
     detail = resp.json().get("detail")
     assert isinstance(detail, list)
     # Ensure we fail due to our validator message
-    assert any(
-        "at most 72 bytes" in (err.get("msg") or "") for err in detail
-    )
+    assert any("at most 72 bytes" in (err.get("msg") or "") for err in detail)
 
 
 def test_update_user_rejects_password_over_72_bytes():
@@ -43,6 +41,4 @@ def test_update_user_rejects_password_over_72_bytes():
 
     detail = resp.json().get("detail")
     assert isinstance(detail, list)
-    assert any(
-        "at most 72 bytes" in (err.get("msg") or "") for err in detail
-    )
+    assert any("at most 72 bytes" in (err.get("msg") or "") for err in detail)

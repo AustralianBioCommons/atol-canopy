@@ -1,6 +1,6 @@
 import json
-import uuid
 import os
+import uuid
 from typing import Any, Dict, List, Optional
 from uuid import UUID
 
@@ -16,12 +16,14 @@ from app.core.dependencies import (
 )
 from app.models.read import Read, ReadSubmission
 from app.models.user import User
+from app.schemas.common import SubmissionJsonResponse, SubmissionStatus
 from app.schemas.read import (
     Read as ReadSchema,
+)
+from app.schemas.read import (
     ReadCreate,
     ReadUpdate,
 )
-from app.schemas.common import SubmissionJsonResponse, SubmissionStatus
 
 router = APIRouter()
 
@@ -41,7 +43,7 @@ def read_reads(
     query = db.query(Read)
     if experiment_id:
         query = query.filter(Read.experiment_id == experiment_id)
-    
+
     reads = query.offset(skip).limit(limit).all()
     return reads
 
@@ -59,7 +61,7 @@ def create_read(
     # Only users with 'curator' or 'admin' role can create reads
     require_role(current_user, ["curator", "admin"])
     read_id = uuid.uuid4()
-    
+
     # Auto-map from Pydantic schema to Read columns
     read_data = read_in.model_dump(exclude_unset=True)
     allowed_cols = {c.name for c in Read.__table__.columns}
@@ -73,14 +75,18 @@ def create_read(
 
     read = Read(
         id=read_id,
-        #bpa_json=read_data,
+        # bpa_json=read_data,
         **read_kwargs,
     )
     db.add(read)
-    
+
     read_data = read_in.dict(exclude_unset=True)
     # Load the ENA-ATOL mapping file
-    ena_atol_map_path = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(__file__)))), "config", "ena-atol-map.json")
+    ena_atol_map_path = os.path.join(
+        os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(__file__)))),
+        "config",
+        "ena-atol-map.json",
+    )
     with open(ena_atol_map_path, "r") as f:
         ena_atol_map = json.load(f)
     # Generate ENA-mapped data for submission to ENA
@@ -158,14 +164,18 @@ def update_read(
     """
     # Only users with 'curator' or 'admin' role can update reads
     require_role(current_user, ["curator", "admin"])
-    
+
     read = db.query(Read).filter(Read.id == read_id).first()
     if not read:
         raise HTTPException(status_code=404, detail="Read not found")
-    
+
     read_data = read_in.dict(exclude_unset=True)
     # Load the ENA-ATOL mapping file
-    ena_atol_map_path = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(__file__)))), "config", "ena-atol-map.json")
+    ena_atol_map_path = os.path.join(
+        os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(__file__)))),
+        "config",
+        "ena-atol-map.json",
+    )
     with open(ena_atol_map_path, "r") as f:
         ena_atol_map = json.load(f)
     # Generate ENA-mapped data for submission to ENA
@@ -173,8 +183,13 @@ def update_read(
     for ena_key, atol_key in ena_atol_map["run"].items():
         if atol_key in read_data:
             prepared_payload[ena_key] = read_data[atol_key]
-    
-    read_submission = db.query(ReadSubmission).filter(ReadSubmission.read_id == read_id).order_by(ReadSubmission.updated_at.desc()).first()
+
+    read_submission = (
+        db.query(ReadSubmission)
+        .filter(ReadSubmission.read_id == read_id)
+        .order_by(ReadSubmission.updated_at.desc())
+        .first()
+    )
     new_read_submission = None
     latest_read_submission = None
     if not read_submission:
@@ -190,7 +205,10 @@ def update_read(
     else:
         latest_read_submission = read_submission
         if latest_read_submission.status == "submitting":
-                raise HTTPException(status_code=404, detail=f"Read with id: {read_id} is currently being submitted to ENA and could not be updated. Please try again later.")
+            raise HTTPException(
+                status_code=404,
+                detail=f"Read with id: {read_id} is currently being submitted to ENA and could not be updated. Please try again later.",
+            )
         elif latest_read_submission.status == "rejected" or read_submission.status == "replaced":
             # leave the old record for logs and create a new record
             # retain accessions if they exist (accessions may not exist if status is 'rejected' and the sample has not successfully been submitted in the past)
@@ -207,7 +225,7 @@ def update_read(
                 status="draft",
             )
             db.add(new_read_submission)
-            
+
         elif latest_read_submission.status == "accepted":
             # change old record's status to "replaced" and create a new record
             # retain accessions
@@ -232,7 +250,7 @@ def update_read(
             setattr(latest_read_submission, "status", "draft")
             db.add(latest_read_submission)
             # update the experiment_submission object
-    
+
     setattr(read, "bpa_resource_id", read_in.bpa_resource_id)
     setattr(read, "experiment_id", read_in.experiment_id)
     setattr(read, "project_id", read_in.project_id)
@@ -266,7 +284,7 @@ def delete_read(
     read = db.query(Read).filter(Read.id == read_id).first()
     if not read:
         raise HTTPException(status_code=404, detail="Read not found")
-    
+
     db.delete(read)
     db.commit()
     return read

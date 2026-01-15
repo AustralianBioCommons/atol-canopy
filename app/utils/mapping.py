@@ -2,6 +2,7 @@ from typing import Any, Callable, Dict, Iterable, Mapping, Optional, Set, Tuple
 
 # Generic safe converters
 
+
 def to_float(value: Any) -> Optional[float]:
     try:
         if value in (None, ""):

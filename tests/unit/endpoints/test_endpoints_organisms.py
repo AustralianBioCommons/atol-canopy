@@ -1,6 +1,6 @@
 import uuid
-from types import SimpleNamespace
 from datetime import datetime, timezone
+from types import SimpleNamespace
 
 from fastapi.testclient import TestClient
 
@@ -20,6 +20,7 @@ class _FakeSession:
 def _override_db(fake):
     def _gen():
         yield fake
+
     return _gen
 
 

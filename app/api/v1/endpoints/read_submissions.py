@@ -1,6 +1,6 @@
 import json
-import uuid
 import os
+import uuid
 from typing import Any, Dict, List, Optional
 from uuid import UUID
 
@@ -16,17 +16,22 @@ from app.core.dependencies import (
 )
 from app.models.read import Read, ReadSubmission
 from app.models.user import User
+from app.schemas.common import SubmissionJsonResponse, SubmissionStatus
 from app.schemas.read import (
     Read as ReadSchema,
+)
+from app.schemas.read import (
     ReadCreate,
-    ReadUpdate,
-    ReadSubmission as ReadSubmissionSchema,
     ReadSubmissionCreate,
     ReadSubmissionUpdate,
+    ReadUpdate,
 )
-from app.schemas.common import SubmissionJsonResponse, SubmissionStatus
+from app.schemas.read import (
+    ReadSubmission as ReadSubmissionSchema,
+)
 
 router = APIRouter()
+
 
 @router.get("/", response_model=List[ReadSubmissionSchema])
 def read_read_submissions(
@@ -45,9 +50,10 @@ def read_read_submissions(
     query = db.query(ReadSubmission)
     if status:
         query = query.filter(ReadSubmission.status == status)
-    
+
     submissions = query.offset(skip).limit(limit).all()
     return submissions
+
 
 @router.get("/{submission_id}", response_model=ReadSubmissionSchema)
 def read_read_submissions(
@@ -63,8 +69,11 @@ def read_read_submissions(
 
     submission = db.query(ReadSubmission).filter(ReadSubmission.id == submission_id).first()
     if not submission:
-        raise HTTPException(status_code=404, detail="Sample submission not found for sample: {sample_id}")
+        raise HTTPException(
+            status_code=404, detail="Sample submission not found for sample: {sample_id}"
+        )
     return submission
+
 
 @router.post("/", response_model=ReadSubmissionSchema)
 def create_read_submission(
@@ -78,7 +87,7 @@ def create_read_submission(
     """
     # Only users with 'curator' or 'admin' role can create sample submissions
     require_role(current_user, ["curator", "admin"])
-    
+
     submission = ReadSubmission(
         read_id=submission_in.read_id,
         experiment_id=submission_in.experiment_id,
@@ -98,6 +107,7 @@ def create_read_submission(
     db.refresh(submission)
     return submission
 
+
 """
 @router.put("/{submission_id}", response_model=SampleSubmissionSchema)
 def update_sample_submission(
@@ -110,15 +120,15 @@ def update_sample_submission(
     # Update a sample submission.
     # Only users with 'curator' or 'admin' role can update sample submissions
     require_role(current_user, ["curator", "admin"])
-    
+
     submission = db.query(SampleSubmission).filter(SampleSubmission.id == submission_id).first()
     if not submission:
         raise HTTPException(status_code=404, detail="Sample submission not found")
-    
+
     update_data = submission_in.dict(exclude_unset=True)
     for field, value in update_data.items():
         setattr(submission, field, value)
-    
+
     db.add(submission)
     db.commit()
     db.refresh(submission)

@@ -1,4 +1,5 @@
 from types import SimpleNamespace
+
 from fastapi.testclient import TestClient
 
 from app.api.v1.endpoints import assemblies
@@ -8,8 +9,10 @@ from app.main import app
 class _FakeQueryList:
     def __init__(self, data):
         self.data = list(data)
+
     def filter(self, *_a, **_k):
         return self
+
     def all(self):
         return list(self.data)
 
@@ -22,6 +25,7 @@ class _FakeSession:
 def _override_db(fake):
     def _gen():
         yield fake
+
     return _gen
 
 
@@ -30,9 +34,11 @@ def test_pipeline_inputs_no_samples_returns_empty_files(monkeypatch):
 
     # Mock organism_service to return organism object
     organism = SimpleNamespace(grouping_key="g1", scientific_name="Sci", tax_id=1)
-    monkeypatch.setattr(assemblies, "organism_service", SimpleNamespace(
-        get_by_grouping_key=lambda db, key: organism
-    ))
+    monkeypatch.setattr(
+        assemblies,
+        "organism_service",
+        SimpleNamespace(get_by_grouping_key=lambda db, key: organism),
+    )
 
     # Active user
     app.dependency_overrides[assemblies.get_current_active_user] = lambda: SimpleNamespace(

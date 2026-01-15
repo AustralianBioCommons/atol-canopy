@@ -3,14 +3,16 @@ from enum import Enum
 from typing import Dict, Optional
 from uuid import UUID
 
-from pydantic import BaseModel, Field, ConfigDict
+from pydantic import BaseModel, ConfigDict, Field
 
 # Enum for submission status
 from app.schemas.common import SubmissionStatus
 
+
 # Base Experiment schema
 class ExperimentBase(BaseModel):
     """Base Experiment schema with common attributes."""
+
     sample_id: UUID
     # BPA fields
     bpa_package_id: str
@@ -20,6 +22,7 @@ class ExperimentBase(BaseModel):
 # Schema for creating a new experiment
 class ExperimentCreate(ExperimentBase):
     """Schema for creating a new experiment."""
+
     design_description: Optional[str] = None
     bpa_package_id: Optional[str] = None
     bpa_library_id: Optional[str] = None
@@ -47,9 +50,11 @@ class ExperimentCreate(ExperimentBase):
     gal: Optional[str] = None
     sample_access_date: Optional[str] = None
 
+
 # Schema for updating an existing experiment
 class ExperimentUpdate(BaseModel):
     """Schema for updating an existing experiment."""
+
     sample_id: Optional[UUID] = None
     bpa_package_id: Optional[str] = None
     # bpa_json: Optional[Dict] = None
@@ -83,6 +88,7 @@ class ExperimentUpdate(BaseModel):
 # Schema for experiment in DB
 class ExperimentInDBBase(ExperimentBase):
     """Base schema for Experiment in DB, includes id and timestamps."""
+
     id: UUID
     created_at: datetime
     updated_at: datetime
@@ -93,22 +99,29 @@ class ExperimentInDBBase(ExperimentBase):
 # Schema for returning experiment information
 class Experiment(ExperimentInDBBase):
     """Schema for returning experiment information."""
+
     pass
 
 
 # Base ExperimentSubmission schema
 class ExperimentSubmissionBase(BaseModel):
     """Base ExperimentSubmission schema with common attributes."""
+
     sample_id: UUID
     project_id: Optional[UUID] = None
     authority: str = Field(default="ENA", description="Authority for the submission")
-    status: SubmissionStatus = Field(default=SubmissionStatus.DRAFT, description="Status of the submission")
-    entity_type_const: str = Field(default="experiment", description="Entity type constant for foreign key constraints")
+    status: SubmissionStatus = Field(
+        default=SubmissionStatus.DRAFT, description="Status of the submission"
+    )
+    entity_type_const: str = Field(
+        default="experiment", description="Entity type constant for foreign key constraints"
+    )
 
 
 # Schema for creating a new experiment submission
 class ExperimentSubmissionCreate(ExperimentSubmissionBase):
     """Schema for creating a new experiment submission."""
+
     experiment_id: Optional[UUID] = None
     project_accession: Optional[str] = None
     sample_accession: Optional[str] = None
@@ -121,6 +134,7 @@ class ExperimentSubmissionCreate(ExperimentSubmissionBase):
 # Schema for updating an existing experiment submission
 class ExperimentSubmissionUpdate(BaseModel):
     """Schema for updating an existing experiment submission."""
+
     sample_id: Optional[UUID] = None
     project_id: Optional[UUID] = None
     authority: Optional[str] = None
@@ -136,6 +150,7 @@ class ExperimentSubmissionUpdate(BaseModel):
 # Schema for experiment submission in DB
 class ExperimentSubmissionInDBBase(ExperimentSubmissionBase):
     """Base schema for ExperimentSubmission in DB, includes id and timestamps."""
+
     id: UUID
     experiment_id: Optional[UUID] = None
     project_accession: Optional[str] = None
@@ -153,6 +168,7 @@ class ExperimentSubmissionInDBBase(ExperimentSubmissionBase):
 # Schema for returning experiment submission information
 class ExperimentSubmission(ExperimentSubmissionInDBBase):
     """Schema for returning experiment submission information."""
+
     pass
 
 
