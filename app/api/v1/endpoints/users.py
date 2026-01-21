@@ -1,6 +1,6 @@
+from datetime import datetime, timezone
 from typing import Any, List
 from uuid import UUID, uuid4
-from datetime import datetime, timezone
 
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.orm import Session
@@ -9,7 +9,8 @@ from app.core.dependencies import get_current_active_user
 from app.core.security import get_password_hash
 from app.db.session import get_db
 from app.models.user import User
-from app.schemas.user import UserCreate, UserUpdate, User as UserSchema
+from app.schemas.user import User as UserSchema
+from app.schemas.user import UserCreate, UserUpdate
 
 router = APIRouter()
 
@@ -22,13 +23,13 @@ def read_users(
 ) -> Any:
     """
     Retrieve users.
-    
+
     Args:
         db: Database session
         skip: Number of records to skip
         limit: Maximum number of records to return
         current_user: Current user (must be superuser)
-        
+
     Returns:
         List[User]: List of users
     """
@@ -44,15 +45,15 @@ def create_user(
 ) -> Any:
     """
     Create new user.
-    
+
     Args:
         db: Database session
         user_in: User data
         current_user: Current user (must be superuser)
-        
+
     Returns:
         User: Created user
-        
+
     Raises:
         HTTPException: If user with same username or email already exists
     """
@@ -63,7 +64,7 @@ def create_user(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="Username already registered",
         )
-    
+
     # Check if user with same email exists
     user = db.query(User).filter(User.email == user_in.email).first()
     if user:
@@ -71,7 +72,7 @@ def create_user(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="Email already registered",
         )
-    
+
     # Create new user
     now = datetime.now(timezone.utc)
     db_user = User(
@@ -98,10 +99,10 @@ def read_user_me(
 ) -> Any:
     """
     Get current user.
-    
+
     Args:
         current_user: Current user
-        
+
     Returns:
         User: Current user
     """
@@ -117,12 +118,12 @@ def update_user_me(
 ) -> Any:
     """
     Update current user.
-    
+
     Args:
         db: Database session
         user_in: User data to update
         current_user: Current user
-        
+
     Returns:
         User: Updated user
     """
@@ -135,7 +136,7 @@ def update_user_me(
         current_user.full_name = user_in.full_name
     if user_in.password is not None:
         current_user.hashed_password = get_password_hash(user_in.password)
-    
+
     # Ensure required timestamps exist for response validation
     if getattr(current_user, "created_at", None) is None:
         current_user.created_at = datetime.now(timezone.utc)
@@ -153,15 +154,15 @@ def read_user_by_id(
 ) -> Any:
     """
     Get a specific user by id.
-    
+
     Args:
         user_id: User ID
         db: Database session
         current_user: Current user (must be superuser)
-        
+
     Returns:
         User: User with specified ID
-        
+
     Raises:
         HTTPException: If user not found
     """
@@ -188,16 +189,16 @@ def update_user(
 ) -> Any:
     """
     Update a user.
-    
+
     Args:
         db: Database session
         user_id: User ID
         user_in: User data to update
         current_user: Current user (must be superuser)
-        
+
     Returns:
         User: Updated user
-        
+
     Raises:
         HTTPException: If user not found
     """
@@ -207,7 +208,7 @@ def update_user(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="User not found",
         )
-    
+
     # Update user fields
     if user_in.username is not None:
         user.username = user_in.username
@@ -221,7 +222,7 @@ def update_user(
         user.is_active = user_in.is_active
     if user_in.roles is not None:
         user.roles = user_in.roles
-    
+
     # Ensure timestamps
     if getattr(user, "created_at", None) is None:
         user.created_at = datetime.now(timezone.utc)

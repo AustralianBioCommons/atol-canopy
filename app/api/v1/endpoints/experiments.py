@@ -4,15 +4,17 @@ from uuid import UUID
 from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.orm import Session
 
-from app.core.dependencies import get_current_active_user, get_current_superuser, get_db, require_role
+from app.core.dependencies import (
+    get_current_active_user,
+    get_current_superuser,
+    get_db,
+    require_role,
+)
 from app.models.user import User
 from app.schemas.bulk_import import BulkImportResponse
-from app.schemas.experiment import (
-    ExperimentCreate,
-    Experiment as ExperimentSchema,
-    ExperimentUpdate,
-    ExperimentSubmission as ExperimentSubmissionSchema
-)
+from app.schemas.experiment import Experiment as ExperimentSchema
+from app.schemas.experiment import ExperimentCreate, ExperimentUpdate
+from app.schemas.experiment import ExperimentSubmission as ExperimentSubmissionSchema
 from app.services.experiment_service import experiment_service
 
 router = APIRouter()
@@ -113,6 +115,7 @@ def update_experiment(
     except Exception:
         raise HTTPException(status_code=500, detail="Failed to update experiment")
 
+
 @router.delete("/{experiment_id}", response_model=ExperimentSchema)
 def delete_experiment(
     *,
@@ -129,16 +132,19 @@ def delete_experiment(
         raise HTTPException(status_code=404, detail="Experiment not found")
     return experiment
 
+
 @router.post("/bulk-import", response_model=BulkImportResponse)
 def bulk_import_experiments(
     *,
     db: Session = Depends(get_db),
-    experiments_data: Dict[str, Dict[str, Any]],  # Accept direct dictionary format from experiments.json
+    experiments_data: Dict[
+        str, Dict[str, Any]
+    ],  # Accept direct dictionary format from experiments.json
     current_user: User = Depends(get_current_active_user),
 ) -> Any:
     """
     Bulk import experiments from a dictionary keyed by package_id.
-    
+
     The request body should directly match the format of the JSON file in data/experiments.json,
     which is a dictionary keyed by package_id without a wrapping 'experiments' key.
     """

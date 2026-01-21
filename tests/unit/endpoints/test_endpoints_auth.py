@@ -4,9 +4,9 @@ from types import SimpleNamespace
 import pytest
 from fastapi.testclient import TestClient
 
-from app.core.settings import settings
-from app.core.security import hash_token
 from app.api.v1.endpoints import auth
+from app.core.security import hash_token
+from app.core.settings import settings
 from app.main import app
 
 
@@ -52,9 +52,11 @@ class FakeSession:
         name = getattr(model, "__name__", "")
         if name == "RefreshToken":
             q = FakeQuery(self._refresh_token)
+
             def _update(set_map):
                 self.query_refresh_updated = True
                 return 1
+
             q.update = _update  # type: ignore[attr-defined]
             return q
         if name == "User":
@@ -79,6 +81,7 @@ def test_login_inactive_user(monkeypatch):
 
     def override_db():
         yield FakeSession()
+
     app.dependency_overrides[auth.get_db] = override_db
 
     resp = client.post("/api/v1/auth/login", data={"username": "u", "password": "p"})
@@ -90,6 +93,7 @@ def test_refresh_invalid_token():
 
     def override_db():
         yield FakeSession(refresh_token=None)
+
     app.dependency_overrides[auth.get_db] = override_db
 
     resp = client.post("/api/v1/auth/refresh", json={"refresh_token": "bad"})
@@ -105,6 +109,7 @@ def test_refresh_user_inactive_revokes(monkeypatch):
 
     def override_db():
         yield FakeSession(refresh_token=rt, user=inactive_user)
+
     app.dependency_overrides[auth.get_db] = override_db
 
     resp = client.post("/api/v1/auth/refresh", json={"refresh_token": "value"})
@@ -147,10 +152,13 @@ def test_login_success(monkeypatch):
         def __init__(self):
             self.added = []
             self.committed = False
+
         def query(self, *_):
             return SimpleNamespace(filter=lambda *a, **k: self, first=lambda: None)
+
         def add(self, obj):
             self.added.append(obj)
+
         def commit(self):
             self.committed = True
 
@@ -176,6 +184,7 @@ def test_login_invalid_credentials(monkeypatch):
 
     def override_db():
         yield SimpleNamespace()
+
     app.dependency_overrides[auth.get_db] = override_db
 
     monkeypatch.setattr(auth, "authenticate_user", lambda db, username, password: None)
@@ -209,24 +218,32 @@ def test_refresh_token_success(monkeypatch):
             self._refresh = stored_token
             self._user = user
             self.committed = False
+
         def query(self, model):
             name = getattr(model, "__name__", "")
+
             class _Q:
                 def __init__(self, first_val):
                     self._first_val = first_val
+
                 def filter(self, *a, **k):
                     return self
+
                 def first(self):
                     return self._first_val
+
                 def update(self, *_a, **_k):
                     return 1
+
             if name == "RefreshToken":
                 return _Q(self._refresh)
             if name == "User":
                 return _Q(self._user)
             return _Q(None)
+
         def add(self, obj):
             pass
+
         def commit(self):
             self.committed = True
 

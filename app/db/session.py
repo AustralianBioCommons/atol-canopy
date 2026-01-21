@@ -1,6 +1,5 @@
 from sqlalchemy import create_engine
-from sqlalchemy.orm import declarative_base
-from sqlalchemy.orm import sessionmaker
+from sqlalchemy.orm import declarative_base, sessionmaker
 
 from app.core.settings import settings
 
@@ -17,7 +16,7 @@ Base = declarative_base()
 def get_db():
     """
     Dependency function to get a database session.
-    
+
     Yields:
         Session: SQLAlchemy database session
     """

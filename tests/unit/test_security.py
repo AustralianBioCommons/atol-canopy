@@ -16,7 +16,6 @@ def _mock_jwt_settings(monkeypatch):
     monkeypatch.setattr(settings, "JWT_ACCESS_TOKEN_EXPIRE_MINUTES", 30)
 
 
-
 def test_create_access_token_uses_defaults():
     start = datetime.now(timezone.utc)
 
@@ -62,6 +61,7 @@ def test_generate_and_hash_tokens_are_safe_and_deterministic():
 
     assert hashed_a1 == hashed_a2
     assert hashed_a1 != hashed_b
+
 
 def test_bcrypt_truncates_to_72_bytes():
     long_pw = "a" * 80  # >72 bytes

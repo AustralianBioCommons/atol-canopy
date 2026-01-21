@@ -13,6 +13,8 @@ from app.models.bpa_initiative import BPAInitiative
 from app.models.user import User
 from app.schemas.bpa_initiative import (
     BPAInitiative as BPAInitiativeSchema,
+)
+from app.schemas.bpa_initiative import (
     BPAInitiativeCreate,
     BPAInitiativeUpdate,
 )
@@ -47,7 +49,7 @@ def create_bpa_initiative(
     """
     # Only users with 'curator' or 'admin' role can create BPA initiatives
     require_role(current_user, ["curator", "admin"])
-    
+
     initiative = BPAInitiative(
         project_code=getattr(initiative_in, "project_code", None),
         title=getattr(initiative_in, "title", None),
@@ -89,15 +91,15 @@ def update_bpa_initiative(
     """
     # Only users with 'curator' or 'admin' role can update BPA initiatives
     require_role(current_user, ["curator", "admin"])
-    
+
     initiative = db.query(BPAInitiative).filter(BPAInitiative.project_code == initiative_id).first()
     if not initiative:
         raise HTTPException(status_code=404, detail="BPA initiative not found")
-    
+
     update_data = initiative_in.dict(exclude_unset=True)
     for field, value in update_data.items():
         setattr(initiative, field, value)
-    
+
     db.add(initiative)
     db.commit()
     db.refresh(initiative)
@@ -118,7 +120,7 @@ def delete_bpa_initiative(
     initiative = db.query(BPAInitiative).filter(BPAInitiative.project_code == initiative_id).first()
     if not initiative:
         raise HTTPException(status_code=404, detail="BPA initiative not found")
-    
+
     db.delete(initiative)
     db.commit()
     return initiative

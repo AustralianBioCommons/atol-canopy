@@ -10,6 +10,7 @@ from app.api.v1.endpoints import experiment_reads_xml
 class _FakeQuery:
     def filter(self, *_a, **_k):
         return self
+
     def all(self):
         return []
 

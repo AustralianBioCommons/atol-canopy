@@ -3,41 +3,41 @@ from uuid import UUID
 
 from sqlalchemy.orm import Session
 
+from app.models.experiment import Experiment, ExperimentSubmission
 from app.models.organism import Organism
+from app.models.project import Project, ProjectSubmission
+from app.models.read import Read, ReadSubmission
+from app.models.sample import Sample, SampleSubmission
+from app.schemas.aggregate import OrganismSubmissionJsonResponse
+from app.schemas.bulk_import import BulkImportResponse
 from app.schemas.organism import OrganismCreate, OrganismUpdate
 from app.services.base_service import BaseService
-from app.models.sample import Sample, SampleSubmission
-from app.models.experiment import Experiment, ExperimentSubmission
-from app.models.read import Read, ReadSubmission
-from app.models.project import Project, ProjectSubmission
-from app.schemas.bulk_import import BulkImportResponse
-from app.schemas.aggregate import OrganismSubmissionJsonResponse
 
 
 class OrganismService(BaseService[Organism, OrganismCreate, OrganismUpdate]):
     """Service for Organism operations."""
-    
+
     def get_by_scientific_name(self, db: Session, scientific_name: str) -> Optional[Organism]:
         """Get organism by scientific name."""
         return db.query(Organism).filter(Organism.scientific_name == scientific_name).first()
-    
+
     def get_by_tax_id(self, db: Session, tax_id: str) -> Optional[Organism]:
         """Get organism by taxon ID."""
         return db.query(Organism).filter(Organism.tax_id == tax_id).first()
-    
+
     def get_by_grouping_key(self, db: Session, grouping_key: str) -> Optional[Organism]:
         """Get organism by grouping_key."""
         return db.query(Organism).filter(Organism.grouping_key == grouping_key).first()
-    
+
     def get_multi_with_filters(
-        self, 
-        db: Session, 
-        *, 
-        skip: int = 0, 
+        self,
+        db: Session,
+        *,
+        skip: int = 0,
         limit: int = 100,
         scientific_name: Optional[str] = None,
         tax_id: Optional[str] = None,
-        grouping_key: Optional[str] = None
+        grouping_key: Optional[str] = None,
     ) -> List[Organism]:
         """Get organisms with filters."""
         query = db.query(Organism)
@@ -144,7 +144,9 @@ class OrganismService(BaseService[Organism, OrganismCreate, OrganismUpdate]):
             sample_submission_records = (
                 db.query(SampleSubmission).filter(SampleSubmission.sample_id.in_(sample_ids)).all()
             )
-            response.samples = sample_submission_records  # Keep ORM records to mirror previous behavior
+            response.samples = (
+                sample_submission_records  # Keep ORM records to mirror previous behavior
+            )
 
         # Experiments and reads
         if sample_ids:
@@ -247,7 +249,11 @@ class OrganismService(BaseService[Organism, OrganismCreate, OrganismUpdate]):
                 "study_attributes": genomic_data_project.study_attributes,
             }
             db.add(ProjectSubmission(project_id=root_project.id, prepared_payload=root_payload))
-            db.add(ProjectSubmission(project_id=genomic_data_project.id, prepared_payload=genomic_payload))
+            db.add(
+                ProjectSubmission(
+                    project_id=genomic_data_project.id, prepared_payload=genomic_payload
+                )
+            )
         except Exception:
             db.rollback()
             raise
@@ -315,7 +321,9 @@ class OrganismService(BaseService[Organism, OrganismCreate, OrganismUpdate]):
                 continue
 
             # Check if organism already exists by grouping key
-            existing = db.query(Organism).filter(Organism.grouping_key == organism_grouping_key).first()
+            existing = (
+                db.query(Organism).filter(Organism.grouping_key == organism_grouping_key).first()
+            )
             if existing:
                 skipped_count += 1
                 continue
@@ -329,7 +337,9 @@ class OrganismService(BaseService[Organism, OrganismCreate, OrganismUpdate]):
             try:
                 common_name = organism_data.get("common_name", None)
                 common_name_source = (
-                    organism_data.get("common_name_source", "BPA") if common_name is not None else None
+                    organism_data.get("common_name_source", "BPA")
+                    if common_name is not None
+                    else None
                 )
                 organism = Organism(
                     grouping_key=organism_grouping_key,
@@ -398,7 +408,11 @@ class OrganismService(BaseService[Organism, OrganismCreate, OrganismUpdate]):
                     "study_attributes": genomic_data_project.study_attributes,
                 }
                 db.add(ProjectSubmission(project_id=root_project.id, prepared_payload=root_payload))
-                db.add(ProjectSubmission(project_id=genomic_data_project.id, prepared_payload=genomic_payload))
+                db.add(
+                    ProjectSubmission(
+                        project_id=genomic_data_project.id, prepared_payload=genomic_payload
+                    )
+                )
                 db.commit()
                 created_count += 1
             except Exception:

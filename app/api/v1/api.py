@@ -3,19 +3,19 @@ from fastapi import APIRouter
 from app.api.v1.endpoints import (
     assemblies,
     auth,
-    projects,
     bpa_initiatives,
-    experiments,
+    broker,
     experiment_submissions,
+    experiments,
     genome_notes,
     organisms,
-    reads,
+    projects,
     read_submissions,
-    samples,
+    reads,
     sample_submissions,
-    broker,
+    samples,
     users,
-    xml_export
+    xml_export,
 )
 
 # Main API router
@@ -29,14 +29,22 @@ api_router.include_router(broker.router, prefix="/broker", tags=["broker"])
 # Core entity routers
 api_router.include_router(organisms.router, prefix="/organisms", tags=["organisms"])
 api_router.include_router(samples.router, prefix="/samples", tags=["samples"])
-api_router.include_router(sample_submissions.router, prefix="/sample-submissions", tags=["sample-submissions"])
+api_router.include_router(
+    sample_submissions.router, prefix="/sample-submissions", tags=["sample-submissions"]
+)
 api_router.include_router(experiments.router, prefix="/experiments", tags=["experiments"])
-api_router.include_router(experiment_submissions.router, prefix="/experiment-submissions", tags=["experiment-submissions"])
+api_router.include_router(
+    experiment_submissions.router, prefix="/experiment-submissions", tags=["experiment-submissions"]
+)
 api_router.include_router(assemblies.router, prefix="/assemblies", tags=["assemblies"])
-api_router.include_router(bpa_initiatives.router, prefix="/bpa-initiatives", tags=["bpa-initiatives"])
+api_router.include_router(
+    bpa_initiatives.router, prefix="/bpa-initiatives", tags=["bpa-initiatives"]
+)
 api_router.include_router(projects.router, prefix="/projects", tags=["projects"])
 api_router.include_router(reads.router, prefix="/reads", tags=["reads"])
-api_router.include_router(read_submissions.router, prefix="/read-submissions", tags=["read-submissions"])
+api_router.include_router(
+    read_submissions.router, prefix="/read-submissions", tags=["read-submissions"]
+)
 api_router.include_router(genome_notes.router, prefix="/genome-notes", tags=["genome-notes"])
 
 # XML export endpoints

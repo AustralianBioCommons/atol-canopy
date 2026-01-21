@@ -24,10 +24,10 @@
     "sample_same_as": "sample same as",
     "sample_derived_from": "sample derived from",
     "tolid": "tolid",
-    "project_name": "project name"
+    "project_name": "project name",
 }
 
- # Unmapped:
+# Unmapped:
 [
     "organism.scientific_name",
     "organism.genus",
@@ -59,9 +59,9 @@
     "preservation_temperature",
     "biosample_acctession",
     "project_lead",
-    "project_collaborators"
+    "project_collaborators",
 ]
- # Experiment SRA schema
+# Experiment SRA schema
 {
     "design_description": "design_description",
     "library_name": "alias",
@@ -93,9 +93,9 @@
     "nucleic_acid_conc",
     "nucleic_acid_volume",
     "gal",
-    "sample_access_date"
+    "sample_access_date",
 ]
- # Run SRA schema
+# Run SRA schema
 {
     "bpa_dataset_id": "alias",
     "file_name": "file_name",
@@ -111,7 +111,7 @@
     "reads_access_date",
     "sra_run_accession",
     "run_read_count",
-    "run_base_count"
+    "run_base_count",
 ]
 
 # Assembly ENA schema
@@ -130,7 +130,7 @@
     "scaffold_n50": "n50",
     "contig_count": "count-contig",
     "molecule_type": "MOLECULETYPE",
-    "composite_runs": "RUN_REF"
+    "composite_runs": "RUN_REF",
 }
 
 # Unmapped:
@@ -211,5 +211,5 @@
     "Seqtk_version",
     "Singularity_version",
     "Uniprot_version",
-    "YaHS_version"
+    "YaHS_version",
 ]

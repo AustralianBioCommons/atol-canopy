@@ -1,5 +1,5 @@
 import uuid
-from typing import Any, List, Dict, Optional
+from typing import Any, Dict, List, Optional
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
@@ -12,13 +12,15 @@ from app.core.dependencies import (
     require_role,
 )
 from app.models.user import User
+from app.schemas.aggregate import OrganismSubmissionJsonResponse
+from app.schemas.bulk_import import BulkImportResponse
 from app.schemas.organism import (
     Organism as OrganismSchema,
+)
+from app.schemas.organism import (
     OrganismCreate,
     OrganismUpdate,
 )
-from app.schemas.bulk_import import BulkImportResponse
-from app.schemas.aggregate import OrganismSubmissionJsonResponse
 from app.services.organism_service import organism_service
 
 router = APIRouter()
@@ -132,7 +134,9 @@ def update_organism(
     """
     # Only users with 'curator' or 'admin' role can update organisms
     require_role(current_user, ["curator", "admin"])
-    organism = organism_service.update_organism(db, grouping_key=grouping_key, organism_in=organism_in)
+    organism = organism_service.update_organism(
+        db, grouping_key=grouping_key, organism_in=organism_in
+    )
     if not organism:
         raise HTTPException(status_code=404, detail="Organism not found")
     return organism
@@ -160,12 +164,14 @@ def delete_organism(
 def bulk_import_organisms(
     *,
     db: Session = Depends(get_db),
-    organisms_data: Dict[str, Dict[str, Any]],  # Accept direct dictionary format from unique_organisms.json
+    organisms_data: Dict[
+        str, Dict[str, Any]
+    ],  # Accept direct dictionary format from unique_organisms.json
     current_user: User = Depends(get_current_active_user),
 ) -> Any:
     """
     Bulk import organisms from a dictionary keyed by organism_grouping_key.
-    
+
     The request body should directly match the format of the JSON file in data/unique_organisms.json,
     which is a dictionary keyed by organism_grouping_key without a wrapping 'organisms' key.
     """

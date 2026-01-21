@@ -14,6 +14,8 @@ from app.models.project import Project
 from app.models.user import User
 from app.schemas.project import (
     Project as ProjectSchema,
+)
+from app.schemas.project import (
     ProjectCreate,
     ProjectUpdate,
 )
@@ -48,7 +50,7 @@ def create_project(
     """
     # Only users with 'curator' or 'admin' role can create projects
     require_role(current_user, ["curator", "admin"])
-    
+
     project = Project(
         project_accession=project_in.project_accession,
         alias=project_in.alias,
@@ -93,15 +95,15 @@ def update_project(
     """
     # Only users with 'curator' or 'admin' role can update projects
     require_role(current_user, ["curator", "admin"])
-    
+
     project = db.query(Project).filter(Project.id == project_id).first()
     if not project:
         raise HTTPException(status_code=404, detail="Project not found")
-    
+
     update_data = project_in.dict(exclude_unset=True)
     for field, value in update_data.items():
         setattr(project, field, value)
-    
+
     db.add(project)
     db.commit()
     db.refresh(project)
@@ -122,8 +124,7 @@ def delete_project(
     project = db.query(Project).filter(Project.id == project_id).first()
     if not project:
         raise HTTPException(status_code=404, detail="Project not found")
-    
+
     db.delete(project)
     db.commit()
     return project
-

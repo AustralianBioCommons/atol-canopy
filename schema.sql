@@ -285,7 +285,7 @@ CREATE TABLE experiment (
     nucleic_acid_volume TEXT,
     gal TEXT,
     raw_data_release_date TEXT,
-    
+
     -- bpa_dataset_id TEXT UNIQUE NOT NULL,
     -- bpa_json JSONB NOT NULL,
     -- TODO extensions json field above instead of bpa_json?
@@ -345,7 +345,7 @@ CREATE TABLE experiment_submission (
 -- Broker lease/claim index
 CREATE INDEX IF NOT EXISTS idx_experiment_submission_attempt ON experiment_submission (attempt_id);
 CREATE INDEX IF NOT EXISTS idx_experiment_submission_finalised_attempt ON experiment_submission (finalised_attempt_id);
-     
+
 -- TODO consider if we want to keep track of former submissions that have been replaced/modified
 CREATE UNIQUE INDEX uq_exp_one_accepted
   ON experiment_submission (experiment_id, authority)

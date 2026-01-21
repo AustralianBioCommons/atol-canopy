@@ -1,5 +1,6 @@
-from types import SimpleNamespace
 import uuid
+from types import SimpleNamespace
+
 from fastapi.testclient import TestClient
 
 from app.api.v1.endpoints import projects
@@ -37,6 +38,7 @@ class FakeSessionMap:
 def override_db(data=None):
     def _gen():
         yield FakeSessionMap(data)
+
     return _gen
 
 
