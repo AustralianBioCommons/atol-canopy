@@ -312,6 +312,16 @@ CREATE INDEX IF NOT EXISTS idx_sample_submission_finalised_attempt ON sample_sub
 -- Support parent/child lookups for derived samples
 CREATE INDEX IF NOT EXISTS idx_sample_derived_from_sample_id ON sample(derived_from_sample_id);
 
+-- Enforce uniqueness: one specimen sample per (organism_key, specimen_id)
+CREATE UNIQUE INDEX IF NOT EXISTS uq_specimen_per_organism_specimen_id
+  ON sample (organism_key, specimen_id)
+  WHERE kind = 'specimen' AND specimen_id IS NOT NULL;
+
+-- Index for efficient lookup by organism_key + specimen_id
+CREATE INDEX IF NOT EXISTS idx_sample_organism_specimen_lookup 
+  ON sample (organism_key, specimen_id)
+  WHERE specimen_id IS NOT NULL;
+
 -- UNIQUE (sample_id, authority) WHERE status = 'accepted' AND accession IS NOT NULL
 
 -- ==========================================
