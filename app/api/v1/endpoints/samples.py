@@ -54,6 +54,50 @@ def read_samples(
     return samples
 
 
+@router.get("/by-specimen/{tax_id}/{specimen_id}", response_model=SampleSchema)
+def get_specimen_by_taxid_and_specimen_id(
+    *,
+    db: Session = Depends(get_db),
+    tax_id: int,
+    specimen_id: str,
+    current_user: User = Depends(get_current_active_user),
+) -> Any:
+    """
+    Lookup a specimen sample by tax_id and specimen_id.
+    
+    This finds the unique specimen sample for a given organism (by tax_id) 
+    and specimen_id combination.
+    """
+    # All users can read samples
+    
+    # First, find the organism by tax_id
+    organism = db.query(Organism).filter(Organism.tax_id == tax_id).first()
+    if not organism:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Organism with tax_id {tax_id} not found"
+        )
+    
+    # Then find the specimen sample
+    sample = (
+        db.query(Sample)
+        .filter(
+            Sample.organism_key == organism.grouping_key,
+            Sample.specimen_id == specimen_id,
+            Sample.kind == SampleKind.SPECIMEN
+        )
+        .first()
+    )
+    
+    if not sample:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Specimen sample not found for tax_id {tax_id} and specimen_id '{specimen_id}'"
+        )
+    
+    return sample
+
+
 @router.post("/", response_model=SampleSchema)
 def create_sample(
     *,
@@ -96,6 +140,24 @@ def create_sample(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="Specimen samples cannot have a parent sample"
         )
+    
+    # Check for duplicate specimen: one specimen per (organism_key, specimen_id)
+    if kind == SampleKind.SPECIMEN and sample_in.specimen_id:
+        existing_specimen = (
+            db.query(Sample)
+            .filter(
+                Sample.organism_key == sample_in.organism_key,
+                Sample.specimen_id == sample_in.specimen_id,
+                Sample.kind == SampleKind.SPECIMEN
+            )
+            .first()
+        )
+        if existing_specimen:
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail=f"Specimen sample already exists for organism_key '{sample_in.organism_key}' "
+                       f"and specimen_id '{sample_in.specimen_id}' (sample_id: {existing_specimen.id})"
+            )
     
     # If parent is specified, verify it exists and is a specimen
     if derived_from_sample_id:
@@ -455,6 +517,26 @@ def bulk_import_samples(
             kind = sample_data.get("kind", SampleKind.SPECIMEN)
             if isinstance(kind, str):
                 kind = SampleKind(kind)
+            
+            # Check for duplicate specimen: one specimen per (organism_key, specimen_id)
+            specimen_id_val = sample_data.get("specimen_id")
+            if kind == SampleKind.SPECIMEN and specimen_id_val:
+                existing_specimen = (
+                    db.query(Sample)
+                    .filter(
+                        Sample.organism_key == organism_key,
+                        Sample.specimen_id == specimen_id_val,
+                        Sample.kind == SampleKind.SPECIMEN
+                    )
+                    .first()
+                )
+                if existing_specimen:
+                    print(
+                        f"Specimen sample already exists for organism_key '{organism_key}' "
+                        f"and specimen_id '{specimen_id_val}', skipping"
+                    )
+                    skipped_count += 1
+                    continue
             
             sample_kwargs = dict(
                 id=sample_id,
