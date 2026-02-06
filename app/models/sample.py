@@ -22,7 +22,7 @@ class Sample(Base):
     organism_key = Column(
         "organism_key", ForeignKey("organism.grouping_key", ondelete="CASCADE"), nullable=False
     )
-    bpa_sample_id = Column(Text, unique=True, nullable=False)
+    bpa_sample_id = Column(Text, nullable=True)
     specimen_id = Column(Text, nullable=True)
     specimen_id_description = Column(Text, nullable=True)
     identified_by = Column(Text, nullable=True)

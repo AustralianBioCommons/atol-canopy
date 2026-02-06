@@ -169,7 +169,7 @@ CREATE INDEX IF NOT EXISTS idx_project_submission_finalised_attempt ON project_s
 CREATE TABLE sample (
     id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
     organism_key TEXT NOT NULL REFERENCES organism(grouping_key) ON DELETE CASCADE,
-    bpa_sample_id TEXT UNIQUE NOT NULL,
+    bpa_sample_id TEXT,
     specimen_id TEXT,
     specimen_id_description TEXT,
     identified_by TEXT,
@@ -216,56 +216,6 @@ CREATE TABLE sample (
     created_at TIMESTAMP NOT NULL DEFAULT NOW(),
     updated_at TIMESTAMP NOT NULL DEFAULT NOW()
 );
-
--- CREATE OR REPLACE FUNCTION enforce_parent_is_specimen()
--- RETURNS trigger
--- LANGUAGE plpgsql AS $$
--- BEGIN
---   IF NEW.derived_from_sample_id IS NOT NULL THEN
---     IF NOT EXISTS (
---       SELECT 1
---       FROM sample s
---       WHERE s.id = NEW.derived_from_sample_id
---         AND s.kind = 'specimen'
---     ) THEN
---       RAISE EXCEPTION USING
---         ERRCODE = '23514',
---         MESSAGE = format(
---           'derived_from_sample_id (%) must reference a specimen sample',
---           NEW.derived_from_sample_id
---        );
---    END IF;
---  END IF;
---  RETURN NEW;
---END $$;
-
---DROP TRIGGER IF EXISTS trg_enforce_parent_is_specimen ON sample;
-
---CREATE TRIGGER trg_enforce_parent_is_specimen
---BEFORE INSERT OR UPDATE OF derived_from_sample_id ON sample
---FOR EACH ROW
-EXECUTE FUNCTION enforce_parent_is_specimen();
-
---CREATE OR REPLACE FUNCTION prevent_demoting_specimen_with_children()
---RETURNS trigger
---LANGUAGE plpgsql AS $$
---BEGIN
---  IF OLD.kind = 'specimen' AND NEW.kind <> 'specimen' THEN
---    IF EXISTS (SELECT 1 FROM sample c WHERE c.derived_from_sample_id = OLD.id) THEN
---      RAISE EXCEPTION USING
---        ERRCODE = '23514',
---        MESSAGE = format('cannot change specimen %s to %s: it has derived samples', OLD.id, NEW.kind);
---    END IF;
---  END IF;
---  RETURN NEW;
--- END $$;
-
--- DROP TRIGGER IF EXISTS trg_prevent_demoting_specimen ON sample;
-
--- CREATE TRIGGER trg_prevent_demoting_specimen
--- BEFORE UPDATE OF kind ON sample
--- FOR EACH ROW
--- EXECUTE FUNCTION prevent_demoting_specimen_with_children();
 
 -- Sample submission table
 CREATE TABLE sample_submission (
@@ -316,6 +266,11 @@ CREATE INDEX IF NOT EXISTS idx_sample_derived_from_sample_id ON sample(derived_f
 CREATE UNIQUE INDEX IF NOT EXISTS uq_specimen_per_organism_specimen_id
   ON sample (organism_key, specimen_id)
   WHERE kind = 'specimen' AND specimen_id IS NOT NULL;
+
+-- Enforce uniqueness: bpa_sample_id must be unique for derived samples
+CREATE UNIQUE INDEX IF NOT EXISTS uq_derived_bpa_sample_id
+  ON sample (bpa_sample_id)
+  WHERE kind = 'derived' AND bpa_sample_id IS NOT NULL;
 
 -- Index for efficient lookup by organism_key + specimen_id
 CREATE INDEX IF NOT EXISTS idx_sample_organism_specimen_lookup 
