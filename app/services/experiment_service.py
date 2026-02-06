@@ -241,6 +241,7 @@ class ExperimentService(BaseService[Experiment, ExperimentCreate, ExperimentUpda
         created_reads_count = 0
         skipped_experiments_count = 0
         skipped_runs_count = 0
+        errors = []
 
         # Debug counters
         missing_bpa_sample_id_count = 0
@@ -253,23 +254,27 @@ class ExperimentService(BaseService[Experiment, ExperimentCreate, ExperimentUpda
             existing = db.query(Experiment).filter(Experiment.bpa_package_id == package_id).first()
             if existing:
                 existing_experiment_count += 1
+                errors.append(f"{package_id}: Experiment already exists")
                 skipped_experiments_count += 1
                 continue
 
             bpa_sample_id = experiment_data.get("bpa_sample_id")
             if not bpa_sample_id:
                 missing_bpa_sample_id_count += 1
+                errors.append(f"{package_id}: Missing required field 'bpa_sample_id'")
                 skipped_experiments_count += 1
                 continue
 
             sample = db.query(Sample).filter(Sample.bpa_sample_id == bpa_sample_id).first()
             if not sample:
                 missing_sample_count += 1
+                errors.append(f"{package_id}: Sample not found with bpa_sample_id '{bpa_sample_id}'")
                 skipped_experiments_count += 1
                 continue
 
             if not experiment_data.get("bpa_library_id"):
                 missing_required_fields_count += 1
+                errors.append(f"{package_id}: Missing required field 'bpa_library_id'")
                 skipped_experiments_count += 1
                 continue
 
@@ -346,13 +351,16 @@ class ExperimentService(BaseService[Experiment, ExperimentCreate, ExperimentUpda
                             )
                             db.add(read_submission)
                             created_submission_count += 1
-                        except Exception:
+                        except Exception as e:
+                            run_name = run.get("filename", run.get("run_alias", "unknown"))
+                            errors.append(f"{package_id} / read '{run_name}': {str(e)}")
                             skipped_runs_count += 1
 
                 db.commit()
                 created_experiments_count += 1
                 created_submission_count += 1
-            except Exception:
+            except Exception as e:
+                errors.append(f"{package_id}: {str(e)}")
                 db.rollback()
                 skipped_experiments_count += 1
 
@@ -365,6 +373,7 @@ class ExperimentService(BaseService[Experiment, ExperimentCreate, ExperimentUpda
                 f"Created submission records: {created_submission_count}, Created reads: {created_reads_count}, "
                 f"Skipped: {skipped_runs_count}"
             ),
+            errors=errors if errors else None,
             debug={
                 "missing_bpa_sample_id": missing_bpa_sample_id_count,
                 "missing_sample": missing_sample_count,

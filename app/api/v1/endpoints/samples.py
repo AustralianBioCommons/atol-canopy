@@ -452,15 +452,12 @@ def bulk_import_specimen_samples(
             skipped_count += 1
     
     message = f"Specimen import complete. Created: {created_count}, Skipped: {skipped_count}"
-    if errors:
-        message += f". Errors: {'; '.join(errors[:10])}"  # Show first 10 errors
-        if len(errors) > 10:
-            message += f" ... and {len(errors) - 10} more"
     
     return {
         "created_count": created_count,
         "skipped_count": skipped_count,
         "message": message,
+        "errors": errors if errors else None,  # Include all errors
     }
 
 
@@ -580,15 +577,12 @@ def bulk_import_derived_samples(
             skipped_count += 1
     
     message = f"Derived sample import complete. Created: {created_count}, Skipped: {skipped_count}"
-    if errors:
-        message += f". Errors: {'; '.join(errors[:10])}"  # Show first 10 errors
-        if len(errors) > 10:
-            message += f" ... and {len(errors) - 10} more"
     
     return {
         "created_count": created_count,
         "skipped_count": skipped_count,
         "message": message,
+        "errors": errors if errors else None,  # Include all errors
     }
 
 

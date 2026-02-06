@@ -307,34 +307,40 @@ class OrganismService(BaseService[Organism, OrganismCreate, OrganismUpdate]):
         """Bulk import organisms from a dictionary keyed by organism_grouping_key."""
         created_count = 0
         skipped_count = 0
+        errors = []
 
         for organism_grouping_key, organism_data in organisms_data.items():
-            # Extract tax_id from the organism data
-            if "taxon_id" in organism_data:
-                tax_id = organism_data["taxon_id"]
-            else:
-                skipped_count += 1
-                continue
-
-            if "organism_grouping_key" not in organism_data:
-                skipped_count += 1
-                continue
-
-            # Check if organism already exists by grouping key
-            existing = (
-                db.query(Organism).filter(Organism.grouping_key == organism_grouping_key).first()
-            )
-            if existing:
-                skipped_count += 1
-                continue
-
-            # Validate minimal requirements
-            scientific_name = organism_data.get("scientific_name")
-            if not scientific_name:
-                skipped_count += 1
-                continue
-
             try:
+                # Extract tax_id from the organism data
+                if "taxon_id" in organism_data:
+                    tax_id = organism_data["taxon_id"]
+                else:
+                    errors.append(f"{organism_grouping_key}: Missing required field 'taxon_id'")
+                    skipped_count += 1
+                    continue
+
+                if "organism_grouping_key" not in organism_data:
+                    errors.append(f"{organism_grouping_key}: Missing required field 'organism_grouping_key'")
+                    skipped_count += 1
+                    continue
+
+                # Check if organism already exists by grouping key
+                existing = (
+                    db.query(Organism).filter(Organism.grouping_key == organism_grouping_key).first()
+                )
+                if existing:
+                    errors.append(f"{organism_grouping_key}: Organism already exists")
+                    skipped_count += 1
+                    continue
+
+                # Validate minimal requirements
+                scientific_name = organism_data.get("scientific_name")
+                if not scientific_name:
+                    errors.append(f"{organism_grouping_key}: Missing required field 'scientific_name'")
+                    skipped_count += 1
+                    continue
+
+                # Create organism and projects
                 common_name = organism_data.get("common_name", None)
                 common_name_source = (
                     organism_data.get("common_name_source", "BPA")
@@ -415,7 +421,8 @@ class OrganismService(BaseService[Organism, OrganismCreate, OrganismUpdate]):
                 )
                 db.commit()
                 created_count += 1
-            except Exception:
+            except Exception as e:
+                errors.append(f"{organism_grouping_key}: {str(e)}")
                 db.rollback()
                 skipped_count += 1
 
@@ -423,6 +430,7 @@ class OrganismService(BaseService[Organism, OrganismCreate, OrganismUpdate]):
             created_count=created_count,
             skipped_count=skipped_count,
             message=f"Organism import complete. Created: {created_count}, Skipped: {skipped_count}",
+            errors=errors if errors else None,
         )
 
 
