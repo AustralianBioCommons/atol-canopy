@@ -13,6 +13,12 @@ class SubmissionStatus(str, Enum):
     REJECTED = "rejected"
 
 
+# Enum for sample kind
+class SampleKind(str, Enum):
+    SPECIMEN = "specimen"
+    DERIVED = "derived"
+
+
 class SubmissionJsonResponse(BaseModel):
     """Schema for returning prepared_payload data"""
 

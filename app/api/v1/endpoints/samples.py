@@ -20,7 +20,7 @@ from app.models.organism import Organism
 from app.models.sample import Sample, SampleSubmission
 from app.models.user import User
 from app.schemas.bulk_import import BulkImportResponse, BulkSampleImport
-from app.schemas.common import SubmissionJsonResponse, SubmissionStatus
+from app.schemas.common import SampleKind, SubmissionJsonResponse, SubmissionStatus
 from app.schemas.sample import Sample as SampleSchema
 from app.schemas.sample import (
     SampleCreate,
@@ -81,6 +81,36 @@ def create_sample(
     # Accept raw string and allow missing collection_date
 
     # Build kwargs dynamically so we don't pass None for DB server_default columns
+    # Determine sample kind and validate parent relationship
+    kind = sample_in.kind or SampleKind.SPECIMEN
+    derived_from_sample_id = sample_in.derived_from_sample_id
+    
+    # Validate parent-child relationship constraints
+    if kind == SampleKind.DERIVED and not derived_from_sample_id:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Derived samples must have a parent sample (derived_from_sample_id)"
+        )
+    if kind == SampleKind.SPECIMEN and derived_from_sample_id:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Specimen samples cannot have a parent sample"
+        )
+    
+    # If parent is specified, verify it exists and is a specimen
+    if derived_from_sample_id:
+        parent_sample = db.query(Sample).filter(Sample.id == derived_from_sample_id).first()
+        if not parent_sample:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail=f"Parent sample with id {derived_from_sample_id} not found"
+            )
+        if parent_sample.kind != SampleKind.SPECIMEN:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Parent sample must be of kind 'specimen'"
+            )
+
     sample_kwargs = dict(
         id=sample_id,
         organism_key=sample_in.organism_key,
@@ -116,6 +146,10 @@ def create_sample(
         tolid=sample_in.tolid,
         preservation_method=sample_in.preservation_method,
         preservation_temperature=sample_in.preservation_temperature,
+        # Parent-child relationship fields
+        derived_from_sample_id=derived_from_sample_id,
+        kind=kind,
+        extensions=sample_in.extensions,
         # bpa_json=sample_in.model_dump(mode="json", exclude_unset=True),
     )
     # Only set these if provided (DB has server defaults for NOT NULL)
@@ -417,6 +451,11 @@ def bulk_import_samples(
             )
             # Accept raw string and allow missing collection_date
 
+            # Determine sample kind - default to specimen for bulk imports
+            kind = sample_data.get("kind", SampleKind.SPECIMEN)
+            if isinstance(kind, str):
+                kind = SampleKind(kind)
+            
             sample_kwargs = dict(
                 id=sample_id,
                 organism_key=organism_key,
@@ -441,6 +480,10 @@ def bulk_import_samples(
                 longitude=to_float(sample_data.get("decimal_longitude")),
                 elevation=to_float(sample_data.get("elevation")),
                 depth=to_float(sample_data.get("depth")),
+                # Parent-child relationship fields
+                derived_from_sample_id=sample_data.get("derived_from_sample_id"),
+                kind=kind,
+                extensions=sample_data.get("extensions"),
                 # bpa_json=sample_data
             )
             if sample_data.get("collected_by"):
@@ -526,3 +569,62 @@ async def get_sample_submission_by_experiment_package_id(
         )
 
     return submission_records
+
+
+@router.get("/{sample_id}/children", response_model=List[SampleSchema])
+def get_sample_children(
+    *,
+    db: Session = Depends(get_db),
+    sample_id: UUID,
+    current_user: User = Depends(get_current_active_user),
+) -> Any:
+    """
+    Get all derived samples (children) of a specimen sample.
+    """
+    # All users can read sample relationships
+    sample = db.query(Sample).filter(Sample.id == sample_id).first()
+    if not sample:
+        raise HTTPException(status_code=404, detail="Sample not found")
+    
+    if sample.kind != SampleKind.SPECIMEN:
+        raise HTTPException(
+            status_code=400, 
+            detail="Only specimen samples can have children"
+        )
+    
+    children = db.query(Sample).filter(Sample.derived_from_sample_id == sample_id).all()
+    return children
+
+
+@router.get("/{sample_id}/parent", response_model=SampleSchema)
+def get_sample_parent(
+    *,
+    db: Session = Depends(get_db),
+    sample_id: UUID,
+    current_user: User = Depends(get_current_active_user),
+) -> Any:
+    """
+    Get the parent specimen sample of a derived sample.
+    """
+    # All users can read sample relationships
+    sample = db.query(Sample).filter(Sample.id == sample_id).first()
+    if not sample:
+        raise HTTPException(status_code=404, detail="Sample not found")
+    
+    if sample.kind != SampleKind.DERIVED:
+        raise HTTPException(
+            status_code=400, 
+            detail="Only derived samples have a parent"
+        )
+    
+    if not sample.derived_from_sample_id:
+        raise HTTPException(
+            status_code=404, 
+            detail="Parent sample not found"
+        )
+    
+    parent = db.query(Sample).filter(Sample.id == sample.derived_from_sample_id).first()
+    if not parent:
+        raise HTTPException(status_code=404, detail="Parent sample not found")
+    
+    return parent

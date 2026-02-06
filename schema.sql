@@ -11,6 +11,7 @@ CREATE TYPE molecule_type AS ENUM ('genomic DNA', 'genomic RNA');
 CREATE TYPE assembly_output_file_type AS ENUM ('QC', 'Other'); -- TODO define more specific types as needed
 CREATE TYPE entity_type AS ENUM ('organism', 'sample', 'experiment', 'read', 'assembly', 'project');
 CREATE TYPE project_type AS ENUM ('root', 'genomic_data', 'assembly');
+CREATE TYPE sample_kind AS ENUM ('specimen', 'derived');
 -- ==========================================
 -- Users and Authentication
 -- ==========================================
@@ -202,11 +203,69 @@ CREATE TABLE sample (
     preservation_temperature TEXT,
     project_name TEXT,
     biosample_accession TEXT,
-    -- bpa_json JSONB NOT NULL,
-    -- TODO extensions json field above instead of bpa_json?
+
+    derived_from_sample_id UUID REFERENCES sample(id) ON DELETE CASCADE,
+    kind sample_kind NOT NULL,
+
+  CONSTRAINT derived_from_sample_id_matches_kind CHECK (
+    (kind = 'specimen' AND derived_from_sample_id IS NULL)
+    OR
+    (kind = 'derived'  AND derived_from_sample_id IS NOT NULL)
+  ),
+    extensions JSONB,
     created_at TIMESTAMP NOT NULL DEFAULT NOW(),
     updated_at TIMESTAMP NOT NULL DEFAULT NOW()
 );
+
+-- CREATE OR REPLACE FUNCTION enforce_parent_is_specimen()
+-- RETURNS trigger
+-- LANGUAGE plpgsql AS $$
+-- BEGIN
+--   IF NEW.derived_from_sample_id IS NOT NULL THEN
+--     IF NOT EXISTS (
+--       SELECT 1
+--       FROM sample s
+--       WHERE s.id = NEW.derived_from_sample_id
+--         AND s.kind = 'specimen'
+--     ) THEN
+--       RAISE EXCEPTION USING
+--         ERRCODE = '23514',
+--         MESSAGE = format(
+--           'derived_from_sample_id (%) must reference a specimen sample',
+--           NEW.derived_from_sample_id
+--        );
+--    END IF;
+--  END IF;
+--  RETURN NEW;
+--END $$;
+
+--DROP TRIGGER IF EXISTS trg_enforce_parent_is_specimen ON sample;
+
+--CREATE TRIGGER trg_enforce_parent_is_specimen
+--BEFORE INSERT OR UPDATE OF derived_from_sample_id ON sample
+--FOR EACH ROW
+EXECUTE FUNCTION enforce_parent_is_specimen();
+
+--CREATE OR REPLACE FUNCTION prevent_demoting_specimen_with_children()
+--RETURNS trigger
+--LANGUAGE plpgsql AS $$
+--BEGIN
+--  IF OLD.kind = 'specimen' AND NEW.kind <> 'specimen' THEN
+--    IF EXISTS (SELECT 1 FROM sample c WHERE c.derived_from_sample_id = OLD.id) THEN
+--      RAISE EXCEPTION USING
+--        ERRCODE = '23514',
+--        MESSAGE = format('cannot change specimen %s to %s: it has derived samples', OLD.id, NEW.kind);
+--    END IF;
+--  END IF;
+--  RETURN NEW;
+-- END $$;
+
+-- DROP TRIGGER IF EXISTS trg_prevent_demoting_specimen ON sample;
+
+-- CREATE TRIGGER trg_prevent_demoting_specimen
+-- BEFORE UPDATE OF kind ON sample
+-- FOR EACH ROW
+-- EXECUTE FUNCTION prevent_demoting_specimen_with_children();
 
 -- Sample submission table
 CREATE TABLE sample_submission (
@@ -250,6 +309,9 @@ CREATE UNIQUE INDEX uq_sample_one_accepted
 CREATE INDEX IF NOT EXISTS idx_sample_submission_attempt ON sample_submission (attempt_id);
 CREATE INDEX IF NOT EXISTS idx_sample_submission_finalised_attempt ON sample_submission (finalised_attempt_id);
 
+-- Support parent/child lookups for derived samples
+CREATE INDEX IF NOT EXISTS idx_sample_derived_from_sample_id ON sample(derived_from_sample_id);
+
 -- UNIQUE (sample_id, authority) WHERE status = 'accepted' AND accession IS NOT NULL
 
 -- ==========================================
@@ -287,9 +349,7 @@ CREATE TABLE experiment (
     raw_data_release_date TEXT,
 
     -- bpa_dataset_id TEXT UNIQUE NOT NULL,
-    -- bpa_json JSONB NOT NULL,
-    -- TODO extensions json field above instead of bpa_json?
-    -- TO DO perhaps add an 'extensions' field instead of bpa_json
+    extensions JSONB,
     created_at TIMESTAMP NOT NULL DEFAULT NOW(),
     updated_at TIMESTAMP NOT NULL DEFAULT NOW()
 );
@@ -378,8 +438,7 @@ CREATE TABLE read (
     lane_number TEXT,
     run_read_count TEXT,
     run_base_count TEXT,
-    -- bpa_json JSONB NOT NULL,
-    -- TODO extensions json field above instead of bpa_json?
+    extensions JSONB,
     created_at TIMESTAMP NOT NULL DEFAULT NOW(),
     updated_at TIMESTAMP NOT NULL DEFAULT NOW()
 );
