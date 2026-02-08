@@ -77,7 +77,7 @@ class SampleInDBBase(SampleBase):
     # bpa_json: Dict
     created_at: datetime
     updated_at: datetime
-    
+
     # Override to make these required in DB responses
     kind: SampleKind
 

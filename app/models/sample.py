@@ -61,9 +61,7 @@ class Sample(Base):
     derived_from_sample_id = Column(
         UUID(as_uuid=True), ForeignKey("sample.id", ondelete="CASCADE"), nullable=True
     )
-    kind = Column(
-        SQLAlchemyEnum("specimen", "derived", name="sample_kind"), nullable=False
-    )
+    kind = Column(SQLAlchemyEnum("specimen", "derived", name="sample_kind"), nullable=False)
     extensions = Column(JSONB, nullable=True)
 
     # bpa_json = Column(JSONB, nullable=False)
@@ -77,7 +75,7 @@ class Sample(Base):
 
     # Relationships
     organism = relationship("Organism", backref=backref("samples", cascade="all, delete-orphan"))
-    
+
     # Parent-child relationships
     parent = relationship(
         "Sample",

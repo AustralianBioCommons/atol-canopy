@@ -58,11 +58,11 @@ class _FakeQuery:
             if self._filters:
                 for filter_expr in self._filters:
                     # Try to extract the comparison value from the filter expression
-                    if hasattr(filter_expr, 'right') and hasattr(filter_expr.right, 'value'):
+                    if hasattr(filter_expr, "right") and hasattr(filter_expr.right, "value"):
                         # This is a binary expression like Sample.bpa_sample_id == 'value'
                         filter_value = filter_expr.right.value
-                        if hasattr(filter_expr, 'left') and hasattr(filter_expr.left, 'key'):
-                            if filter_expr.left.key == 'bpa_sample_id':
+                        if hasattr(filter_expr, "left") and hasattr(filter_expr.left, "key"):
+                            if filter_expr.left.key == "bpa_sample_id":
                                 # Look up sample by bpa_sample_id
                                 return self.session._samples_by_id.get(filter_value)
             # Fallback to default sample
@@ -91,18 +91,19 @@ def mock_user():
 @pytest.fixture
 def client(mock_db, mock_user):
     """Create test client with dependency overrides."""
+
     def override_get_db():
         return mock_db
-    
+
     def override_get_current_active_user():
         return mock_user
-    
+
     app.dependency_overrides[get_db] = override_get_db
     app.dependency_overrides[get_current_active_user] = override_get_current_active_user
-    
+
     test_client = TestClient(app)
     yield test_client
-    
+
     app.dependency_overrides.clear()
 
 
@@ -202,7 +203,7 @@ def test_bulk_import_experiments_existing_experiment_existing_reads(client, mock
     )
     mock_db._query_results["experiment"] = existing_experiment
     mock_db._query_results["project"] = Project(id=uuid.uuid4())
-    
+
     # Mock existing read
     existing_read = Read(
         id=uuid.uuid4(),

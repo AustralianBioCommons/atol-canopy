@@ -251,20 +251,22 @@ class ExperimentService(BaseService[Experiment, ExperimentCreate, ExperimentUpda
 
         for package_id, experiment_data in experiments_data.items():
             # Check if experiment already exists
-            existing_experiment = db.query(Experiment).filter(Experiment.bpa_package_id == package_id).first()
-            
+            existing_experiment = (
+                db.query(Experiment).filter(Experiment.bpa_package_id == package_id).first()
+            )
+
             if existing_experiment:
                 existing_experiment_count += 1
                 skipped_experiments_count += 1
                 # Still process reads for existing experiment
                 experiment_id = existing_experiment.id
-                
+
                 # Find project for read submissions
                 project_id = None
                 project = db.query(Project).first()
                 if project:
                     project_id = project.id
-                
+
                 # Process reads even though experiment exists
                 if isinstance(experiment_data.get("runs"), list):
                     for run in experiment_data["runs"]:
@@ -272,25 +274,29 @@ class ExperimentService(BaseService[Experiment, ExperimentCreate, ExperimentUpda
                             # Validate required fields for read
                             if not run.get("bpa_resource_id"):
                                 run_identifier = (
-                                    run.get("filename") or 
-                                    run.get("run_alias") or 
-                                    run.get("bpa_dataset_id") or
-                                    run.get("flowcell_id") or
-                                    "unknown"
+                                    run.get("filename")
+                                    or run.get("run_alias")
+                                    or run.get("bpa_dataset_id")
+                                    or run.get("flowcell_id")
+                                    or "unknown"
                                 )
-                                errors.append(f"{package_id} / read '{run_identifier}': Missing required field 'bpa_resource_id'")
+                                errors.append(
+                                    f"{package_id} / read '{run_identifier}': Missing required field 'bpa_resource_id'"
+                                )
                                 skipped_reads_count += 1
                                 continue
-                            
+
                             # Check if read already exists
-                            existing_read = db.query(Read).filter(
-                                Read.bpa_resource_id == run.get("bpa_resource_id")
-                            ).first()
-                            
+                            existing_read = (
+                                db.query(Read)
+                                .filter(Read.bpa_resource_id == run.get("bpa_resource_id"))
+                                .first()
+                            )
+
                             if existing_read:
                                 skipped_reads_count += 1
                                 continue
-                            
+
                             read_id = uuid.uuid4()
                             transforms = {"optional_file": to_bool}
                             inject = {"id": read_id, "experiment_id": experiment_id}
@@ -323,22 +329,22 @@ class ExperimentService(BaseService[Experiment, ExperimentCreate, ExperimentUpda
                         except Exception as e:
                             # Try to get the most identifying information from the run
                             run_identifier = (
-                                run.get("filename") or 
-                                run.get("run_alias") or 
-                                run.get("bpa_dataset_id") or
-                                run.get("flowcell_id") or
-                                "unknown"
+                                run.get("filename")
+                                or run.get("run_alias")
+                                or run.get("bpa_dataset_id")
+                                or run.get("flowcell_id")
+                                or "unknown"
                             )
                             errors.append(f"{package_id} / read '{run_identifier}': {str(e)}")
                             skipped_reads_count += 1
-                    
+
                     # Commit reads for existing experiment
                     try:
                         db.commit()
                     except Exception as e:
                         errors.append(f"{package_id}: Failed to commit reads - {str(e)}")
                         db.rollback()
-                
+
                 continue
 
             bpa_sample_id = experiment_data.get("bpa_sample_id")
@@ -354,7 +360,9 @@ class ExperimentService(BaseService[Experiment, ExperimentCreate, ExperimentUpda
             sample = db.query(Sample).filter(Sample.bpa_sample_id == bpa_sample_id).first()
             if not sample:
                 missing_sample_count += 1
-                errors.append(f"{package_id}: Sample not found with bpa_sample_id '{bpa_sample_id}'")
+                errors.append(
+                    f"{package_id}: Sample not found with bpa_sample_id '{bpa_sample_id}'"
+                )
                 skipped_experiments_count += 1
                 # Count reads that would have been created
                 if isinstance(experiment_data.get("runs"), list):
@@ -417,16 +425,18 @@ class ExperimentService(BaseService[Experiment, ExperimentCreate, ExperimentUpda
                             # Validate required fields for read
                             if not run.get("bpa_resource_id"):
                                 run_identifier = (
-                                    run.get("filename") or 
-                                    run.get("run_alias") or 
-                                    run.get("bpa_dataset_id") or
-                                    run.get("flowcell_id") or
-                                    "unknown"
+                                    run.get("filename")
+                                    or run.get("run_alias")
+                                    or run.get("bpa_dataset_id")
+                                    or run.get("flowcell_id")
+                                    or "unknown"
                                 )
-                                errors.append(f"{package_id} / read '{run_identifier}': Missing required field 'bpa_resource_id'")
+                                errors.append(
+                                    f"{package_id} / read '{run_identifier}': Missing required field 'bpa_resource_id'"
+                                )
                                 skipped_reads_count += 1
                                 continue
-                            
+
                             read_id = uuid.uuid4()
                             transforms = {"optional_file": to_bool}
                             inject = {"id": read_id, "experiment_id": experiment_id}
@@ -459,11 +469,11 @@ class ExperimentService(BaseService[Experiment, ExperimentCreate, ExperimentUpda
                         except Exception as e:
                             # Try to get the most identifying information from the run
                             run_identifier = (
-                                run.get("filename") or 
-                                run.get("run_alias") or 
-                                run.get("bpa_dataset_id") or
-                                run.get("flowcell_id") or
-                                "unknown"
+                                run.get("filename")
+                                or run.get("run_alias")
+                                or run.get("bpa_dataset_id")
+                                or run.get("flowcell_id")
+                                or "unknown"
                             )
                             errors.append(f"{package_id} / read '{run_identifier}': {str(e)}")
                             skipped_reads_count += 1

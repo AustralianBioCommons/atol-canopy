@@ -64,37 +64,36 @@ def get_specimen_by_taxid_and_specimen_id(
 ) -> Any:
     """
     Lookup a specimen sample by tax_id and specimen_id.
-    
-    This finds the unique specimen sample for a given organism (by tax_id) 
+
+    This finds the unique specimen sample for a given organism (by tax_id)
     and specimen_id combination.
     """
     # All users can read samples
-    
+
     # First, find the organism by tax_id
     organism = db.query(Organism).filter(Organism.tax_id == tax_id).first()
     if not organism:
         raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail=f"Organism with tax_id {tax_id} not found"
+            status_code=status.HTTP_404_NOT_FOUND, detail=f"Organism with tax_id {tax_id} not found"
         )
-    
+
     # Then find the specimen sample
     sample = (
         db.query(Sample)
         .filter(
             Sample.organism_key == organism.grouping_key,
             Sample.specimen_id == specimen_id,
-            Sample.kind == SampleKind.SPECIMEN
+            Sample.kind == SampleKind.SPECIMEN,
         )
         .first()
     )
-    
+
     if not sample:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
-            detail=f"Specimen sample not found for tax_id {tax_id} and specimen_id '{specimen_id}'"
+            detail=f"Specimen sample not found for tax_id {tax_id} and specimen_id '{specimen_id}'",
         )
-    
+
     return sample
 
 
@@ -128,27 +127,27 @@ def create_sample(
     # Determine sample kind and validate parent relationship
     kind = sample_in.kind or SampleKind.SPECIMEN
     derived_from_sample_id = sample_in.derived_from_sample_id
-    
+
     # Validate parent-child relationship constraints
     if kind == SampleKind.DERIVED and not derived_from_sample_id:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Derived samples must have a parent sample (derived_from_sample_id)"
+            detail="Derived samples must have a parent sample (derived_from_sample_id)",
         )
     if kind == SampleKind.SPECIMEN and derived_from_sample_id:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Specimen samples cannot have a parent sample"
+            detail="Specimen samples cannot have a parent sample",
         )
-    
+
     # Check for duplicate specimen: one specimen per (organism_key, specimen_id)
     if kind == SampleKind.SPECIMEN and sample_in.specimen_id:
-        existing_specimen = ( 
+        existing_specimen = (
             db.query(Sample)
             .filter(
                 Sample.organism_key == sample_in.organism_key,
                 Sample.specimen_id == sample_in.specimen_id,
-                Sample.kind == SampleKind.SPECIMEN
+                Sample.kind == SampleKind.SPECIMEN,
             )
             .first()
         )
@@ -156,21 +155,21 @@ def create_sample(
             raise HTTPException(
                 status_code=status.HTTP_409_CONFLICT,
                 detail=f"Specimen sample already exists for organism_key '{sample_in.organism_key}' "
-                       f"and specimen_id '{sample_in.specimen_id}' (sample_id: {existing_specimen.id})"
+                f"and specimen_id '{sample_in.specimen_id}' (sample_id: {existing_specimen.id})",
             )
-    
+
     # If parent is specified, verify it exists and is a specimen
     if derived_from_sample_id:
         parent_sample = db.query(Sample).filter(Sample.id == derived_from_sample_id).first()
         if not parent_sample:
             raise HTTPException(
                 status_code=status.HTTP_404_NOT_FOUND,
-                detail=f"Parent sample with id {derived_from_sample_id} not found"
+                detail=f"Parent sample with id {derived_from_sample_id} not found",
             )
         if parent_sample.kind != SampleKind.SPECIMEN:
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
-                detail="Parent sample must be of kind 'specimen'"
+                detail="Parent sample must be of kind 'specimen'",
             )
 
     sample_kwargs = dict(
@@ -263,17 +262,17 @@ def _create_sample_with_submission(
 ) -> tuple[Sample, SampleSubmission]:
     """
     Helper function to create a sample and its submission record.
-    
+
     bpa_sample_id is optional for specimen samples but required for derived samples.
-    
+
     Returns:
         Tuple of (Sample, SampleSubmission)
-    
+
     Raises:
         ValueError: If validation fails
     """
     sample_id = uuid.uuid4()
-    
+
     # Required fields with fallbacks
     lifestage = sample_data.get("lifestage") or "unknown"
     sex = sample_data.get("sex") or "unknown"
@@ -288,7 +287,7 @@ def _create_sample_with_submission(
     collection_date_val = sample_data.get("date_of_collection") or sample_data.get(
         "collection_date"
     )
-    
+
     sample_kwargs = dict(
         id=sample_id,
         organism_key=organism_key,
@@ -330,7 +329,7 @@ def _create_sample_with_submission(
         kind=kind,
         extensions=sample_data.get("extensions"),
     )
-    
+
     # Only set these if provided (DB has server defaults for NOT NULL)
     if sample_data.get("collected_by"):
         sample_kwargs["collected_by"] = sample_data.get("collected_by")
@@ -338,9 +337,9 @@ def _create_sample_with_submission(
         sample_kwargs["collecting_institution"] = sample_data.get(
             "collector_institute"
         ) or sample_data.get("collecting_institution")
-    
+
     sample = Sample(**sample_kwargs)
-    
+
     # Create prepared_payload based on the mapping
     prepared_payload = {}
     if ena_atol_map:
@@ -348,7 +347,7 @@ def _create_sample_with_submission(
         for ena_key, atol_key in sample_mapping.items():
             if atol_key in sample_data:
                 prepared_payload[ena_key] = sample_data[atol_key]
-    
+
     # Create sample_submission record
     sample_submission = SampleSubmission(
         id=uuid.uuid4(),
@@ -357,7 +356,7 @@ def _create_sample_with_submission(
         entity_type_const="sample",
         prepared_payload=prepared_payload,
     )
-    
+
     return sample, sample_submission
 
 
@@ -370,13 +369,13 @@ def bulk_import_specimen_samples(
 ) -> Any:
     """
     Bulk import specimen samples (kind='specimen').
-    
+
     Expected format: Dictionary keyed by sample_key (a concat of taxon_id and specimen_id).
     Each sample must have organism_grouping_key and specimen_id.
     Enforces uniqueness constraint: one specimen per (organism_key, specimen_id).
     """
     require_role(current_user, ["curator", "admin"])
-    
+
     # Load the ENA-ATOL mapping file
     ena_atol_map_path = os.path.join(
         os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(__file__)))),
@@ -385,11 +384,11 @@ def bulk_import_specimen_samples(
     )
     with open(ena_atol_map_path, "r") as f:
         ena_atol_map = json.load(f)
-    
+
     created_count = 0
     skipped_count = 0
     errors = []
-    
+
     for sample_key, sample_data in samples_data.items():
         try:
             # Get organism reference
@@ -398,27 +397,29 @@ def bulk_import_specimen_samples(
                 errors.append(f"{sample_key}: Missing organism_grouping_key")
                 skipped_count += 1
                 continue
-            
+
             organism = db.query(Organism).filter(Organism.grouping_key == organism_key).first()
             if not organism:
-                errors.append(f"{sample_key}: Organism not found with grouping_key '{organism_key}'")
+                errors.append(
+                    f"{sample_key}: Organism not found with grouping_key '{organism_key}'"
+                )
                 skipped_count += 1
                 continue
-            
+
             # Validate specimen_id is present
             specimen_id = sample_data.get("specimen_id")
             if not specimen_id:
                 errors.append(f"{sample_key}: specimen_id is required for specimen samples")
                 skipped_count += 1
                 continue
-            
+
             # Check for duplicate specimen
             existing_specimen = (
                 db.query(Sample)
                 .filter(
                     Sample.organism_key == organism_key,
                     Sample.specimen_id == specimen_id,
-                    Sample.kind == SampleKind.SPECIMEN
+                    Sample.kind == SampleKind.SPECIMEN,
                 )
                 .first()
             )
@@ -429,7 +430,7 @@ def bulk_import_specimen_samples(
                 )
                 skipped_count += 1
                 continue
-            
+
             # Create specimen sample (bpa_sample_id is optional for specimens)
             sample, sample_submission = _create_sample_with_submission(
                 db=db,
@@ -440,19 +441,19 @@ def bulk_import_specimen_samples(
                 derived_from_sample_id=None,
                 ena_atol_map=ena_atol_map,
             )
-            
+
             db.add(sample)
             db.add(sample_submission)
             db.commit()
             created_count += 1
-            
+
         except Exception as e:
             errors.append(f"{sample_key}: {str(e)}")
             db.rollback()
             skipped_count += 1
-    
+
     message = f"Specimen import complete. Created: {created_count}, Skipped: {skipped_count}"
-    
+
     return {
         "created_count": created_count,
         "skipped_count": skipped_count,
@@ -470,16 +471,16 @@ def bulk_import_derived_samples(
 ) -> Any:
     """
     Bulk import derived samples (kind='derived').
-    
+
     Expected format: Dictionary keyed by bpa_sample_id.
     Each sample must have:
     - organism_grouping_key or tax_id (to find organism)
     - specimen_id (to lookup parent specimen sample)
-    
+
     The parent specimen is looked up by (tax_id, specimen_id) or (organism_key, specimen_id).
     """
     require_role(current_user, ["curator", "admin"])
-    
+
     # Load the ENA-ATOL mapping file
     ena_atol_map_path = os.path.join(
         os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(__file__)))),
@@ -488,11 +489,11 @@ def bulk_import_derived_samples(
     )
     with open(ena_atol_map_path, "r") as f:
         ena_atol_map = json.load(f)
-    
+
     created_count = 0
     skipped_count = 0
     errors = []
-    
+
     for sample_key, sample_data in samples_data.items():
         try:
             # Derived samples MUST have bpa_sample_id
@@ -501,17 +502,17 @@ def bulk_import_derived_samples(
                 errors.append(f"{sample_key}: bpa_sample_id is required for derived samples")
                 skipped_count += 1
                 continue
-            
+
             # Check if sample already exists by bpa_sample_id
             existing = db.query(Sample).filter(Sample.bpa_sample_id == bpa_sample_id).first()
             if existing:
                 skipped_count += 1
                 continue
-            
+
             # Get organism reference - try organism_grouping_key first, then tax_id
             organism_key = sample_data.get("organism_grouping_key")
             organism = None
-            
+
             if organism_key:
                 organism = db.query(Organism).filter(Organism.grouping_key == organism_key).first()
             elif sample_data.get("tax_id"):
@@ -519,34 +520,32 @@ def bulk_import_derived_samples(
                 organism = db.query(Organism).filter(Organism.tax_id == tax_id).first()
                 if organism:
                     organism_key = organism.grouping_key
-            
+
             if not organism:
                 errors.append(
                     f"{sample_key}: Organism not found (provide organism_grouping_key or tax_id)"
                 )
                 skipped_count += 1
                 continue
-            
+
             # Validate specimen_id is present (needed to find parent)
             specimen_id = sample_data.get("specimen_id")
             if not specimen_id:
-                errors.append(
-                    f"{sample_key}: specimen_id is required to lookup parent specimen"
-                )
+                errors.append(f"{sample_key}: specimen_id is required to lookup parent specimen")
                 skipped_count += 1
                 continue
-            
+
             # Lookup parent specimen by (organism_key, specimen_id)
             parent_specimen = (
                 db.query(Sample)
                 .filter(
                     Sample.organism_key == organism_key,
                     Sample.specimen_id == specimen_id,
-                    Sample.kind == SampleKind.SPECIMEN
+                    Sample.kind == SampleKind.SPECIMEN,
                 )
                 .first()
             )
-            
+
             if not parent_specimen:
                 errors.append(
                     f"{sample_key}: Parent specimen not found for organism_key '{organism_key}' "
@@ -554,7 +553,7 @@ def bulk_import_derived_samples(
                 )
                 skipped_count += 1
                 continue
-            
+
             # Create derived sample
             sample, sample_submission = _create_sample_with_submission(
                 db=db,
@@ -565,19 +564,19 @@ def bulk_import_derived_samples(
                 derived_from_sample_id=parent_specimen.id,
                 ena_atol_map=ena_atol_map,
             )
-            
+
             db.add(sample)
             db.add(sample_submission)
             db.commit()
             created_count += 1
-            
+
         except Exception as e:
             errors.append(f"{sample_key}: {str(e)}")
             db.rollback()
             skipped_count += 1
-    
+
     message = f"Derived sample import complete. Created: {created_count}, Skipped: {skipped_count}"
-    
+
     return {
         "created_count": created_count,
         "skipped_count": skipped_count,
@@ -852,7 +851,7 @@ def bulk_import_samples(
             kind = sample_data.get("kind", SampleKind.SPECIMEN)
             if isinstance(kind, str):
                 kind = SampleKind(kind)
-            
+
             # Check for duplicate specimen: one specimen per (organism_key, specimen_id)
             specimen_id_val = sample_data.get("specimen_id")
             if kind == SampleKind.SPECIMEN and specimen_id_val:
@@ -861,7 +860,7 @@ def bulk_import_samples(
                     .filter(
                         Sample.organism_key == organism_key,
                         Sample.specimen_id == specimen_id_val,
-                        Sample.kind == SampleKind.SPECIMEN
+                        Sample.kind == SampleKind.SPECIMEN,
                     )
                     .first()
                 )
@@ -872,7 +871,7 @@ def bulk_import_samples(
                     )
                     skipped_count += 1
                     continue
-            
+
             sample_kwargs = dict(
                 id=sample_id,
                 organism_key=organism_key,
@@ -1002,13 +1001,10 @@ def get_sample_children(
     sample = db.query(Sample).filter(Sample.id == sample_id).first()
     if not sample:
         raise HTTPException(status_code=404, detail="Sample not found")
-    
+
     if sample.kind != SampleKind.SPECIMEN:
-        raise HTTPException(
-            status_code=400, 
-            detail="Only specimen samples can have children"
-        )
-    
+        raise HTTPException(status_code=400, detail="Only specimen samples can have children")
+
     children = db.query(Sample).filter(Sample.derived_from_sample_id == sample_id).all()
     return children
 
@@ -1027,21 +1023,15 @@ def get_sample_parent(
     sample = db.query(Sample).filter(Sample.id == sample_id).first()
     if not sample:
         raise HTTPException(status_code=404, detail="Sample not found")
-    
+
     if sample.kind != SampleKind.DERIVED:
-        raise HTTPException(
-            status_code=400, 
-            detail="Only derived samples have a parent"
-        )
-    
+        raise HTTPException(status_code=400, detail="Only derived samples have a parent")
+
     if not sample.derived_from_sample_id:
-        raise HTTPException(
-            status_code=404, 
-            detail="Parent sample not found"
-        )
-    
+        raise HTTPException(status_code=404, detail="Parent sample not found")
+
     parent = db.query(Sample).filter(Sample.id == sample.derived_from_sample_id).first()
     if not parent:
         raise HTTPException(status_code=404, detail="Parent sample not found")
-    
+
     return parent

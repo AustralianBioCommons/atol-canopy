@@ -47,6 +47,7 @@ class BulkImportResponse(BaseModel):
     errors: Optional[List[str]] = None  # List of all errors with context
     debug: Optional[Dict[str, int]] = None
 
+
 class BulkImportResponseExperiments(BaseModel):
     """Schema for bulk import response."""
 

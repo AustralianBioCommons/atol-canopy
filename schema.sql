@@ -273,7 +273,7 @@ CREATE UNIQUE INDEX IF NOT EXISTS uq_derived_bpa_sample_id
   WHERE kind = 'derived' AND bpa_sample_id IS NOT NULL;
 
 -- Index for efficient lookup by organism_key + specimen_id
-CREATE INDEX IF NOT EXISTS idx_sample_organism_specimen_lookup 
+CREATE INDEX IF NOT EXISTS idx_sample_organism_specimen_lookup
   ON sample (organism_key, specimen_id)
   WHERE specimen_id IS NOT NULL;
 

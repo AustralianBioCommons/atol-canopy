@@ -320,13 +320,17 @@ class OrganismService(BaseService[Organism, OrganismCreate, OrganismUpdate]):
                     continue
 
                 if "organism_grouping_key" not in organism_data:
-                    errors.append(f"{organism_grouping_key}: Missing required field 'organism_grouping_key'")
+                    errors.append(
+                        f"{organism_grouping_key}: Missing required field 'organism_grouping_key'"
+                    )
                     skipped_count += 1
                     continue
 
                 # Check if organism already exists by grouping key
                 existing = (
-                    db.query(Organism).filter(Organism.grouping_key == organism_grouping_key).first()
+                    db.query(Organism)
+                    .filter(Organism.grouping_key == organism_grouping_key)
+                    .first()
                 )
                 if existing:
                     errors.append(f"{organism_grouping_key}: Organism already exists")
@@ -336,7 +340,9 @@ class OrganismService(BaseService[Organism, OrganismCreate, OrganismUpdate]):
                 # Validate minimal requirements
                 scientific_name = organism_data.get("scientific_name")
                 if not scientific_name:
-                    errors.append(f"{organism_grouping_key}: Missing required field 'scientific_name'")
+                    errors.append(
+                        f"{organism_grouping_key}: Missing required field 'scientific_name'"
+                    )
                     skipped_count += 1
                     continue
 
