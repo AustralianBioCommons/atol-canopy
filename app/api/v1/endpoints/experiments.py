@@ -11,7 +11,7 @@ from app.core.dependencies import (
     require_role,
 )
 from app.models.user import User
-from app.schemas.bulk_import import BulkImportResponse
+from app.schemas.bulk_import import BulkImportResponse, BulkImportResponseExperiments
 from app.schemas.experiment import Experiment as ExperimentSchema
 from app.schemas.experiment import ExperimentCreate, ExperimentUpdate
 from app.schemas.experiment import ExperimentSubmission as ExperimentSubmissionSchema
@@ -133,7 +133,7 @@ def delete_experiment(
     return experiment
 
 
-@router.post("/bulk-import", response_model=BulkImportResponse)
+@router.post("/bulk-import", response_model=BulkImportResponseExperiments)
 def bulk_import_experiments(
     *,
     db: Session = Depends(get_db),

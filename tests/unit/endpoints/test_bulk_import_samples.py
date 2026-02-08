@@ -171,7 +171,8 @@ def test_bulk_import_specimens_missing_organism_key():
     body = resp.json()
     assert body["created_count"] == 0
     assert body["skipped_count"] == 1
-    assert "Missing organism_grouping_key" in body["message"]
+    assert body["errors"] is not None
+    assert any("Missing organism_grouping_key" in err for err in body["errors"])
 
 
 def test_bulk_import_specimens_missing_specimen_id():
@@ -199,7 +200,8 @@ def test_bulk_import_specimens_missing_specimen_id():
     body = resp.json()
     assert body["created_count"] == 0
     assert body["skipped_count"] == 1
-    assert "specimen_id is required" in body["message"]
+    assert body["errors"] is not None
+    assert any("specimen_id is required" in err for err in body["errors"])
 
 
 def test_bulk_import_specimens_duplicate_specimen(monkeypatch):
@@ -250,7 +252,8 @@ def test_bulk_import_specimens_duplicate_specimen(monkeypatch):
     body = resp.json()
     assert body["created_count"] == 0
     assert body["skipped_count"] == 1
-    assert "already exists" in body["message"]
+    assert body["errors"] is not None
+    assert any("already exists" in err for err in body["errors"])
 
 
 def test_bulk_import_specimens_organism_not_found():
@@ -278,7 +281,8 @@ def test_bulk_import_specimens_organism_not_found():
     body = resp.json()
     assert body["created_count"] == 0
     assert body["skipped_count"] == 1
-    assert "Organism not found" in body["message"]
+    assert body["errors"] is not None
+    assert any("Organism not found" in err for err in body["errors"])
 
 
 def test_bulk_import_specimens_bpa_sample_id_optional(monkeypatch):
@@ -438,7 +442,8 @@ def test_bulk_import_derived_missing_bpa_sample_id():
     body = resp.json()
     assert body["created_count"] == 0
     assert body["skipped_count"] == 1
-    assert "bpa_sample_id is required" in body["message"]
+    assert body["errors"] is not None
+    assert any("bpa_sample_id is required" in err for err in body["errors"])
 
 
 def test_bulk_import_derived_parent_not_found():
@@ -478,7 +483,8 @@ def test_bulk_import_derived_parent_not_found():
     body = resp.json()
     assert body["created_count"] == 0
     assert body["skipped_count"] == 1
-    assert "Parent specimen not found" in body["message"]
+    assert body["errors"] is not None
+    assert any("Parent specimen not found" in err for err in body["errors"])
 
 
 def test_bulk_import_derived_lookup_by_tax_id(monkeypatch):

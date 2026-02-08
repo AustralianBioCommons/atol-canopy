@@ -43,8 +43,17 @@ class BulkImportResponse(BaseModel):
 
     created_count: int
     skipped_count: Optional[int] = 0
+    message: str
+    errors: Optional[List[str]] = None  # List of all errors with context
+    debug: Optional[Dict[str, int]] = None
+
+class BulkImportResponseExperiments(BaseModel):
+    """Schema for bulk import response."""
+
+    created_experiment_count: int
     skipped_experiment_count: Optional[int] = 0
-    skipped_run_count: Optional[int] = 0
+    created_reads_count: Optional[int] = 0
+    skipped_reads_count: Optional[int] = 0
     message: str
     errors: Optional[List[str]] = None  # List of all errors with context
     debug: Optional[Dict[str, int]] = None
