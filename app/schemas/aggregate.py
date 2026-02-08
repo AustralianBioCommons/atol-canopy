@@ -76,8 +76,6 @@ class OrganismSubmissionJsonResponse(BaseModel):
     grouping_key: str
     tax_id: int
     scientific_name: Optional[str] = None
-    common_name: Optional[str] = None
-    common_name_source: Optional[str] = None
     samples: List[SampleSubmissionJson] = []
     experiments: List[ExperimentSubmissionJson] = []
     reads: List[ReadSubmissionJson] = []
