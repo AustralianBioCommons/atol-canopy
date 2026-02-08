@@ -57,6 +57,25 @@ class ClaimRequest(BaseModel):
     lease_duration_minutes: Optional[int] = Field(default=None, ge=1, le=180)
 
 
+class ClaimByEntityRequest(BaseModel):
+    """Request to claim specific samples, experiments, and reads by their entity IDs."""
+    sample_ids: Optional[List[UUID]] = Field(default=None, description="Sample entity IDs to claim")
+    experiment_ids: Optional[List[UUID]] = Field(default=None, description="Experiment entity IDs to claim")
+    read_ids: Optional[List[UUID]] = Field(default=None, description="Read entity IDs to claim")
+    project_ids: Optional[List[UUID]] = Field(default=None, description="Project entity IDs to claim")
+    lease_duration_minutes: Optional[int] = Field(default=30, ge=1, le=180, description="Lease duration in minutes")
+
+
+class ClaimByEntityResponse(BaseModel):
+    """Response from claiming entities by ID."""
+    attempt_id: UUID
+    organism_keys: List[str] = Field(default_factory=list, description="Organism keys involved in this claim")
+    samples: List[ClaimedEntity] = Field(default_factory=list)
+    experiments: List[ClaimedEntity] = Field(default_factory=list)
+    reads: List[ClaimedEntity] = Field(default_factory=list)
+    projects: List[ClaimedEntity] = Field(default_factory=list)
+
+
 class ReportItem(BaseModel):
     id: UUID
     status: str
@@ -473,6 +492,430 @@ def claim_drafts_for_organism(
         attempt_id=attempt_id,
         organism_key=organism_key,
         organism=org_info,
+        samples=claimed_samples,
+        experiments=claimed_experiments,
+        reads=claimed_reads,
+        projects=claimed_projects,
+    )
+
+
+@router.post("/claim", response_model=ClaimByEntityResponse)
+def claim_by_entity_ids(
+    *,
+    payload: ClaimByEntityRequest,
+    db: Session = Depends(get_db),
+) -> ClaimByEntityResponse:
+    """Claim specific samples, experiments, and reads by their entity IDs.
+    
+    This endpoint allows claiming specific entities without requiring an organism_key.
+    It will find the latest draft submission for each entity and claim it with a lease.
+    """
+    if not any([payload.sample_ids, payload.experiment_ids, payload.read_ids, payload.project_ids]):
+        raise HTTPException(
+            status_code=400,
+            detail="At least one of sample_ids, experiment_ids, read_ids, or project_ids must be provided"
+        )
+    
+    lease_minutes = payload.lease_duration_minutes or 30
+    ttl = timedelta(minutes=lease_minutes)
+    now = datetime.now(timezone.utc)
+    
+    # Create an attempt for this claim (organism_key will be null for multi-organism claims)
+    attempt = SubmissionAttempt(
+        organism_key=None,
+        status="processing",
+        lock_acquired_at=now,
+        lock_expires_at=now + ttl,
+    )
+    db.add(attempt)
+    db.flush()
+    attempt_id = attempt.id
+    
+    claimed_samples: List[ClaimedEntity] = []
+    claimed_experiments: List[ClaimedEntity] = []
+    claimed_reads: List[ClaimedEntity] = []
+    claimed_projects: List[ClaimedEntity] = []
+    organism_keys_set: set[str] = set()
+    
+    # Claim samples by entity IDs
+    if payload.sample_ids:
+        # Find latest draft submission for each sample
+        sample_rank_subq = (
+            db.query(
+                SampleSubmission.id.label("id"),
+                SampleSubmission.sample_id.label("sample_id"),
+                func.row_number()
+                .over(
+                    partition_by=SampleSubmission.sample_id,
+                    order_by=SampleSubmission.created_at.desc(),
+                )
+                .label("rn"),
+            )
+            .filter(
+                SampleSubmission.sample_id.in_(payload.sample_ids),
+                SampleSubmission.status == "draft"
+            )
+        ).subquery()
+        
+        sample_ids_subq = (
+            db.query(sample_rank_subq.c.id)
+            .filter(sample_rank_subq.c.rn == 1)
+        ).subquery()
+        
+        sample_rows = (
+            db.query(SampleSubmission)
+            .filter(SampleSubmission.id.in_(db.query(sample_ids_subq.c.id)))
+            .filter(SampleSubmission.status == "draft")
+            .with_for_update(skip_locked=True)
+            .all()
+        )
+        
+        for row in sample_rows:
+            row.status = "submitting"
+            row.attempt_id = attempt_id
+            row.lock_acquired_at = now
+            row.lock_expires_at = attempt.lock_expires_at
+            db.add(
+                SubmissionEvent(
+                    attempt_id=attempt_id,
+                    entity_type="sample",
+                    submission_id=row.id,
+                    action="claimed"
+                )
+            )
+        db.commit()
+        
+        # Get organism keys from samples
+        if sample_rows:
+            sample_entity_ids = [r.sample_id for r in sample_rows]
+            organism_keys = (
+                db.query(Sample.organism_key)
+                .filter(Sample.id.in_(sample_entity_ids))
+                .distinct()
+                .all()
+            )
+            organism_keys_set.update(ok for (ok,) in organism_keys)
+        
+        for row in sample_rows:
+            claimed_samples.append(
+                ClaimedEntity(
+                    id=row.id,
+                    status=row.status,
+                    prepared_payload=row.prepared_payload,
+                    accession=row.accession,
+                )
+            )
+    
+    # Claim experiments by entity IDs
+    if payload.experiment_ids:
+        exp_rank_subq = (
+            db.query(
+                ExperimentSubmission.id.label("id"),
+                ExperimentSubmission.experiment_id.label("experiment_id"),
+                func.row_number()
+                .over(
+                    partition_by=ExperimentSubmission.experiment_id,
+                    order_by=ExperimentSubmission.created_at.desc(),
+                )
+                .label("rn"),
+            )
+            .filter(
+                ExperimentSubmission.experiment_id.in_(payload.experiment_ids),
+                ExperimentSubmission.status == "draft"
+            )
+        ).subquery()
+        
+        exp_ids_subq = (
+            db.query(exp_rank_subq.c.id)
+            .filter(exp_rank_subq.c.rn == 1)
+        ).subquery()
+        
+        exp_rows = (
+            db.query(ExperimentSubmission)
+            .filter(ExperimentSubmission.id.in_(db.query(exp_ids_subq.c.id)))
+            .filter(ExperimentSubmission.status == "draft")
+            .with_for_update(skip_locked=True)
+            .all()
+        )
+        
+        for row in exp_rows:
+            row.status = "submitting"
+            row.attempt_id = attempt_id
+            row.lock_acquired_at = now
+            row.lock_expires_at = attempt.lock_expires_at
+            db.add(
+                SubmissionEvent(
+                    attempt_id=attempt_id,
+                    entity_type="experiment",
+                    submission_id=row.id,
+                    action="claimed",
+                )
+            )
+        db.commit()
+        
+        # Build relationships for experiments -> sample/sample_submission
+        exp_ids = [r.experiment_id for r in exp_rows]
+        exp_sample_pairs = (
+            db.query(Experiment.id, Experiment.sample_id)
+            .filter(Experiment.id.in_(exp_ids))
+            .all()
+            if exp_rows
+            else []
+        )
+        sample_id_by_experiment_id: Dict[UUID, UUID] = {eid: sid for (eid, sid) in exp_sample_pairs}
+        
+        # Get organism keys from experiments via samples
+        if sample_id_by_experiment_id:
+            organism_keys = (
+                db.query(Sample.organism_key)
+                .filter(Sample.id.in_(sample_id_by_experiment_id.values()))
+                .distinct()
+                .all()
+            )
+            organism_keys_set.update(ok for (ok,) in organism_keys)
+        
+        # Map of claimed sample submissions in this attempt
+        claimed_sample_by_sample_id: Dict[UUID, SampleSubmission] = {
+            r.sample_id: r for r in sample_rows if sample_rows
+        }
+        
+        # For experiments whose samples weren't claimed, fall back to latest accepted sample submission
+        missing_sample_ids = [
+            sid
+            for sid in set(sample_id_by_experiment_id.values())
+            if sid not in claimed_sample_by_sample_id
+        ]
+        accepted_sample_by_sample_id: Dict[UUID, SampleSubmission] = {}
+        if missing_sample_ids:
+            accepted_samples = (
+                db.query(SampleSubmission)
+                .filter(
+                    SampleSubmission.sample_id.in_(missing_sample_ids),
+                    SampleSubmission.status == "accepted",
+                )
+                .all()
+            )
+            accepted_sample_by_sample_id = {r.sample_id: r for r in accepted_samples}
+        
+        for row in exp_rows:
+            sid = sample_id_by_experiment_id.get(row.experiment_id)
+            parent_ss = claimed_sample_by_sample_id.get(sid) or accepted_sample_by_sample_id.get(sid)
+            relationships = {
+                "sample_id": sid,
+                "sample_submission_id": (parent_ss.id if parent_ss else None),
+                "sample_accession": (
+                    parent_ss.accession
+                    if parent_ss
+                    else row.sample_accession
+                    if hasattr(row, "sample_accession")
+                    else None
+                ),
+                "project_accession": (
+                    row.project_accession if hasattr(row, "project_accession") else None
+                ),
+            }
+            claimed_experiments.append(
+                ClaimedEntity(
+                    id=row.id,
+                    status=row.status,
+                    prepared_payload=row.prepared_payload,
+                    accession=row.accession,
+                    relationships=relationships,
+                )
+            )
+    
+    # Claim reads by entity IDs
+    if payload.read_ids:
+        read_rank_subq = (
+            db.query(
+                ReadSubmission.id.label("id"),
+                ReadSubmission.read_id.label("read_id"),
+                func.row_number()
+                .over(
+                    partition_by=ReadSubmission.read_id,
+                    order_by=ReadSubmission.created_at.desc(),
+                )
+                .label("rn"),
+            )
+            .filter(
+                ReadSubmission.read_id.in_(payload.read_ids),
+                ReadSubmission.status == "draft"
+            )
+        ).subquery()
+        
+        read_ids_subq = (
+            db.query(read_rank_subq.c.id)
+            .filter(read_rank_subq.c.rn == 1)
+        ).subquery()
+        
+        read_rows = (
+            db.query(ReadSubmission)
+            .filter(ReadSubmission.id.in_(db.query(read_ids_subq.c.id)))
+            .filter(ReadSubmission.status == "draft")
+            .with_for_update(skip_locked=True)
+            .all()
+        )
+        
+        for row in read_rows:
+            row.status = "submitting"
+            row.attempt_id = attempt_id
+            row.lock_acquired_at = now
+            row.lock_expires_at = attempt.lock_expires_at
+            db.add(
+                SubmissionEvent(
+                    attempt_id=attempt_id,
+                    entity_type="read",
+                    submission_id=row.id,
+                    action="claimed"
+                )
+            )
+        db.commit()
+        
+        # Build relationships for reads -> experiment/experiment_submission
+        read_exp_ids = [r.experiment_id for r in read_rows]
+        
+        # Get organism keys from reads via experiments and samples
+        if read_exp_ids:
+            organism_keys = (
+                db.query(Sample.organism_key)
+                .join(Experiment, Sample.id == Experiment.sample_id)
+                .filter(Experiment.id.in_(read_exp_ids))
+                .distinct()
+                .all()
+            )
+            organism_keys_set.update(ok for (ok,) in organism_keys)
+        
+        # Map of claimed experiment submissions
+        claimed_exp_by_experiment_id: Dict[UUID, ExperimentSubmission] = {
+            r.experiment_id: r for r in exp_rows if exp_rows
+        }
+        
+        # For reads whose experiments weren't claimed, fall back to latest accepted experiment submission
+        missing_exp_ids = [eid for eid in set(read_exp_ids) if eid not in claimed_exp_by_experiment_id]
+        accepted_exp_by_experiment_id: Dict[UUID, ExperimentSubmission] = {}
+        if missing_exp_ids:
+            accepted_exps = (
+                db.query(ExperimentSubmission)
+                .filter(
+                    ExperimentSubmission.experiment_id.in_(missing_exp_ids),
+                    ExperimentSubmission.status == "accepted",
+                )
+                .all()
+            )
+            accepted_exp_by_experiment_id = {r.experiment_id: r for r in accepted_exps}
+        
+        for row in read_rows:
+            exp_parent = claimed_exp_by_experiment_id.get(
+                row.experiment_id
+            ) or accepted_exp_by_experiment_id.get(row.experiment_id)
+            relationships = {
+                "experiment_id": row.experiment_id,
+                "experiment_submission_id": (exp_parent.id if exp_parent else None),
+                "experiment_accession": (
+                    exp_parent.accession
+                    if exp_parent
+                    else row.experiment_accession
+                    if hasattr(row, "experiment_accession")
+                    else None
+                ),
+            }
+            claimed_reads.append(
+                ClaimedEntity(
+                    id=row.id,
+                    status=row.status,
+                    prepared_payload=row.prepared_payload,
+                    accession=row.accession,
+                    relationships=relationships,
+                )
+            )
+    
+    # Claim projects by entity IDs
+    if payload.project_ids:
+        proj_rank_subq = (
+            db.query(
+                ProjectSubmission.id.label("id"),
+                ProjectSubmission.project_id.label("project_id"),
+                func.row_number()
+                .over(
+                    partition_by=ProjectSubmission.project_id,
+                    order_by=ProjectSubmission.created_at.desc(),
+                )
+                .label("rn"),
+            )
+            .filter(
+                ProjectSubmission.project_id.in_(payload.project_ids),
+                ProjectSubmission.status == "draft"
+            )
+        ).subquery()
+        
+        proj_ids_subq = (
+            db.query(proj_rank_subq.c.id)
+            .filter(proj_rank_subq.c.rn == 1)
+        ).subquery()
+        
+        proj_rows = (
+            db.query(ProjectSubmission)
+            .filter(ProjectSubmission.id.in_(db.query(proj_ids_subq.c.id)))
+            .filter(ProjectSubmission.status == "draft")
+            .with_for_update(skip_locked=True)
+            .all()
+        )
+        
+        for row in proj_rows:
+            row.status = "submitting"
+            row.attempt_id = attempt_id
+            row.lock_acquired_at = now
+            row.lock_expires_at = attempt.lock_expires_at
+            db.add(
+                SubmissionEvent(
+                    attempt_id=attempt_id,
+                    entity_type="project",
+                    submission_id=row.id,
+                    action="claimed"
+                )
+            )
+        db.commit()
+        
+        # Get organism keys from projects
+        if proj_rows:
+            proj_ids = [r.project_id for r in proj_rows]
+            organism_keys = (
+                db.query(Project.organism_key)
+                .filter(Project.id.in_(proj_ids))
+                .distinct()
+                .all()
+            )
+            organism_keys_set.update(ok for (ok,) in organism_keys)
+            
+            # Enrich relationships for project items
+            proj_meta = (
+                db.query(Project.id, Project.organism_key, Project.project_type)
+                .filter(Project.id.in_(proj_ids))
+                .all()
+            )
+            meta_map = {pid: {"organism_key": ok, "project_type": pt} for (pid, ok, pt) in proj_meta}
+        else:
+            meta_map = {}
+        
+        for row in proj_rows:
+            pm = meta_map.get(row.project_id, {})
+            relationships = {
+                "organism_key": pm.get("organism_key"),
+                "project_type": pm.get("project_type"),
+            }
+            claimed_projects.append(
+                ClaimedEntity(
+                    id=row.id,
+                    status=row.status,
+                    prepared_payload=row.prepared_payload,
+                    accession=row.accession,
+                    relationships=relationships,
+                )
+            )
+    
+    return ClaimByEntityResponse(
+        attempt_id=attempt_id,
+        organism_keys=sorted(list(organism_keys_set)),
         samples=claimed_samples,
         experiments=claimed_experiments,
         reads=claimed_reads,
