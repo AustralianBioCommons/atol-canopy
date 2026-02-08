@@ -10,7 +10,7 @@ from app.models.experiment import Experiment, ExperimentSubmission
 from app.models.project import Project
 from app.models.read import Read, ReadSubmission
 from app.models.sample import Sample
-from app.schemas.bulk_import import BulkImportResponse
+from app.schemas.bulk_import import BulkImportResponseExperiments
 from app.schemas.common import SubmissionStatus
 from app.schemas.experiment import ExperimentCreate, ExperimentUpdate
 from app.services.base_service import BaseService
@@ -227,7 +227,7 @@ class ExperimentService(BaseService[Experiment, ExperimentCreate, ExperimentUpda
         db: Session,
         *,
         experiments_data: Dict[str, Dict[str, Any]],
-    ) -> BulkImportResponse:
+    ) -> BulkImportResponseExperiments:
         """Bulk import experiments; create reads and submission records; return counts and debug info."""
         # Load the ENA-ATOL mapping file
         with open(self._mapping_path(), "r") as f:
@@ -240,7 +240,8 @@ class ExperimentService(BaseService[Experiment, ExperimentCreate, ExperimentUpda
         created_submission_count = 0
         created_reads_count = 0
         skipped_experiments_count = 0
-        skipped_runs_count = 0
+        skipped_reads_count = 0
+        errors = []
 
         # Debug counters
         missing_bpa_sample_id_count = 0
@@ -249,28 +250,132 @@ class ExperimentService(BaseService[Experiment, ExperimentCreate, ExperimentUpda
         missing_required_fields_count = 0
 
         for package_id, experiment_data in experiments_data.items():
-            # Already existing?
-            existing = db.query(Experiment).filter(Experiment.bpa_package_id == package_id).first()
-            if existing:
+            # Check if experiment already exists
+            existing_experiment = (
+                db.query(Experiment).filter(Experiment.bpa_package_id == package_id).first()
+            )
+
+            if existing_experiment:
                 existing_experiment_count += 1
                 skipped_experiments_count += 1
+                # Still process reads for existing experiment
+                experiment_id = existing_experiment.id
+
+                # Find project for read submissions
+                project_id = None
+                project = db.query(Project).first()
+                if project:
+                    project_id = project.id
+
+                # Process reads even though experiment exists
+                if isinstance(experiment_data.get("runs"), list):
+                    for run in experiment_data["runs"]:
+                        try:
+                            # Validate required fields for read
+                            if not run.get("bpa_resource_id"):
+                                run_identifier = (
+                                    run.get("filename")
+                                    or run.get("run_alias")
+                                    or run.get("bpa_dataset_id")
+                                    or run.get("flowcell_id")
+                                    or "unknown"
+                                )
+                                errors.append(
+                                    f"{package_id} / read '{run_identifier}': Missing required field 'bpa_resource_id'"
+                                )
+                                skipped_reads_count += 1
+                                continue
+
+                            # Check if read already exists
+                            existing_read = (
+                                db.query(Read)
+                                .filter(Read.bpa_resource_id == run.get("bpa_resource_id"))
+                                .first()
+                            )
+
+                            if existing_read:
+                                skipped_reads_count += 1
+                                continue
+
+                            read_id = uuid.uuid4()
+                            transforms = {"optional_file": to_bool}
+                            inject = {"id": read_id, "experiment_id": experiment_id}
+                            read_kwargs = map_to_model_columns(
+                                Read,
+                                run,
+                                transforms=transforms,
+                                inject=inject,
+                            )
+                            read = Read(**read_kwargs)
+                            db.add(read)
+                            created_reads_count += 1
+
+                            run_prepared_payload: Dict[str, Any] = {}
+                            for ena_key, atol_key in run_mapping.items():
+                                if atol_key in run:
+                                    run_prepared_payload[ena_key] = run[atol_key]
+
+                            read_submission = ReadSubmission(
+                                id=uuid.uuid4(),
+                                read_id=read.id,
+                                experiment_id=experiment_id,
+                                project_id=project_id,
+                                authority="ENA",
+                                entity_type_const="read",
+                                prepared_payload=run_prepared_payload,
+                            )
+                            db.add(read_submission)
+                            created_submission_count += 1
+                        except Exception as e:
+                            # Try to get the most identifying information from the run
+                            run_identifier = (
+                                run.get("filename")
+                                or run.get("run_alias")
+                                or run.get("bpa_dataset_id")
+                                or run.get("flowcell_id")
+                                or "unknown"
+                            )
+                            errors.append(f"{package_id} / read '{run_identifier}': {str(e)}")
+                            skipped_reads_count += 1
+
+                    # Commit reads for existing experiment
+                    try:
+                        db.commit()
+                    except Exception as e:
+                        errors.append(f"{package_id}: Failed to commit reads - {str(e)}")
+                        db.rollback()
+
                 continue
 
             bpa_sample_id = experiment_data.get("bpa_sample_id")
             if not bpa_sample_id:
                 missing_bpa_sample_id_count += 1
+                errors.append(f"{package_id}: Missing required field 'bpa_sample_id'")
                 skipped_experiments_count += 1
+                # Count reads that would have been created
+                if isinstance(experiment_data.get("runs"), list):
+                    skipped_reads_count += len(experiment_data["runs"])
                 continue
 
             sample = db.query(Sample).filter(Sample.bpa_sample_id == bpa_sample_id).first()
             if not sample:
                 missing_sample_count += 1
+                errors.append(
+                    f"{package_id}: Sample not found with bpa_sample_id '{bpa_sample_id}'"
+                )
                 skipped_experiments_count += 1
+                # Count reads that would have been created
+                if isinstance(experiment_data.get("runs"), list):
+                    skipped_reads_count += len(experiment_data["runs"])
                 continue
 
             if not experiment_data.get("bpa_library_id"):
                 missing_required_fields_count += 1
+                errors.append(f"{package_id}: Missing required field 'bpa_library_id'")
                 skipped_experiments_count += 1
+                # Count reads that would have been created
+                if isinstance(experiment_data.get("runs"), list):
+                    skipped_reads_count += len(experiment_data["runs"])
                 continue
 
             try:
@@ -317,6 +422,21 @@ class ExperimentService(BaseService[Experiment, ExperimentCreate, ExperimentUpda
                 if isinstance(experiment_data.get("runs"), list):
                     for run in experiment_data["runs"]:
                         try:
+                            # Validate required fields for read
+                            if not run.get("bpa_resource_id"):
+                                run_identifier = (
+                                    run.get("filename")
+                                    or run.get("run_alias")
+                                    or run.get("bpa_dataset_id")
+                                    or run.get("flowcell_id")
+                                    or "unknown"
+                                )
+                                errors.append(
+                                    f"{package_id} / read '{run_identifier}': Missing required field 'bpa_resource_id'"
+                                )
+                                skipped_reads_count += 1
+                                continue
+
                             read_id = uuid.uuid4()
                             transforms = {"optional_file": to_bool}
                             inject = {"id": read_id, "experiment_id": experiment_id}
@@ -346,25 +466,37 @@ class ExperimentService(BaseService[Experiment, ExperimentCreate, ExperimentUpda
                             )
                             db.add(read_submission)
                             created_submission_count += 1
-                        except Exception:
-                            skipped_runs_count += 1
+                        except Exception as e:
+                            # Try to get the most identifying information from the run
+                            run_identifier = (
+                                run.get("filename")
+                                or run.get("run_alias")
+                                or run.get("bpa_dataset_id")
+                                or run.get("flowcell_id")
+                                or "unknown"
+                            )
+                            errors.append(f"{package_id} / read '{run_identifier}': {str(e)}")
+                            skipped_reads_count += 1
 
                 db.commit()
                 created_experiments_count += 1
                 created_submission_count += 1
-            except Exception:
+            except Exception as e:
+                errors.append(f"{package_id}: {str(e)}")
                 db.rollback()
                 skipped_experiments_count += 1
 
-        return BulkImportResponse(
-            created_count=created_experiments_count,
+        return BulkImportResponseExperiments(
+            created_experiment_count=created_experiments_count,
             skipped_experiment_count=skipped_experiments_count,
-            skipped_run_count=skipped_runs_count,
+            created_reads_count=created_reads_count,
+            skipped_reads_count=skipped_reads_count,
             message=(
-                f"Experiment import complete. Created experiments: {created_experiments_count}, "
-                f"Created submission records: {created_submission_count}, Created reads: {created_reads_count}, "
-                f"Skipped: {skipped_runs_count}"
+                f"Experiments: {created_experiments_count} created, {skipped_experiments_count} skipped. "
+                f"Reads: {created_reads_count} created, {skipped_reads_count} skipped. "
+                f"Submission records: {created_submission_count} created."
             ),
+            errors=errors if errors else None,
             debug={
                 "missing_bpa_sample_id": missing_bpa_sample_id_count,
                 "missing_sample": missing_sample_count,

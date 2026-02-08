@@ -6,7 +6,7 @@ from uuid import UUID
 from pydantic import BaseModel, ConfigDict, Field
 
 # Enum for submission status
-from app.schemas.common import SubmissionStatus
+from app.schemas.common import SampleKind, SubmissionStatus
 
 
 # Base Sample schema (aligns with schema.sql columns except id/timestamps/bpa_json)
@@ -49,6 +49,11 @@ class SampleBase(BaseModel):
     project_name: Optional[str] = None
     biosample_accession: Optional[str] = None
 
+    # Parent-child relationship fields
+    derived_from_sample_id: Optional[UUID] = None
+    kind: Optional[SampleKind] = None
+    extensions: Optional[Dict] = None
+
 
 # Schema for creating a new sample
 class SampleCreate(SampleBase):
@@ -72,6 +77,9 @@ class SampleInDBBase(SampleBase):
     # bpa_json: Dict
     created_at: datetime
     updated_at: datetime
+
+    # Override to make these required in DB responses
+    kind: SampleKind
 
     model_config = ConfigDict(from_attributes=True)
 

@@ -11,6 +11,7 @@ CREATE TYPE molecule_type AS ENUM ('genomic DNA', 'genomic RNA');
 CREATE TYPE assembly_output_file_type AS ENUM ('QC', 'Other'); -- TODO define more specific types as needed
 CREATE TYPE entity_type AS ENUM ('organism', 'sample', 'experiment', 'read', 'assembly', 'project');
 CREATE TYPE project_type AS ENUM ('root', 'genomic_data', 'assembly');
+CREATE TYPE sample_kind AS ENUM ('specimen', 'derived');
 -- ==========================================
 -- Users and Authentication
 -- ==========================================
@@ -168,7 +169,7 @@ CREATE INDEX IF NOT EXISTS idx_project_submission_finalised_attempt ON project_s
 CREATE TABLE sample (
     id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
     organism_key TEXT NOT NULL REFERENCES organism(grouping_key) ON DELETE CASCADE,
-    bpa_sample_id TEXT UNIQUE NOT NULL,
+    bpa_sample_id TEXT,
     specimen_id TEXT,
     specimen_id_description TEXT,
     identified_by TEXT,
@@ -202,8 +203,16 @@ CREATE TABLE sample (
     preservation_temperature TEXT,
     project_name TEXT,
     biosample_accession TEXT,
-    -- bpa_json JSONB NOT NULL,
-    -- TODO extensions json field above instead of bpa_json?
+
+    derived_from_sample_id UUID REFERENCES sample(id) ON DELETE CASCADE,
+    kind sample_kind NOT NULL,
+
+  CONSTRAINT derived_from_sample_id_matches_kind CHECK (
+    (kind = 'specimen' AND derived_from_sample_id IS NULL)
+    OR
+    (kind = 'derived'  AND derived_from_sample_id IS NOT NULL)
+  ),
+    extensions JSONB,
     created_at TIMESTAMP NOT NULL DEFAULT NOW(),
     updated_at TIMESTAMP NOT NULL DEFAULT NOW()
 );
@@ -250,6 +259,24 @@ CREATE UNIQUE INDEX uq_sample_one_accepted
 CREATE INDEX IF NOT EXISTS idx_sample_submission_attempt ON sample_submission (attempt_id);
 CREATE INDEX IF NOT EXISTS idx_sample_submission_finalised_attempt ON sample_submission (finalised_attempt_id);
 
+-- Support parent/child lookups for derived samples
+CREATE INDEX IF NOT EXISTS idx_sample_derived_from_sample_id ON sample(derived_from_sample_id);
+
+-- Enforce uniqueness: one specimen sample per (organism_key, specimen_id)
+CREATE UNIQUE INDEX IF NOT EXISTS uq_specimen_per_organism_specimen_id
+  ON sample (organism_key, specimen_id)
+  WHERE kind = 'specimen' AND specimen_id IS NOT NULL;
+
+-- Enforce uniqueness: bpa_sample_id must be unique for derived samples
+CREATE UNIQUE INDEX IF NOT EXISTS uq_derived_bpa_sample_id
+  ON sample (bpa_sample_id)
+  WHERE kind = 'derived' AND bpa_sample_id IS NOT NULL;
+
+-- Index for efficient lookup by organism_key + specimen_id
+CREATE INDEX IF NOT EXISTS idx_sample_organism_specimen_lookup
+  ON sample (organism_key, specimen_id)
+  WHERE specimen_id IS NOT NULL;
+
 -- UNIQUE (sample_id, authority) WHERE status = 'accepted' AND accession IS NOT NULL
 
 -- ==========================================
@@ -287,9 +314,7 @@ CREATE TABLE experiment (
     raw_data_release_date TEXT,
 
     -- bpa_dataset_id TEXT UNIQUE NOT NULL,
-    -- bpa_json JSONB NOT NULL,
-    -- TODO extensions json field above instead of bpa_json?
-    -- TO DO perhaps add an 'extensions' field instead of bpa_json
+    extensions JSONB,
     created_at TIMESTAMP NOT NULL DEFAULT NOW(),
     updated_at TIMESTAMP NOT NULL DEFAULT NOW()
 );
@@ -378,8 +403,7 @@ CREATE TABLE read (
     lane_number TEXT,
     run_read_count TEXT,
     run_base_count TEXT,
-    -- bpa_json JSONB NOT NULL,
-    -- TODO extensions json field above instead of bpa_json?
+    extensions JSONB,
     created_at TIMESTAMP NOT NULL DEFAULT NOW(),
     updated_at TIMESTAMP NOT NULL DEFAULT NOW()
 );

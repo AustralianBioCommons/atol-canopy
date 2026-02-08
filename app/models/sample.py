@@ -22,7 +22,7 @@ class Sample(Base):
     organism_key = Column(
         "organism_key", ForeignKey("organism.grouping_key", ondelete="CASCADE"), nullable=False
     )
-    bpa_sample_id = Column(Text, unique=True, nullable=False)
+    bpa_sample_id = Column(Text, nullable=True)
     specimen_id = Column(Text, nullable=True)
     specimen_id_description = Column(Text, nullable=True)
     identified_by = Column(Text, nullable=True)
@@ -56,6 +56,14 @@ class Sample(Base):
     preservation_temperature = Column(Text, nullable=True)
     project_name = Column(Text, nullable=True)
     biosample_accession = Column(Text, nullable=True)
+
+    # Parent-child relationship fields
+    derived_from_sample_id = Column(
+        UUID(as_uuid=True), ForeignKey("sample.id", ondelete="CASCADE"), nullable=True
+    )
+    kind = Column(SQLAlchemyEnum("specimen", "derived", name="sample_kind"), nullable=False)
+    extensions = Column(JSONB, nullable=True)
+
     # bpa_json = Column(JSONB, nullable=False)
     created_at = Column(DateTime, nullable=False, default=datetime.now(timezone.utc))
     updated_at = Column(
@@ -67,6 +75,14 @@ class Sample(Base):
 
     # Relationships
     organism = relationship("Organism", backref=backref("samples", cascade="all, delete-orphan"))
+
+    # Parent-child relationships
+    parent = relationship(
+        "Sample",
+        remote_side=[id],
+        backref=backref("children", cascade="all, delete-orphan"),
+        foreign_keys=[derived_from_sample_id],
+    )
 
 
 class SampleSubmission(Base):
