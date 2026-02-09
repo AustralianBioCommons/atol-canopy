@@ -129,8 +129,6 @@ class OrganismService(BaseService[Organism, OrganismCreate, OrganismUpdate]):
             grouping_key=organism.grouping_key,
             tax_id=organism.tax_id,
             scientific_name=organism.scientific_name,
-            common_name=organism.common_name,
-            common_name_source=organism.common_name_source,
             samples=[],
             experiments=[],
             reads=[],
@@ -174,17 +172,23 @@ class OrganismService(BaseService[Organism, OrganismCreate, OrganismUpdate]):
 
     def create_organism(self, db: Session, *, organism_in: OrganismCreate) -> Organism:
         """Create a new organism and draft projects + submissions."""
-        common_name = organism_in.common_name
-        common_name_source = organism_in.common_name_source
-        if common_name and not common_name_source:
-            common_name_source = "BPA"
-
         organism = Organism(
             grouping_key=organism_in.grouping_key,
             tax_id=organism_in.tax_id,
             scientific_name=organism_in.scientific_name,
-            common_name=common_name,
-            common_name_source=common_name_source,
+            common_name=organism_in.common_name,
+            common_name_source=organism_in.common_name_source,
+            genus=organism_in.genus,
+            species=organism_in.species,
+            infraspecific_epithet=organism_in.infraspecific_epithet,
+            culture_or_strain_id=organism_in.culture_or_strain_id,
+            authority=organism_in.authority,
+            atol_scientific_name=organism_in.atol_scientific_name,
+            tax_string=organism_in.tax_string,
+            ncbi_order=organism_in.ncbi_order,
+            ncbi_family=organism_in.ncbi_family,
+            busco_dataset_name=organism_in.busco_dataset_name,
+            augustus_dataset_name=organism_in.augustus_dataset_name,
             taxonomy_lineage_json=organism_in.taxonomy_lineage_json,
             bpa_json=organism_in.dict(exclude_unset=True),
         )
@@ -273,12 +277,20 @@ class OrganismService(BaseService[Organism, OrganismCreate, OrganismUpdate]):
         organism = db.query(Organism).filter(Organism.grouping_key == grouping_key).first()
         if not organism:
             return None
-
+        non_bpa_fields = [
+            "ncbi_order",
+            "ncbi_family",
+            "busco_dataset_name",
+            "augustus_dataset_name",
+            "common_name",
+            "common_name_source",
+            "tax_string",
+        ]
         new_bpa_json: Dict[str, Any] = organism.bpa_json or {}
         update_data = organism_in.dict(exclude_unset=True)
         for field, value in update_data.items():
             setattr(organism, field, value)
-            if field == "common_name_source":
+            if field in non_bpa_fields:
                 continue
             # Persist change into bpa_json snapshot
             new_bpa_json[field] = value
@@ -347,18 +359,21 @@ class OrganismService(BaseService[Organism, OrganismCreate, OrganismUpdate]):
                     continue
 
                 # Create organism and projects
-                common_name = organism_data.get("common_name", None)
-                common_name_source = (
-                    organism_data.get("common_name_source", "BPA")
-                    if common_name is not None
-                    else None
-                )
                 organism = Organism(
                     grouping_key=organism_grouping_key,
                     tax_id=tax_id,
-                    common_name=common_name,
-                    common_name_source=common_name_source,
                     scientific_name=scientific_name,
+                    genus=organism_data.get("genus"),
+                    species=organism_data.get("species"),
+                    infraspecific_epithet=organism_data.get("infraspecific_epithet"),
+                    culture_or_strain_id=organism_data.get("culture_or_strain_id"),
+                    authority=organism_data.get("authority"),
+                    atol_scientific_name=organism_data.get("atol_scientific_name"),
+                    tax_string=organism_data.get("tax_string"),
+                    ncbi_order=organism_data.get("ncbi_order"),
+                    ncbi_family=organism_data.get("ncbi_family"),
+                    busco_dataset_name=organism_data.get("busco_dataset_name"),
+                    augustus_dataset_name=organism_data.get("augustus_dataset_name"),
                     bpa_json=organism_data,
                 )
                 root_project = Project(
