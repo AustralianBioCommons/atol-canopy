@@ -7,9 +7,8 @@ from pydantic import BaseModel, Field
 from sqlalchemy import func, or_
 from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.orm import Session
-from app.models.user import User
 
-from app.core.dependencies import get_db, has_role, require_role, get_current_active_user
+from app.core.dependencies import get_current_active_user, get_db, has_role, require_role
 from app.models.accession_registry import AccessionRegistry
 from app.models.broker import SubmissionAttempt, SubmissionEvent
 from app.models.experiment import Experiment, ExperimentSubmission
@@ -17,6 +16,7 @@ from app.models.organism import Organism
 from app.models.project import Project, ProjectSubmission
 from app.models.read import Read, ReadSubmission
 from app.models.sample import Sample, SampleSubmission
+from app.models.user import User
 
 router = APIRouter()
 
@@ -60,17 +60,27 @@ class ClaimRequest(BaseModel):
 
 class ClaimByEntityRequest(BaseModel):
     """Request to claim specific samples, experiments, and reads by their entity IDs."""
+
     sample_ids: Optional[List[UUID]] = Field(default=None, description="Sample entity IDs to claim")
-    experiment_ids: Optional[List[UUID]] = Field(default=None, description="Experiment entity IDs to claim")
+    experiment_ids: Optional[List[UUID]] = Field(
+        default=None, description="Experiment entity IDs to claim"
+    )
     read_ids: Optional[List[UUID]] = Field(default=None, description="Read entity IDs to claim")
-    project_ids: Optional[List[UUID]] = Field(default=None, description="Project entity IDs to claim")
-    lease_duration_minutes: Optional[int] = Field(default=30, ge=1, le=180, description="Lease duration in minutes")
+    project_ids: Optional[List[UUID]] = Field(
+        default=None, description="Project entity IDs to claim"
+    )
+    lease_duration_minutes: Optional[int] = Field(
+        default=30, ge=1, le=180, description="Lease duration in minutes"
+    )
 
 
 class ClaimByEntityResponse(BaseModel):
     """Response from claiming entities by ID."""
+
     attempt_id: UUID
-    organism_keys: List[str] = Field(default_factory=list, description="Organism keys involved in this claim")
+    organism_keys: List[str] = Field(
+        default_factory=list, description="Organism keys involved in this claim"
+    )
     samples: List[ClaimedEntity] = Field(default_factory=list)
     experiments: List[ClaimedEntity] = Field(default_factory=list)
     reads: List[ClaimedEntity] = Field(default_factory=list)
@@ -105,6 +115,7 @@ class ReportResult(BaseModel):
 # NOTE: More specific routes must come before parameterized routes in FastAPI
 # Otherwise /claim would match /organisms/{organism_key}/claim with organism_key="claim"
 
+
 @router.post("/claim", response_model=ClaimByEntityResponse)
 def claim_by_entity_ids(
     *,
@@ -113,24 +124,24 @@ def claim_by_entity_ids(
     db: Session = Depends(get_db),
 ) -> ClaimByEntityResponse:
     """Claim specific samples, experiments, and reads by their entity IDs.
-    
+
     This endpoint allows claiming specific entities without requiring an organism_key.
     It will find the latest draft submission for each entity and claim it with a lease.
     """
     require_role(current_user, ["broker"])
     # Expire any stale leases before claiming
     expire_stale_leases(db)
-    
+
     if not any([payload.sample_ids, payload.experiment_ids, payload.read_ids, payload.project_ids]):
         raise HTTPException(
             status_code=400,
-            detail="At least one of sample_ids, experiment_ids, read_ids, or project_ids must be provided"
+            detail="At least one of sample_ids, experiment_ids, read_ids, or project_ids must be provided",
         )
-    
+
     lease_minutes = payload.lease_duration_minutes or 30
     ttl = timedelta(minutes=lease_minutes)
     now = datetime.now(timezone.utc)
-    
+
     # Create an attempt for this claim (organism_key will be null for multi-organism claims)
     attempt = SubmissionAttempt(
         organism_key=None,
@@ -141,13 +152,13 @@ def claim_by_entity_ids(
     db.add(attempt)
     db.flush()
     attempt_id = attempt.id
-    
+
     claimed_samples: List[ClaimedEntity] = []
     claimed_experiments: List[ClaimedEntity] = []
     claimed_reads: List[ClaimedEntity] = []
     claimed_projects: List[ClaimedEntity] = []
     organism_keys_set: set[str] = set()
-    
+
     # Claim samples by entity IDs
     if payload.sample_ids:
         # Find latest draft submission for each sample
@@ -161,18 +172,16 @@ def claim_by_entity_ids(
                     order_by=SampleSubmission.created_at.desc(),
                 )
                 .label("rn"),
-            )
-            .filter(
+            ).filter(
                 SampleSubmission.sample_id.in_(payload.sample_ids),
-                SampleSubmission.status == "draft"
+                SampleSubmission.status == "draft",
             )
         ).subquery()
-        
+
         sample_ids_subq = (
-            db.query(sample_rank_subq.c.id)
-            .filter(sample_rank_subq.c.rn == 1)
+            db.query(sample_rank_subq.c.id).filter(sample_rank_subq.c.rn == 1)
         ).subquery()
-        
+
         sample_rows = (
             db.query(SampleSubmission)
             .filter(SampleSubmission.id.in_(db.query(sample_ids_subq.c.id)))
@@ -180,7 +189,7 @@ def claim_by_entity_ids(
             .with_for_update(skip_locked=True)
             .all()
         )
-        
+
         for row in sample_rows:
             row.status = "submitting"
             row.attempt_id = attempt_id
@@ -191,11 +200,11 @@ def claim_by_entity_ids(
                     attempt_id=attempt_id,
                     entity_type="sample",
                     submission_id=row.id,
-                    action="claimed"
+                    action="claimed",
                 )
             )
         db.commit()
-        
+
         # Get organism keys from samples
         if sample_rows:
             sample_entity_ids = [r.sample_id for r in sample_rows]
@@ -206,7 +215,7 @@ def claim_by_entity_ids(
                 .all()
             )
             organism_keys_set.update(ok for (ok,) in organism_keys)
-        
+
         for row in sample_rows:
             claimed_samples.append(
                 ClaimedEntity(
@@ -216,7 +225,7 @@ def claim_by_entity_ids(
                     accession=row.accession,
                 )
             )
-    
+
     # Claim experiments by entity IDs
     if payload.experiment_ids:
         exp_rank_subq = (
@@ -229,18 +238,14 @@ def claim_by_entity_ids(
                     order_by=ExperimentSubmission.created_at.desc(),
                 )
                 .label("rn"),
-            )
-            .filter(
+            ).filter(
                 ExperimentSubmission.experiment_id.in_(payload.experiment_ids),
-                ExperimentSubmission.status == "draft"
+                ExperimentSubmission.status == "draft",
             )
         ).subquery()
-        
-        exp_ids_subq = (
-            db.query(exp_rank_subq.c.id)
-            .filter(exp_rank_subq.c.rn == 1)
-        ).subquery()
-        
+
+        exp_ids_subq = (db.query(exp_rank_subq.c.id).filter(exp_rank_subq.c.rn == 1)).subquery()
+
         exp_rows = (
             db.query(ExperimentSubmission)
             .filter(ExperimentSubmission.id.in_(db.query(exp_ids_subq.c.id)))
@@ -248,7 +253,7 @@ def claim_by_entity_ids(
             .with_for_update(skip_locked=True)
             .all()
         )
-        
+
         for row in exp_rows:
             row.status = "submitting"
             row.attempt_id = attempt_id
@@ -263,18 +268,16 @@ def claim_by_entity_ids(
                 )
             )
         db.commit()
-        
+
         # Build relationships for experiments -> sample/sample_submission
         exp_ids = [r.experiment_id for r in exp_rows]
         exp_sample_pairs = (
-            db.query(Experiment.id, Experiment.sample_id)
-            .filter(Experiment.id.in_(exp_ids))
-            .all()
+            db.query(Experiment.id, Experiment.sample_id).filter(Experiment.id.in_(exp_ids)).all()
             if exp_rows
             else []
         )
         sample_id_by_experiment_id: Dict[UUID, UUID] = {eid: sid for (eid, sid) in exp_sample_pairs}
-        
+
         # Get organism keys from experiments via samples
         if sample_id_by_experiment_id:
             organism_keys = (
@@ -284,12 +287,12 @@ def claim_by_entity_ids(
                 .all()
             )
             organism_keys_set.update(ok for (ok,) in organism_keys)
-        
+
         # Map of claimed sample submissions in this attempt
         claimed_sample_by_sample_id: Dict[UUID, SampleSubmission] = {
             r.sample_id: r for r in sample_rows if sample_rows
         }
-        
+
         # For experiments whose samples weren't claimed, fall back to latest accepted sample submission
         missing_sample_ids = [
             sid
@@ -307,10 +310,12 @@ def claim_by_entity_ids(
                 .all()
             )
             accepted_sample_by_sample_id = {r.sample_id: r for r in accepted_samples}
-        
+
         for row in exp_rows:
             sid = sample_id_by_experiment_id.get(row.experiment_id)
-            parent_ss = claimed_sample_by_sample_id.get(sid) or accepted_sample_by_sample_id.get(sid)
+            parent_ss = claimed_sample_by_sample_id.get(sid) or accepted_sample_by_sample_id.get(
+                sid
+            )
             relationships = {
                 "sample_id": sid,
                 "sample_submission_id": (parent_ss.id if parent_ss else None),
@@ -334,7 +339,7 @@ def claim_by_entity_ids(
                     relationships=relationships,
                 )
             )
-    
+
     # Claim reads by entity IDs
     if payload.read_ids:
         read_rank_subq = (
@@ -347,18 +352,11 @@ def claim_by_entity_ids(
                     order_by=ReadSubmission.created_at.desc(),
                 )
                 .label("rn"),
-            )
-            .filter(
-                ReadSubmission.read_id.in_(payload.read_ids),
-                ReadSubmission.status == "draft"
-            )
+            ).filter(ReadSubmission.read_id.in_(payload.read_ids), ReadSubmission.status == "draft")
         ).subquery()
-        
-        read_ids_subq = (
-            db.query(read_rank_subq.c.id)
-            .filter(read_rank_subq.c.rn == 1)
-        ).subquery()
-        
+
+        read_ids_subq = (db.query(read_rank_subq.c.id).filter(read_rank_subq.c.rn == 1)).subquery()
+
         read_rows = (
             db.query(ReadSubmission)
             .filter(ReadSubmission.id.in_(db.query(read_ids_subq.c.id)))
@@ -366,7 +364,7 @@ def claim_by_entity_ids(
             .with_for_update(skip_locked=True)
             .all()
         )
-        
+
         for row in read_rows:
             row.status = "submitting"
             row.attempt_id = attempt_id
@@ -377,14 +375,14 @@ def claim_by_entity_ids(
                     attempt_id=attempt_id,
                     entity_type="read",
                     submission_id=row.id,
-                    action="claimed"
+                    action="claimed",
                 )
             )
         db.commit()
-        
+
         # Build relationships for reads -> experiment/experiment_submission
         read_exp_ids = [r.experiment_id for r in read_rows]
-        
+
         # Get organism keys from reads via experiments and samples
         if read_exp_ids:
             organism_keys = (
@@ -395,14 +393,16 @@ def claim_by_entity_ids(
                 .all()
             )
             organism_keys_set.update(ok for (ok,) in organism_keys)
-        
+
         # Map of claimed experiment submissions
         claimed_exp_by_experiment_id: Dict[UUID, ExperimentSubmission] = {
             r.experiment_id: r for r in exp_rows if exp_rows
         }
-        
+
         # For reads whose experiments weren't claimed, fall back to latest accepted experiment submission
-        missing_exp_ids = [eid for eid in set(read_exp_ids) if eid not in claimed_exp_by_experiment_id]
+        missing_exp_ids = [
+            eid for eid in set(read_exp_ids) if eid not in claimed_exp_by_experiment_id
+        ]
         accepted_exp_by_experiment_id: Dict[UUID, ExperimentSubmission] = {}
         if missing_exp_ids:
             accepted_exps = (
@@ -414,7 +414,7 @@ def claim_by_entity_ids(
                 .all()
             )
             accepted_exp_by_experiment_id = {r.experiment_id: r for r in accepted_exps}
-        
+
         for row in read_rows:
             exp_parent = claimed_exp_by_experiment_id.get(
                 row.experiment_id
@@ -439,7 +439,7 @@ def claim_by_entity_ids(
                     relationships=relationships,
                 )
             )
-    
+
     # Claim projects by entity IDs
     if payload.project_ids:
         proj_rank_subq = (
@@ -452,18 +452,14 @@ def claim_by_entity_ids(
                     order_by=ProjectSubmission.created_at.desc(),
                 )
                 .label("rn"),
-            )
-            .filter(
+            ).filter(
                 ProjectSubmission.project_id.in_(payload.project_ids),
-                ProjectSubmission.status == "draft"
+                ProjectSubmission.status == "draft",
             )
         ).subquery()
-        
-        proj_ids_subq = (
-            db.query(proj_rank_subq.c.id)
-            .filter(proj_rank_subq.c.rn == 1)
-        ).subquery()
-        
+
+        proj_ids_subq = (db.query(proj_rank_subq.c.id).filter(proj_rank_subq.c.rn == 1)).subquery()
+
         proj_rows = (
             db.query(ProjectSubmission)
             .filter(ProjectSubmission.id.in_(db.query(proj_ids_subq.c.id)))
@@ -471,7 +467,7 @@ def claim_by_entity_ids(
             .with_for_update(skip_locked=True)
             .all()
         )
-        
+
         for row in proj_rows:
             row.status = "submitting"
             row.attempt_id = attempt_id
@@ -482,32 +478,31 @@ def claim_by_entity_ids(
                     attempt_id=attempt_id,
                     entity_type="project",
                     submission_id=row.id,
-                    action="claimed"
+                    action="claimed",
                 )
             )
         db.commit()
-        
+
         # Get organism keys from projects
         if proj_rows:
             proj_ids = [r.project_id for r in proj_rows]
             organism_keys = (
-                db.query(Project.organism_key)
-                .filter(Project.id.in_(proj_ids))
-                .distinct()
-                .all()
+                db.query(Project.organism_key).filter(Project.id.in_(proj_ids)).distinct().all()
             )
             organism_keys_set.update(ok for (ok,) in organism_keys)
-            
+
             # Enrich relationships for project items
             proj_meta = (
                 db.query(Project.id, Project.organism_key, Project.project_type)
                 .filter(Project.id.in_(proj_ids))
                 .all()
             )
-            meta_map = {pid: {"organism_key": ok, "project_type": pt} for (pid, ok, pt) in proj_meta}
+            meta_map = {
+                pid: {"organism_key": ok, "project_type": pt} for (pid, ok, pt) in proj_meta
+            }
         else:
             meta_map = {}
-        
+
         for row in proj_rows:
             pm = meta_map.get(row.project_id, {})
             relationships = {
@@ -523,18 +518,20 @@ def claim_by_entity_ids(
                     relationships=relationships,
                 )
             )
-    
+
     # Check if any items were claimed
-    total_claimed = len(claimed_samples) + len(claimed_experiments) + len(claimed_reads) + len(claimed_projects)
+    total_claimed = (
+        len(claimed_samples) + len(claimed_experiments) + len(claimed_reads) + len(claimed_projects)
+    )
     if total_claimed == 0:
         # Delete the empty attempt
         db.delete(attempt)
         db.commit()
         raise HTTPException(
             status_code=400,
-            detail="No draft submissions available to claim. All requested items may already be leased or do not exist."
+            detail="No draft submissions available to claim. All requested items may already be leased or do not exist.",
         )
-    
+
     return ClaimByEntityResponse(
         attempt_id=attempt_id,
         organism_keys=sorted(list(organism_keys_set)),
@@ -560,7 +557,7 @@ def claim_drafts_for_organism(
     require_role(current_user, ["broker"])
     # Expire any stale leases before claiming
     expire_stale_leases(db)
-    
+
     # Create an attempt for this claim
     lease_minutes = 30
     if payload and payload.lease_duration_minutes:
@@ -921,16 +918,18 @@ def claim_drafts_for_organism(
         )
 
     # Check if any items were claimed
-    total_claimed = len(claimed_samples) + len(claimed_experiments) + len(claimed_reads) + len(claimed_projects)
+    total_claimed = (
+        len(claimed_samples) + len(claimed_experiments) + len(claimed_reads) + len(claimed_projects)
+    )
     if total_claimed == 0:
         # Delete the empty attempt
         db.delete(attempt)
         db.commit()
         raise HTTPException(
             status_code=400,
-            detail="No draft submissions available to claim. All items may already be leased or no items exist for this organism."
+            detail="No draft submissions available to claim. All items may already be leased or no items exist for this organism.",
         )
-    
+
     # Enrich response with organism info
     org_row = db.query(Organism).filter(Organism.grouping_key == organism_key).first()
     org_info = None
@@ -965,7 +964,7 @@ def expire_leases(
     db: Session = Depends(get_db),
 ) -> Dict[str, Any]:
     """Manually expire all submissions with expired leases.
-    
+
     This endpoint finds all submissions in 'submitting' status with expired leases
     and resets them to 'draft' status. Useful for cleanup or can be called via cron.
     """
@@ -974,7 +973,7 @@ def expire_leases(
     return {
         "expired_counts": expired_counts,
         "total_expired": total_expired,
-        "message": f"Expired {total_expired} stale leases"
+        "message": f"Expired {total_expired} stale leases",
     }
 
 
@@ -1429,12 +1428,12 @@ def report_results(
 # ---------- Dashboard Helpers ----------
 def expire_stale_leases(db: Session) -> Dict[str, int]:
     """Expire all submissions with expired leases by resetting them to 'draft' status.
-    
+
     Returns counts of expired items by entity type.
     """
     now = datetime.now(timezone.utc)
     expired_counts = {"samples": 0, "experiments": 0, "reads": 0, "projects": 0}
-    
+
     # Expire sample submissions
     sample_rows = (
         db.query(SampleSubmission)
@@ -1461,7 +1460,7 @@ def expire_stale_leases(db: Session) -> Dict[str, int]:
                 )
             )
         expired_counts["samples"] += 1
-    
+
     # Expire experiment submissions
     exp_rows = (
         db.query(ExperimentSubmission)
@@ -1488,7 +1487,7 @@ def expire_stale_leases(db: Session) -> Dict[str, int]:
                 )
             )
         expired_counts["experiments"] += 1
-    
+
     # Expire read submissions
     read_rows = (
         db.query(ReadSubmission)
@@ -1515,7 +1514,7 @@ def expire_stale_leases(db: Session) -> Dict[str, int]:
                 )
             )
         expired_counts["reads"] += 1
-    
+
     # Expire project submissions
     proj_rows = (
         db.query(ProjectSubmission)
@@ -1542,7 +1541,7 @@ def expire_stale_leases(db: Session) -> Dict[str, int]:
                 )
             )
         expired_counts["projects"] += 1
-    
+
     # Update SubmissionAttempt status to 'expired' for attempts with expired leases
     # that still have status 'processing'
     expired_attempts = (
@@ -1556,7 +1555,7 @@ def expire_stale_leases(db: Session) -> Dict[str, int]:
     )
     for attempt in expired_attempts:
         attempt.status = "expired"
-    
+
     db.commit()
     return expired_counts
 

@@ -277,7 +277,15 @@ class OrganismService(BaseService[Organism, OrganismCreate, OrganismUpdate]):
         organism = db.query(Organism).filter(Organism.grouping_key == grouping_key).first()
         if not organism:
             return None
-        non_bpa_fields = ["ncbi_order", "ncbi_family", "busco_dataset_name", "augustus_dataset_name", "common_name", "common_name_source", "tax_string"]
+        non_bpa_fields = [
+            "ncbi_order",
+            "ncbi_family",
+            "busco_dataset_name",
+            "augustus_dataset_name",
+            "common_name",
+            "common_name_source",
+            "tax_string",
+        ]
         new_bpa_json: Dict[str, Any] = organism.bpa_json or {}
         update_data = organism_in.dict(exclude_unset=True)
         for field, value in update_data.items():
