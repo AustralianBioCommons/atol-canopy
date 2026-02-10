@@ -3,7 +3,7 @@ from app.models.assembly import Assembly, AssemblyOutputFile, AssemblyRead, Asse
 from app.models.bpa_initiative import BPAInitiative
 from app.models.broker import SubmissionAttempt, SubmissionEvent
 from app.models.experiment import Experiment, ExperimentSubmission
-from app.models.genome_note import GenomeNote, GenomeNoteAssembly
+from app.models.genome_note import GenomeNote
 from app.models.organism import Organism
 from app.models.project import Project
 from app.models.read import Read, ReadSubmission

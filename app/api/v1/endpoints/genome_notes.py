@@ -10,20 +10,16 @@ from app.core.dependencies import (
     get_db,
     require_role,
 )
-from app.models.genome_note import GenomeNote, GenomeNoteAssembly
+from app.models.genome_note import GenomeNote
 from app.models.user import User
 from app.schemas.genome_note import (
     GenomeNote as GenomeNoteSchema,
 )
 from app.schemas.genome_note import (
-    GenomeNoteAssembly as GenomeNoteAssemblySchema,
-)
-from app.schemas.genome_note import (
-    GenomeNoteAssemblyCreate,
-    GenomeNoteAssemblyUpdate,
     GenomeNoteCreate,
     GenomeNoteUpdate,
 )
+from app.services.genome_note_service import genome_note_service
 
 router = APIRouter()
 
@@ -33,21 +29,24 @@ def read_genome_notes(
     db: Session = Depends(get_db),
     skip: int = 0,
     limit: int = 100,
-    organism_key: Optional[UUID] = Query(None, description="Filter by organism key"),
+    organism_key: Optional[str] = Query(None, description="Filter by organism key"),
+    assembly_id: Optional[UUID] = Query(None, description="Filter by assembly ID"),
     is_published: Optional[bool] = Query(None, description="Filter by publication status"),
+    title: Optional[str] = Query(None, description="Filter by title (case-insensitive)"),
     current_user: User = Depends(get_current_active_user),
 ) -> Any:
     """
-    Retrieve genome notes.
+    Retrieve genome notes with optional filters.
     """
-    # All users can read genome notes
-    query = db.query(GenomeNote)
-    if organism_key:
-        query = query.filter(GenomeNote.organism_key == organism_key)
-    if is_published is not None:
-        query = query.filter(GenomeNote.is_published == is_published)
-
-    genome_notes = query.offset(skip).limit(limit).all()
+    genome_notes = genome_note_service.get_multi_with_filters(
+        db,
+        skip=skip,
+        limit=limit,
+        organism_key=organism_key,
+        assembly_id=assembly_id,
+        is_published=is_published,
+        title=title,
+    )
     return genome_notes
 
 
@@ -59,17 +58,23 @@ def create_genome_note(
     current_user: User = Depends(get_current_active_user),
 ) -> Any:
     """
-    Create new genome note.
+    Create new genome note with auto-incremented version.
+
+    The version number is automatically calculated based on existing versions
+    for the organism. The note is created in draft status (is_published=False).
     """
-    # Only users with 'curator' or 'admin' role can create genome notes
     require_role(current_user, ["curator", "admin"])
+
+    # Auto-calculate next version for this organism
+    next_version = genome_note_service.get_next_version(db, genome_note_in.organism_key)
 
     genome_note = GenomeNote(
         organism_key=genome_note_in.organism_key,
-        note=genome_note_in.note,
-        other_fields=genome_note_in.other_fields,
-        version_chain_id=genome_note_in.version_chain_id,
-        is_published=genome_note_in.is_published,
+        assembly_id=genome_note_in.assembly_id,
+        version=next_version,
+        title=genome_note_in.title,
+        note_url=genome_note_in.note_url,
+        is_published=False,
     )
     db.add(genome_note)
     db.commit()
@@ -87,7 +92,6 @@ def read_genome_note(
     """
     Get genome note by ID.
     """
-    # All users can read genome note details
     genome_note = db.query(GenomeNote).filter(GenomeNote.id == genome_note_id).first()
     if not genome_note:
         raise HTTPException(status_code=404, detail="Genome note not found")
@@ -104,8 +108,10 @@ def update_genome_note(
 ) -> Any:
     """
     Update a genome note.
+
+    Only title and note_url can be updated. Version and publication status
+    cannot be changed through this endpoint.
     """
-    # Only users with 'curator' or 'admin' role can update genome notes
     require_role(current_user, ["curator", "admin"])
 
     genome_note = db.query(GenomeNote).filter(GenomeNote.id == genome_note_id).first()
@@ -131,8 +137,9 @@ def delete_genome_note(
 ) -> Any:
     """
     Delete a genome note.
+
+    Only superusers can delete genome notes.
     """
-    # Only superusers can delete genome notes
     genome_note = db.query(GenomeNote).filter(GenomeNote.id == genome_note_id).first()
     if not genome_note:
         raise HTTPException(status_code=404, detail="Genome note not found")
@@ -142,102 +149,86 @@ def delete_genome_note(
     return genome_note
 
 
-# Genome Note Assembly endpoints
-@router.get("/assemblies/", response_model=List[GenomeNoteAssemblySchema])
-def read_genome_note_assemblies(
-    db: Session = Depends(get_db),
-    skip: int = 0,
-    limit: int = 100,
-    genome_note_id: Optional[UUID] = Query(None, description="Filter by genome note ID"),
-    assembly_id: Optional[UUID] = Query(None, description="Filter by assembly ID"),
-    current_user: User = Depends(get_current_active_user),
-) -> Any:
-    """
-    Retrieve genome note-assembly relationships.
-    """
-    # All users can read genome note-assembly relationships
-    query = db.query(GenomeNoteAssembly)
-    if genome_note_id:
-        query = query.filter(GenomeNoteAssembly.genome_note_id == genome_note_id)
-    if assembly_id:
-        query = query.filter(GenomeNoteAssembly.assembly_id == assembly_id)
-
-    relationships = query.offset(skip).limit(limit).all()
-    return relationships
-
-
-@router.post("/assemblies/", response_model=GenomeNoteAssemblySchema)
-def create_genome_note_assembly(
+@router.post("/{genome_note_id}/publish", response_model=GenomeNoteSchema)
+def publish_genome_note(
     *,
     db: Session = Depends(get_db),
-    relationship_in: GenomeNoteAssemblyCreate,
+    genome_note_id: UUID,
     current_user: User = Depends(get_current_active_user),
 ) -> Any:
     """
-    Create new genome note-assembly relationship.
+    Publish a genome note.
+
+    Returns 409 Conflict if the organism already has a published genome note.
+    Use the unpublish endpoint first to unpublish the existing note.
+    Only one genome note can be published per organism at a time.
     """
-    # Only users with 'curator' or 'admin' role can create genome note-assembly relationships
     require_role(current_user, ["curator", "admin"])
 
-    relationship = GenomeNoteAssembly(
-        genome_note_id=relationship_in.genome_note_id,
-        assembly_id=relationship_in.assembly_id,
-    )
-    db.add(relationship)
-    db.commit()
-    db.refresh(relationship)
-    return relationship
+    try:
+        genome_note = genome_note_service.publish_genome_note(db, genome_note_id)
+        return genome_note
+    except ValueError as e:
+        error_msg = str(e)
+        # Check if error is about existing published note
+        if "already has a published genome note" in error_msg:
+            raise HTTPException(status_code=409, detail=error_msg)
+        # Otherwise it's a not found error
+        raise HTTPException(status_code=404, detail=error_msg)
 
 
-@router.put("/assemblies/{relationship_id}", response_model=GenomeNoteAssemblySchema)
-def update_genome_note_assembly(
+@router.post("/{genome_note_id}/unpublish", response_model=GenomeNoteSchema)
+def unpublish_genome_note(
     *,
     db: Session = Depends(get_db),
-    relationship_id: UUID,
-    relationship_in: GenomeNoteAssemblyUpdate,
+    genome_note_id: UUID,
     current_user: User = Depends(get_current_active_user),
 ) -> Any:
     """
-    Update a genome note-assembly relationship.
+    Unpublish a genome note.
+
+    Sets the genome note back to draft status.
     """
-    # Only users with 'curator' or 'admin' role can update genome note-assembly relationships
     require_role(current_user, ["curator", "admin"])
 
-    relationship = (
-        db.query(GenomeNoteAssembly).filter(GenomeNoteAssembly.id == relationship_id).first()
-    )
-    if not relationship:
-        raise HTTPException(status_code=404, detail="Genome note-assembly relationship not found")
-
-    update_data = relationship_in.dict(exclude_unset=True)
-    for field, value in update_data.items():
-        setattr(relationship, field, value)
-
-    db.add(relationship)
-    db.commit()
-    db.refresh(relationship)
-    return relationship
+    try:
+        genome_note = genome_note_service.unpublish_genome_note(db, genome_note_id)
+        return genome_note
+    except ValueError as e:
+        raise HTTPException(status_code=404, detail=str(e))
 
 
-@router.delete("/assemblies/{relationship_id}", response_model=GenomeNoteAssemblySchema)
-def delete_genome_note_assembly(
+@router.get("/organism/{organism_key}/versions", response_model=List[GenomeNoteSchema])
+def get_genome_note_versions(
     *,
     db: Session = Depends(get_db),
-    relationship_id: UUID,
+    organism_key: str,
     current_user: User = Depends(get_current_active_user),
 ) -> Any:
     """
-    Delete a genome note-assembly relationship.
+    Get all versions of genome notes for a specific organism.
+
+    Returns all genome note versions ordered by version number (descending).
     """
-    # Only users with 'curator' or 'admin' role can delete genome note-assembly relationships
-    require_role(current_user, ["curator", "admin"])
+    genome_notes = genome_note_service.get_versions_by_organism(db, organism_key)
+    return genome_notes
 
-    relationship = (
-        db.query(GenomeNoteAssembly).filter(GenomeNoteAssembly.id == relationship_id).first()
-    )
-    if not relationship:
-        raise HTTPException(status_code=404, detail="Genome note-assembly relationship not found")
 
-    db.delete(relationship)
-    db.commit()
-    return relationship
+@router.get("/organism/{organism_key}/published", response_model=GenomeNoteSchema)
+def get_published_genome_note(
+    *,
+    db: Session = Depends(get_db),
+    organism_key: str,
+    current_user: User = Depends(get_current_active_user),
+) -> Any:
+    """
+    Get the published genome note for a specific organism.
+
+    Returns 404 if no published genome note exists for the organism.
+    """
+    genome_note = genome_note_service.get_published_by_organism(db, organism_key)
+    if not genome_note:
+        raise HTTPException(
+            status_code=404, detail=f"No published genome note found for organism {organism_key}"
+        )
+    return genome_note

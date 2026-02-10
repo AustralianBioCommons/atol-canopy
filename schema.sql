@@ -563,27 +563,41 @@ CREATE TABLE assembly_read (
 -- ==========================================
 
 -- Main genome_note table
+-- Tracks versioned genome notes linked to assemblies
+-- Each organism can have multiple draft versions but only one published version
 CREATE TABLE genome_note (
     id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
-    genome_note_assembly_id UUID REFERENCES assembly(id) UNIQUE,
-    organism_key TEXT REFERENCES organism(grouping_key) NOT NULL,
-    -- Unique constraint on (is_published = TRUE, organism_key) to ensure only one published note per organism
-    is_published BOOLEAN NOT NULL DEFAULT FALSE,
+    organism_key TEXT NOT NULL REFERENCES organism(grouping_key) ON DELETE CASCADE,
+    assembly_id UUID NOT NULL REFERENCES assembly(id) ON DELETE CASCADE,
+
+    -- Versioning: auto-increment per organism
+    version INTEGER NOT NULL,
+
+    -- Content and metadata
     title TEXT NOT NULL,
+    note_url TEXT NOT NULL,  -- URL hosting the genome note
+
+    -- Publication status
+    is_published BOOLEAN NOT NULL DEFAULT FALSE,
+    published_at TIMESTAMP,
+
     created_at TIMESTAMP NOT NULL DEFAULT NOW(),
-    updated_at TIMESTAMP NOT NULL DEFAULT NOW()
+    updated_at TIMESTAMP NOT NULL DEFAULT NOW(),
+
+    -- Ensure version uniqueness per organism
+    UNIQUE (organism_key, version)
 );
 
+-- Ensure only one published note per organism
 CREATE UNIQUE INDEX uq_genome_note_one_published_per_organism
-ON genome_note (organism_key)
-WHERE is_published = TRUE;
+    ON genome_note (organism_key)
+    WHERE is_published = TRUE;
 
--- Genome note assembly table
-CREATE TABLE genome_note_assembly (
-    genome_note_id UUID NOT NULL REFERENCES genome_note(id),
-    assembly_id UUID NOT NULL REFERENCES assembly(id),
-    PRIMARY KEY (genome_note_id, assembly_id)
-);
+-- Indexes for efficient lookups
+CREATE INDEX idx_genome_note_organism_key ON genome_note(organism_key);
+CREATE INDEX idx_genome_note_assembly_id ON genome_note(assembly_id);
+CREATE INDEX idx_genome_note_published ON genome_note(organism_key, is_published)
+    WHERE is_published = TRUE;
 
 -- ==========================================
 -- BPA initiative table
