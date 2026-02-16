@@ -69,7 +69,7 @@ def generate_sample_xml(
     scientific_name.text = organism.scientific_name
 
     common_name = ET.SubElement(sample_name, "COMMON_NAME")
-    common_name.text = organism.common_name
+    common_name.text = organism.common_name or "not provided"
 
     if "description" in prepared_payload:
         description = ET.SubElement(sample, "DESCRIPTION")

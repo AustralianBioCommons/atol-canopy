@@ -72,7 +72,7 @@ def get_organism_prepared_payload(
     current_user: User = Depends(get_current_active_user),
 ) -> Any:
     """
-    Get all prepared_payload data for samples, experiments, and reads related to a specific grouping_key.
+    Get all prepared_payload data for samples, experiments, and reads related to a specific organism.grouping_key.
     """
     # Admin, curator, broker and genome_launcher can get prepared_payload data
     require_role(current_user, ["admin", "curator", "broker", "genome_launcher"])

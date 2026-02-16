@@ -18,6 +18,17 @@ class OrganismBase(BaseModel):
     scientific_name: str
     common_name: Optional[str] = None
     common_name_source: Optional[str] = None
+    genus: Optional[str] = None
+    species: Optional[str] = None
+    infraspecific_epithet: Optional[str] = None
+    culture_or_strain_id: Optional[str] = None
+    authority: Optional[str] = None
+    atol_scientific_name: Optional[str] = None
+    tax_string: Optional[str] = None
+    ncbi_order: Optional[str] = None
+    ncbi_family: Optional[str] = None
+    busco_dataset_name: Optional[str] = None
+    augustus_dataset_name: Optional[str] = None
     bpa_json: Optional[Dict] = None
     taxonomy_lineage_json: Optional[Dict] = None
 
@@ -33,11 +44,21 @@ class OrganismCreate(OrganismBase):
 class OrganismUpdate(BaseModel):
     """Schema for updating an existing organism."""
 
-    # TODO ignore pk?
-    # tax_id: int = None
     scientific_name: Optional[str] = None
     common_name: Optional[str] = None
     common_name_source: Optional[str] = None
+    genus: Optional[str] = None
+    species: Optional[str] = None
+    infraspecific_epithet: Optional[str] = None
+    culture_or_strain_id: Optional[str] = None
+    authority: Optional[str] = None
+    atol_scientific_name: Optional[str] = None
+    tax_string: Optional[str] = None
+    ncbi_order: Optional[str] = None
+    ncbi_family: Optional[str] = None
+    busco_dataset_name: Optional[str] = None
+    augustus_dataset_name: Optional[str] = None
+    bpa_json: Optional[Dict] = None
     taxonomy_lineage_json: Optional[Dict] = None
 
 
