@@ -5,6 +5,9 @@ from sqlalchemy import func
 from sqlalchemy.orm import Session
 
 from app.models.assembly import Assembly, AssemblyFile, AssemblyRead, AssemblySubmission
+from app.models.experiment import Experiment
+from app.models.organism import Organism
+from app.models.sample import Sample
 from app.schemas.assembly import (
     AssemblyCreate,
     AssemblyFileCreate,
@@ -13,6 +16,7 @@ from app.schemas.assembly import (
     AssemblySubmissionUpdate,
     AssemblyUpdate,
 )
+from app.services.assembly_helper import determine_assembly_data_types, get_detected_platforms
 from app.services.base_service import BaseService
 
 
@@ -21,7 +25,7 @@ class AssemblyService(BaseService[Assembly, AssemblyCreate, AssemblyUpdate]):
 
     def create(self, db: Session, *, obj_in: AssemblyCreate) -> Assembly:
         """Create assembly with auto-incremented version.
-        
+
         Version is automatically incremented based on existing assemblies
         for the same (data_types, organism_key, sample_id) combination.
         """
@@ -35,14 +39,14 @@ class AssemblyService(BaseService[Assembly, AssemblyCreate, AssemblyUpdate]):
             )
             .scalar()
         )
-        
+
         # Auto-increment version (start at 1 if no previous versions)
         next_version = (max_version or 0) + 1
-        
+
         # Create assembly with auto-incremented version
         obj_in_data = obj_in.dict()
         obj_in_data["version"] = next_version
-        
+
         db_obj = Assembly(**obj_in_data)
         db.add(db_obj)
         db.commit()
@@ -79,6 +83,63 @@ class AssemblyService(BaseService[Assembly, AssemblyCreate, AssemblyUpdate]):
         if assembly_type:
             query = query.filter(Assembly.assembly_type == assembly_type)
         return query.offset(skip).limit(limit).all()
+
+    def create_from_experiments(
+        self,
+        db: Session,
+        *,
+        tax_id: int,
+        assembly_in: AssemblyCreate,
+    ) -> tuple[Assembly, dict]:
+        """Create assembly based on experiments for a given tax_id.
+
+        Automatically determines data_types by analyzing all experiments
+        related to the organism (via tax_id).
+
+        Args:
+            db: Database session
+            tax_id: Taxonomy ID of the organism
+            assembly_in: Assembly creation data (data_types will be auto-determined)
+
+        Returns:
+            Tuple of (created Assembly, platform detection info)
+
+        Raises:
+            ValueError: If organism not found, no experiments found, or no valid platforms detected
+        """
+        # 1. Get organism by tax_id
+        organism = db.query(Organism).filter(Organism.tax_id == tax_id).first()
+        if not organism:
+            raise ValueError(f"Organism with tax_id {tax_id} not found")
+
+        # 2. Get all samples for this organism
+        samples = db.query(Sample).filter(Sample.organism_key == organism.grouping_key).all()
+        if not samples:
+            raise ValueError(f"No samples found for organism {organism.grouping_key} (tax_id: {tax_id})")
+
+        # 3. Get all experiments for these samples
+        sample_ids = [sample.id for sample in samples]
+        experiments = db.query(Experiment).filter(Experiment.sample_id.in_(sample_ids)).all()
+
+        if not experiments:
+            raise ValueError(
+                f"No experiments found for organism {organism.grouping_key} (tax_id: {tax_id})"
+            )
+
+        # 4. Determine data_types from experiments
+        data_types = determine_assembly_data_types(experiments)
+        platform_info = get_detected_platforms(experiments)
+
+        # 5. Override data_types in assembly_in
+        obj_in_data = assembly_in.dict()
+        obj_in_data["data_types"] = data_types
+        obj_in_data["organism_key"] = organism.grouping_key
+
+        # 6. Create assembly using standard create method (handles versioning)
+        assembly_create = AssemblyCreate(**obj_in_data)
+        assembly = self.create(db, obj_in=assembly_create)
+
+        return assembly, platform_info
 
 
 class AssemblySubmissionService(

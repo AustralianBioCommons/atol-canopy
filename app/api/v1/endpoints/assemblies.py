@@ -205,6 +205,40 @@ def get_pipeline_inputs_by_tax_id(
 
 
 
+@router.post("/from-experiments/{tax_id}", response_model=Dict[str, Any])
+def create_assembly_from_experiments(
+    *,
+    db: Session = Depends(get_db),
+    tax_id: int,
+    assembly_in: AssemblyCreate,
+    current_user: User = Depends(get_current_active_user),
+) -> Any:
+    """
+    Create assembly based on all experiments for an organism (by tax_id).
+    
+    Automatically determines data_types by analyzing experiment platforms:
+    - PACBIO_SMRT: platform == "PACBIO_SMRT"
+    - OXFORD_NANOPORE: platform == "OXFORD_NANOPORE"
+    - Hi-C: platform == "ILLUMINA" AND library_strategy == "Hi-C"
+    
+    The data_types field in assembly_in will be ignored and auto-determined.
+    """
+    require_role(current_user, ["curator", "admin"])
+    
+    try:
+        assembly, platform_info = assembly_service.create_from_experiments(
+            db, tax_id=tax_id, assembly_in=assembly_in
+        )
+        
+        return {
+            "assembly": assembly,
+            "platform_detection": platform_info,
+            "message": f"Assembly created with auto-detected data_types: {assembly.data_types}"
+        }
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+
 @router.post("/", response_model=AssemblySchema)
 def create_assembly(
     *,
@@ -216,17 +250,7 @@ def create_assembly(
     # Only users with 'curator' or 'admin' role can create assemblies
     require_role(current_user, ["curator", "admin"])
 
-    assembly = Assembly(
-        organism_id=assembly_in.organism_id,
-        sample_id=assembly_in.sample_id,
-        experiment_id=assembly_in.experiment_id,
-        assembly_accession=assembly_in.assembly_accession,
-        source_json=assembly_in.source_json,
-        internal_notes=assembly_in.internal_notes,
-    )
-    db.add(assembly)
-    db.commit()
-    db.refresh(assembly)
+    assembly = assembly_service.create(db, obj_in=assembly_in)
     return assembly
 
 

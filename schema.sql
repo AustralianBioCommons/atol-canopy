@@ -515,7 +515,7 @@ CREATE TABLE assembly (
     organism_key TEXT REFERENCES organism(grouping_key) NOT NULL,
     sample_id UUID REFERENCES sample(id) NOT NULL,
     project_id UUID REFERENCES project(id),
-    
+
     -- Assembly metadata
     assembly_name TEXT NOT NULL,
     assembly_type TEXT NOT NULL DEFAULT 'clone or isolate',
@@ -525,10 +525,10 @@ CREATE TABLE assembly (
     mingaplength FLOAT,
     moleculetype molecule_type NOT NULL DEFAULT 'genomic DNA',
     description TEXT,
-    
+
     -- Auto-incremented version per (data_types, organism_key, sample_id)
     version INTEGER NOT NULL DEFAULT 1,
-    
+
     created_at TIMESTAMP NOT NULL DEFAULT NOW(),
     updated_at TIMESTAMP NOT NULL DEFAULT NOW()
 );
@@ -562,21 +562,21 @@ CREATE TABLE assembly_submission (
     assembly_id UUID NOT NULL REFERENCES assembly(id) ON DELETE CASCADE,
     authority authority_type NOT NULL DEFAULT 'ENA',
     status submission_status NOT NULL DEFAULT 'draft',
-    
+
     -- ENA accessions
     accession TEXT,
     sample_accession TEXT,
     project_accession TEXT,
-    
+
     -- Submission payloads
     manifest_json JSONB,
     submission_xml TEXT,
     response_payload JSONB,
-    
+
     -- Metadata
     submitted_at TIMESTAMP,
     submitted_by UUID REFERENCES users(id),
-    
+
     created_at TIMESTAMP NOT NULL DEFAULT NOW(),
     updated_at TIMESTAMP NOT NULL DEFAULT NOW()
 );
