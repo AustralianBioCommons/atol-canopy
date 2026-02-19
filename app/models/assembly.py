@@ -36,6 +36,18 @@ class Assembly(Base):
     # Assembly metadata fields
     assembly_name = Column(Text, nullable=False)
     assembly_type = Column(Text, nullable=False, default="clone or isolate")
+    data_types = Column(
+        SQLAlchemyEnum(
+            "PACBIO_SMRT",
+            "PACBIO_SMRT_HIC",
+            "OXFORD_NANOPORE",
+            "OXFORD_NANOPORE_HIC",
+            "PACBIO_SMRT_OXFORD_NANOPORE",
+            "PACBIO_SMRT_OXFORD_NANOPORE_HIC",
+            name="assembly_data_types",
+        ),
+        nullable=False,
+    )
     coverage = Column(Float, nullable=False)
     program = Column(Text, nullable=False)
     mingaplength = Column(Float, nullable=True)
@@ -45,6 +57,7 @@ class Assembly(Base):
         default="genomic DNA",
     )
     description = Column(Text, nullable=True)
+    version = Column(Integer, nullable=False, default=1)
 
     created_at = Column(DateTime, nullable=False, default=datetime.now(timezone.utc))
     updated_at = Column(

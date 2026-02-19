@@ -8,6 +8,16 @@ from pydantic import BaseModel, ConfigDict, Field
 from app.schemas.common import SubmissionStatus
 
 
+class AssemblyDataTypes(str, Enum):
+    """Enum for assembly data types (sequencing platforms)."""
+    PACBIO_SMRT = "PACBIO_SMRT"
+    PACBIO_SMRT_HIC = "PACBIO_SMRT_HIC"
+    OXFORD_NANOPORE = "OXFORD_NANOPORE"
+    OXFORD_NANOPORE_HIC = "OXFORD_NANOPORE_HIC"
+    PACBIO_SMRT_OXFORD_NANOPORE = "PACBIO_SMRT_OXFORD_NANOPORE"
+    PACBIO_SMRT_OXFORD_NANOPORE_HIC = "PACBIO_SMRT_OXFORD_NANOPORE_HIC"
+
+
 class AssemblyFileType(str, Enum):
     """Enum for assembly file types."""
     FASTA = "FASTA"
@@ -25,11 +35,13 @@ class AssemblyBase(BaseModel):
     project_id: Optional[UUID] = None
     assembly_name: str
     assembly_type: str = "clone or isolate"
+    data_types: AssemblyDataTypes
     coverage: float
     program: str
     mingaplength: Optional[float] = None
     moleculetype: str = "genomic DNA"
     description: Optional[str] = None
+    version: int = 1
 
 
 # Schema for creating a new assembly

@@ -8,6 +8,14 @@ CREATE EXTENSION IF NOT EXISTS "uuid-ossp";
 CREATE TYPE submission_status AS ENUM ('draft', 'ready', 'submitting', 'rejected', 'accepted', 'replaced');
 CREATE TYPE authority_type AS ENUM ('ENA', 'NCBI', 'DDBJ');
 CREATE TYPE molecule_type AS ENUM ('genomic DNA', 'genomic RNA');
+CREATE TYPE assembly_data_types AS ENUM (
+    'PACBIO_SMRT',
+    'PACBIO_SMRT_HIC',
+    'OXFORD_NANOPORE',
+    'OXFORD_NANOPORE_HIC',
+    'PACBIO_SMRT_OXFORD_NANOPORE',
+    'PACBIO_SMRT_OXFORD_NANOPORE_HIC'
+);
 CREATE TYPE assembly_file_type AS ENUM (
     'FASTA',
     'QC_REPORT',
@@ -511,11 +519,15 @@ CREATE TABLE assembly (
     -- Assembly metadata
     assembly_name TEXT NOT NULL,
     assembly_type TEXT NOT NULL DEFAULT 'clone or isolate',
+    data_types assembly_data_types NOT NULL,
     coverage FLOAT NOT NULL,
     program TEXT NOT NULL,
     mingaplength FLOAT,
     moleculetype molecule_type NOT NULL DEFAULT 'genomic DNA',
     description TEXT,
+    
+    -- Auto-incremented version per (data_types, organism_key, sample_id)
+    version INTEGER NOT NULL DEFAULT 1,
     
     created_at TIMESTAMP NOT NULL DEFAULT NOW(),
     updated_at TIMESTAMP NOT NULL DEFAULT NOW()
@@ -539,6 +551,9 @@ CREATE TABLE assembly_file (
 
 CREATE INDEX idx_assembly_file_assembly_id ON assembly_file(assembly_id);
 CREATE INDEX idx_assembly_file_type ON assembly_file(assembly_id, file_type);
+
+-- Index for version lookups
+CREATE INDEX idx_assembly_version_key ON assembly(data_types, organism_key, sample_id, version);
 
 
 -- Assembly submission table (simplified - no broker integration)

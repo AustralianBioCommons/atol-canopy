@@ -17,6 +17,18 @@ depends_on = None
 
 
 def upgrade() -> None:
+    # Create assembly_data_types enum
+    op.execute("""
+        CREATE TYPE assembly_data_types AS ENUM (
+            'PACBIO_SMRT',
+            'PACBIO_SMRT_HIC',
+            'OXFORD_NANOPORE',
+            'OXFORD_NANOPORE_HIC',
+            'PACBIO_SMRT_OXFORD_NANOPORE',
+            'PACBIO_SMRT_OXFORD_NANOPORE_HIC'
+        )
+    """)
+    
     # Rename enum type and add new values
     op.execute("ALTER TYPE assembly_output_file_type RENAME TO assembly_output_file_type_old")
     op.execute("""
@@ -55,7 +67,20 @@ def upgrade() -> None:
     
     # Update assembly table
     op.drop_column('assembly', 'fasta')
+    op.add_column('assembly', sa.Column('data_types', sa.Enum(
+        'PACBIO_SMRT',
+        'PACBIO_SMRT_HIC',
+        'OXFORD_NANOPORE',
+        'OXFORD_NANOPORE_HIC',
+        'PACBIO_SMRT_OXFORD_NANOPORE',
+        'PACBIO_SMRT_OXFORD_NANOPORE_HIC',
+        name='assembly_data_types'
+    ), nullable=False, server_default='PACBIO_SMRT'))
+    op.add_column('assembly', sa.Column('version', sa.Integer(), nullable=False, server_default='1'))
     op.add_column('assembly', sa.Column('description', sa.Text(), nullable=True))
+    
+    # Create index for version lookups
+    op.create_index('idx_assembly_version_key', 'assembly', ['data_types', 'organism_key', 'sample_id', 'version'])
     
     # Update assembly_submission table - drop old columns first
     op.drop_column('assembly_submission', 'assembly_name')
@@ -88,6 +113,9 @@ def downgrade() -> None:
     # Drop unique index
     op.drop_index('uq_assembly_one_accepted', table_name='assembly_submission')
     
+    # Drop assembly version index
+    op.drop_index('idx_assembly_version_key', table_name='assembly')
+    
     # Revert assembly_submission changes
     op.drop_constraint('fk_assembly_submission_user', 'assembly_submission', type_='foreignkey')
     op.drop_column('assembly_submission', 'submitted_by')
@@ -106,6 +134,8 @@ def downgrade() -> None:
     
     # Revert assembly table
     op.drop_column('assembly', 'description')
+    op.drop_column('assembly', 'version')
+    op.drop_column('assembly', 'data_types')
     op.add_column('assembly', sa.Column('fasta', sa.String(length=255), nullable=False))
     
     # Recreate old enum
@@ -132,5 +162,6 @@ def downgrade() -> None:
     # Rename table back
     op.rename_table('assembly_file', 'assembly_output_file')
     
-    # Drop new enum type
+    # Drop new enum types
     op.execute("DROP TYPE assembly_file_type")
+    op.execute("DROP TYPE assembly_data_types")

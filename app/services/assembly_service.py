@@ -1,6 +1,7 @@
 from typing import List, Optional
 from uuid import UUID
 
+from sqlalchemy import func
 from sqlalchemy.orm import Session
 
 from app.models.assembly import Assembly, AssemblyFile, AssemblyRead, AssemblySubmission
@@ -17,6 +18,36 @@ from app.services.base_service import BaseService
 
 class AssemblyService(BaseService[Assembly, AssemblyCreate, AssemblyUpdate]):
     """Service for Assembly operations."""
+
+    def create(self, db: Session, *, obj_in: AssemblyCreate) -> Assembly:
+        """Create assembly with auto-incremented version.
+        
+        Version is automatically incremented based on existing assemblies
+        for the same (data_types, organism_key, sample_id) combination.
+        """
+        # Find the highest version number for this combination
+        max_version = (
+            db.query(func.max(Assembly.version))
+            .filter(
+                Assembly.data_types == obj_in.data_types,
+                Assembly.organism_key == obj_in.organism_key,
+                Assembly.sample_id == obj_in.sample_id,
+            )
+            .scalar()
+        )
+        
+        # Auto-increment version (start at 1 if no previous versions)
+        next_version = (max_version or 0) + 1
+        
+        # Create assembly with auto-incremented version
+        obj_in_data = obj_in.dict()
+        obj_in_data["version"] = next_version
+        
+        db_obj = Assembly(**obj_in_data)
+        db.add(db_obj)
+        db.commit()
+        db.refresh(db_obj)
+        return db_obj
 
     def get_by_project_id(self, db: Session, project_id: UUID) -> List[Assembly]:
         """Get assemblies by project ID."""
