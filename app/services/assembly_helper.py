@@ -144,6 +144,7 @@ def generate_assembly_manifest(
         # Check for PacBio SMRT reads (only .ccs.bam or hifi_reads.bam)
         if platform == "PACBIO_SMRT" and read.file_name:
             if read.file_name.endswith(".ccs.bam") or read.file_name.endswith("hifi_reads.bam"):
+                # TODO remove logging
                 logger.info(f"Adding PacBio read: {read.file_name}")
                 pacbio_reads.append({
                     "file_name": read.file_name,
@@ -155,6 +156,7 @@ def generate_assembly_manifest(
 
         # Check for Hi-C reads (Illumina + Hi-C or WGS library strategy)
         elif platform == "ILLUMINA" and library_strategy in ("HI-C", "WGS"):
+            # TODO remove logging
             logger.info(f"Adding Hi-C read: {read.file_name} (library_strategy={library_strategy})")
             hic_reads.append({
                 "file_name": read.file_name,

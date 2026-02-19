@@ -33,6 +33,9 @@ class Settings(BaseSettings):
     # CORS
     BACKEND_CORS_ORIGINS: List[str] = ["*"]
 
+    # Environment
+    ENVIRONMENT: Optional[str] = None  # Options: "dev", "prod"
+
     # Model config
     model_config = SettingsConfigDict(
         env_file=".env",
