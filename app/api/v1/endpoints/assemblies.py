@@ -32,6 +32,7 @@ from app.schemas.assembly import (
     AssemblySubmission as AssemblySubmissionSchema,
 )
 from app.schemas.common import SubmissionStatus
+from app.services.assembly_helper import generate_assembly_manifest
 from app.services.assembly_service import (
     assembly_file_service,
     assembly_service,
@@ -205,6 +206,67 @@ def get_pipeline_inputs_by_tax_id(
 
 
 
+@router.get("/manifest/{tax_id}")
+def get_assembly_manifest(
+    *,
+    db: Session = Depends(get_db),
+    tax_id: int,
+    current_user: User = Depends(get_current_active_user),
+) -> Any:
+    """
+    Generate assembly manifest YAML for an organism by tax_id.
+
+    Returns YAML manifest with:
+    - scientific_name and taxon_id from organism
+    - reads grouped by platform (PACBIO_SMRT, Hi-C)
+    - PACBIO_SMRT: Only files ending in .ccs.bam or hifi_reads.bam
+    - Hi-C: Includes read_number and lane_number
+
+    Returns:
+        YAML string with manifest data
+    """
+    from fastapi.responses import Response
+
+    # Get organism by tax_id
+    organism = db.query(Organism).filter(Organism.tax_id == tax_id).first()
+    if not organism:
+        raise HTTPException(status_code=404, detail=f"Organism with tax_id {tax_id} not found")
+
+    # Get all samples for this organism
+    samples = db.query(Sample).filter(Sample.organism_key == organism.grouping_key).all()
+    if not samples:
+        raise HTTPException(
+            status_code=404,
+            detail=f"No samples found for organism {organism.grouping_key} (tax_id: {tax_id})"
+        )
+
+    # Get all experiments for these samples
+    sample_ids = [sample.id for sample in samples]
+    experiments = db.query(Experiment).filter(Experiment.sample_id.in_(sample_ids)).all()
+
+    if not experiments:
+        raise HTTPException(
+            status_code=404,
+            detail=f"No experiments found for organism {organism.grouping_key} (tax_id: {tax_id})"
+        )
+
+    # Get all reads for these experiments
+    experiment_ids = [exp.id for exp in experiments]
+    reads = db.query(Read).filter(Read.experiment_id.in_(experiment_ids)).all()
+
+    if not reads:
+        raise HTTPException(
+            status_code=404,
+            detail=f"No reads found for organism {organism.grouping_key} (tax_id: {tax_id})"
+        )
+
+    # Generate YAML manifest
+    yaml_content = generate_assembly_manifest(organism, reads, experiments)
+
+    # Return as YAML response
+    return Response(content=yaml_content, media_type="application/x-yaml")
+
+
 @router.post("/from-experiments/{tax_id}", response_model=Dict[str, Any])
 def create_assembly_from_experiments(
     *,
@@ -215,21 +277,21 @@ def create_assembly_from_experiments(
 ) -> Any:
     """
     Create assembly based on all experiments for an organism (by tax_id).
-    
+
     Automatically determines data_types by analyzing experiment platforms:
     - PACBIO_SMRT: platform == "PACBIO_SMRT"
     - OXFORD_NANOPORE: platform == "OXFORD_NANOPORE"
     - Hi-C: platform == "ILLUMINA" AND library_strategy == "Hi-C"
-    
+
     The data_types field in assembly_in will be ignored and auto-determined.
     """
     require_role(current_user, ["curator", "admin"])
-    
+
     try:
         assembly, platform_info = assembly_service.create_from_experiments(
             db, tax_id=tax_id, assembly_in=assembly_in
         )
-        
+
         return {
             "assembly": assembly,
             "platform_detection": platform_info,
@@ -331,7 +393,7 @@ def read_assembly_submissions(
         if status:
             query = query.filter(AssemblySubmission.status == status.value)
         submissions = query.offset(skip).limit(limit).all()
-    
+
     return submissions
 
 
@@ -394,7 +456,7 @@ def read_assembly_files(
         files = assembly_file_service.get_by_assembly_and_type(db, assembly_id=assembly_id, file_type=file_type)
     else:
         files = assembly_file_service.get_by_assembly_id(db, assembly_id=assembly_id)
-    
+
     return files
 
 
@@ -455,4 +517,3 @@ def delete_assembly_file(
 
     assembly_file_service.remove(db, id=file_id)
     return {"message": "File deleted successfully"}
-
