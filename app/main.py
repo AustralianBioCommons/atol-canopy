@@ -1,8 +1,18 @@
+import logging
+
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from app.api.v1.api import api_router
 from app.core.settings import settings
+
+# Configure logging based on environment
+# Default to INFO if ENVIRONMENT not set, DEBUG only if explicitly "dev"
+log_level = logging.DEBUG if settings.ENVIRONMENT == "dev" else logging.INFO
+logging.basicConfig(
+    level=log_level,
+    format="%(levelname)s:%(name)s:%(message)s"
+)
 
 # Create FastAPI app
 app = FastAPI(

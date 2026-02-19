@@ -7,6 +7,7 @@ from sqlalchemy import (
     DateTime,
     Float,
     ForeignKey,
+    Integer,
     PrimaryKeyConstraint,
     String,
     Text,
@@ -35,16 +36,28 @@ class Assembly(Base):
     # Assembly metadata fields
     assembly_name = Column(Text, nullable=False)
     assembly_type = Column(Text, nullable=False, default="clone or isolate")
+    data_types = Column(
+        SQLAlchemyEnum(
+            "PACBIO_SMRT",
+            "PACBIO_SMRT_HIC",
+            "OXFORD_NANOPORE",
+            "OXFORD_NANOPORE_HIC",
+            "PACBIO_SMRT_OXFORD_NANOPORE",
+            "PACBIO_SMRT_OXFORD_NANOPORE_HIC",
+            name="assembly_data_types",
+        ),
+        nullable=False,
+    )
     coverage = Column(Float, nullable=False)
-    program = Column(String(255), nullable=False)
+    program = Column(Text, nullable=False)
     mingaplength = Column(Float, nullable=True)
     moleculetype = Column(
         SQLAlchemyEnum("genomic DNA", "genomic RNA", name="molecule_type"),
         nullable=False,
         default="genomic DNA",
     )
-    fasta = Column(String(255), nullable=False)
-    version = Column(String(255), nullable=False)
+    description = Column(Text, nullable=True)
+    version = Column(Integer, nullable=False, default=1)
 
     created_at = Column(DateTime, nullable=False, default=datetime.now(timezone.utc))
     updated_at = Column(
@@ -62,7 +75,8 @@ class Assembly(Base):
 
 class AssemblySubmission(Base):
     """
-    AssemblySubmission model for storing assembly data staged for submission to ENA.
+    AssemblySubmission model for storing assembly submission data to ENA.
+    Simplified workflow without broker integration.
 
     This model corresponds to the 'assembly_submission' table in the database.
     """
@@ -73,22 +87,9 @@ class AssemblySubmission(Base):
     assembly_id = Column(
         UUID(as_uuid=True), ForeignKey("assembly.id", ondelete="CASCADE"), nullable=False
     )
-    assembly_name = Column(Text, nullable=False)
     authority = Column(
         SQLAlchemyEnum("ENA", "NCBI", "DDBJ", name="authority_type"), nullable=False, default="ENA"
     )
-    accession = Column(Text, nullable=True)
-    organism_key = Column(
-        Text, ForeignKey("organism.grouping_key", ondelete="CASCADE"), nullable=False
-    )
-    sample_id = Column(
-        UUID(as_uuid=True), ForeignKey("sample.id", ondelete="SET NULL"), nullable=True
-    )
-
-    internal_json = Column(JSONB, nullable=True)
-    prepared_payload = Column(JSONB, nullable=True)
-    returned_payload = Column(JSONB, nullable=True)
-
     status = Column(
         SQLAlchemyEnum(
             "draft",
@@ -102,7 +103,21 @@ class AssemblySubmission(Base):
         nullable=False,
         default="draft",
     )
+
+    # ENA accessions
+    accession = Column(Text, nullable=True)
+    sample_accession = Column(Text, nullable=True)
+    project_accession = Column(Text, nullable=True)
+
+    # Submission payloads
+    manifest_json = Column(JSONB, nullable=True)
+    submission_xml = Column(Text, nullable=True)
+    response_payload = Column(JSONB, nullable=True)
+
+    # Metadata
     submitted_at = Column(DateTime, nullable=True)
+    submitted_by = Column(UUID(as_uuid=True), ForeignKey("users.id"), nullable=True)
+
     created_at = Column(DateTime, nullable=False, default=datetime.now(timezone.utc))
     updated_at = Column(
         DateTime,
@@ -113,31 +128,42 @@ class AssemblySubmission(Base):
 
     # Relationships
     assembly = relationship(
-        "Assembly", backref=backref("assembly_submission_records", cascade="all, delete-orphan")
+        "Assembly", backref=backref("submissions", cascade="all, delete-orphan")
     )
-    organism = relationship(
-        "Organism", backref=backref("assemblies_organism", cascade="all, delete-orphan")
-    )
-    sample = relationship("Sample", backref="assemblies_sample")
+    user = relationship("User", backref="assembly_submissions")
 
 
-class AssemblyOutputFile(Base):
+class AssemblyFile(Base):
     """
-    AssemblyOutputFile model for storing output files from assembly pipelines.
+    AssemblyFile model for storing files associated with assemblies.
+    Includes FASTA, AGP, QC reports, statistics, and other file types.
 
-    This model corresponds to the 'assembly_output_file' table in the database.
+    This model corresponds to the 'assembly_file' table in the database.
     """
 
-    __tablename__ = "assembly_output_file"
+    __tablename__ = "assembly_file"
 
     id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
-    assembly_id = Column(UUID(as_uuid=True), ForeignKey("assembly.id"), nullable=True)
-    type = Column(SQLAlchemyEnum("QC", "Other", name="assembly_output_file_type"), nullable=False)
+    assembly_id = Column(
+        UUID(as_uuid=True), ForeignKey("assembly.id", ondelete="CASCADE"), nullable=False
+    )
+    file_type = Column(
+        SQLAlchemyEnum(
+            "FASTA",
+            "QC_REPORT",
+            "STATISTICS",
+            "OTHER",
+            name="assembly_file_type",
+        ),
+        nullable=False,
+    )
     file_name = Column(Text, nullable=False)
     file_location = Column(Text, nullable=False)
     file_size = Column(BigInteger, nullable=True)
     file_checksum = Column(Text, nullable=True)
+    file_checksum_method = Column(Text, nullable=True, default="MD5")
     file_format = Column(Text, nullable=True)
+    description = Column(Text, nullable=True)
     created_at = Column(DateTime, nullable=False, default=datetime.now(timezone.utc))
     updated_at = Column(
         DateTime,
@@ -148,7 +174,7 @@ class AssemblyOutputFile(Base):
 
     # Relationships
     assembly = relationship(
-        "Assembly", backref=backref("output_files", cascade="all, delete-orphan")
+        "Assembly", backref=backref("files", cascade="all, delete-orphan")
     )
 
 

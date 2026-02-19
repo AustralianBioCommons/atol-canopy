@@ -1,7 +1,7 @@
 import uuid
 from datetime import datetime, timezone
 
-from sqlalchemy import Boolean, Column, DateTime, ForeignKey, Integer, String, Text
+from sqlalchemy import Boolean, Column, DateTime, ForeignKey, Integer, Text, UniqueConstraint
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import relationship
 
@@ -10,7 +10,10 @@ from app.db.session import Base
 
 class GenomeNote(Base):
     """
-    GenomeNote model for storing notes and metadata about genomes.
+    GenomeNote model for storing versioned genome notes linked to assemblies.
+
+    Each organism can have multiple draft versions but only one published version.
+    Versions are auto-incremented per organism.
 
     This model corresponds to the 'genome_note' table in the database.
     """
@@ -18,12 +21,24 @@ class GenomeNote(Base):
     __tablename__ = "genome_note"
 
     id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
-    genome_note_assembly_id = Column(
-        UUID(as_uuid=True), ForeignKey("assembly.id"), unique=True, nullable=True
+    organism_key = Column(
+        Text, ForeignKey("organism.grouping_key", ondelete="CASCADE"), nullable=False
     )
-    organism_key = Column(Text, ForeignKey("organism.grouping_key"), nullable=False)
-    is_published = Column(Boolean, nullable=False, default=False)
+    assembly_id = Column(
+        UUID(as_uuid=True), ForeignKey("assembly.id", ondelete="CASCADE"), nullable=False
+    )
+
+    # Versioning: auto-increment per organism
+    version = Column(Integer, nullable=False)
+
+    # Content and metadata
     title = Column(Text, nullable=False)
+    note_url = Column(Text, nullable=False)
+
+    # Publication status
+    is_published = Column(Boolean, nullable=False, default=False)
+    published_at = Column(DateTime, nullable=True)
+
     created_at = Column(DateTime, nullable=False, default=datetime.now(timezone.utc))
     updated_at = Column(
         DateTime,
@@ -34,32 +49,11 @@ class GenomeNote(Base):
 
     # Relationships
     organism = relationship("Organism", backref="genome_notes")
+    assembly = relationship("Assembly", backref="genome_notes")
 
     # Table constraints
     __table_args__ = (
-        # This is a simplified version of the SQL constraint:
+        UniqueConstraint("organism_key", "version", name="uq_genome_note_organism_version"),
+        # Note: The partial unique index for published notes is created in the schema.sql
         # CREATE UNIQUE INDEX uq_genome_note_one_published_per_organism ON genome_note (organism_key) WHERE is_published = TRUE;
-        # SQLAlchemy doesn't directly support WHERE clauses in constraints, so this would need custom SQL
     )
-
-
-class GenomeNoteAssembly(Base):
-    """
-    GenomeNoteAssembly model for linking genome notes to assemblies.
-
-    This model corresponds to the 'genome_note_assembly' table in the database.
-    """
-
-    __tablename__ = "genome_note_assembly"
-
-    # Composite primary key fields
-    genome_note_id = Column(
-        UUID(as_uuid=True), ForeignKey("genome_note.id"), nullable=False, primary_key=True
-    )
-    assembly_id = Column(
-        UUID(as_uuid=True), ForeignKey("assembly.id"), nullable=False, primary_key=True
-    )
-
-    # Relationships
-    genome_note = relationship("GenomeNote", backref="genome_note_assemblies")
-    assembly = relationship("Assembly", backref="genome_note_assemblies")

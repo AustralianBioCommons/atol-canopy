@@ -10,7 +10,6 @@ fi
 echo "Waiting for database to be reachable at ${DB_URL} ..."
 for i in {1..30}; do
   if uv run python - <<PY
-import sys
 from sqlalchemy import create_engine, text
 engine = create_engine("${DB_URL}")
 with engine.connect() as conn:
@@ -27,5 +26,13 @@ done
 echo "Running database migrations..."
 uv run alembic upgrade head
 
-echo "Starting application..."
-exec uv run --frozen uvicorn app.main:app --host 0.0.0.0 --port ${PORT:-8000}
+if [ "${ENVIRONMENT:-prod}" = "dev" ]; then
+  echo "Starting application (dev mode with reload)..."
+  exec uv run --frozen uvicorn app.main:app \
+    --host 0.0.0.0 --port "${PORT:-8000}" \
+    --reload --reload-dir /app/app
+else
+  echo "Starting application (production mode)..."
+  exec uv run --frozen uvicorn app.main:app \
+    --host 0.0.0.0 --port "${PORT:-8000}"
+fi
