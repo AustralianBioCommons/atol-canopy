@@ -8,7 +8,12 @@ CREATE EXTENSION IF NOT EXISTS "uuid-ossp";
 CREATE TYPE submission_status AS ENUM ('draft', 'ready', 'submitting', 'rejected', 'accepted', 'replaced');
 CREATE TYPE authority_type AS ENUM ('ENA', 'NCBI', 'DDBJ');
 CREATE TYPE molecule_type AS ENUM ('genomic DNA', 'genomic RNA');
-CREATE TYPE assembly_output_file_type AS ENUM ('QC', 'Other'); -- TODO define more specific types as needed
+CREATE TYPE assembly_file_type AS ENUM (
+    'FASTA',
+    'QC_REPORT',
+    'STATISTICS',
+    'OTHER'
+);
 CREATE TYPE entity_type AS ENUM ('organism', 'sample', 'experiment', 'read', 'assembly', 'project');
 CREATE TYPE project_type AS ENUM ('root', 'genomic_data', 'assembly');
 CREATE TYPE sample_kind AS ENUM ('specimen', 'derived');
@@ -502,55 +507,69 @@ CREATE TABLE assembly (
     organism_key TEXT REFERENCES organism(grouping_key) NOT NULL,
     sample_id UUID REFERENCES sample(id) NOT NULL,
     project_id UUID REFERENCES project(id),
-    -- metadata fields for manifest file
+    
+    -- Assembly metadata
     assembly_name TEXT NOT NULL,
-    assembly_type text NOT NULL default 'clone or isolate',
-    coverage float NOT NULL,
+    assembly_type TEXT NOT NULL DEFAULT 'clone or isolate',
+    coverage FLOAT NOT NULL,
     program TEXT NOT NULL,
-    mingaplength float,
+    mingaplength FLOAT,
     moleculetype molecule_type NOT NULL DEFAULT 'genomic DNA',
-    fasta TEXT NOT NULL,
-
-    version TEXT NOT NULL,
+    description TEXT,
+    
     created_at TIMESTAMP NOT NULL DEFAULT NOW(),
     updated_at TIMESTAMP NOT NULL DEFAULT NOW()
 );
 
--- Assembly submission table
--- TO DO verify the types of files and any other fields we will save as outputs from the assembly pipelines
-CREATE TABLE assembly_output_file (
+CREATE TABLE assembly_file (
     id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
-    assembly_id UUID REFERENCES assembly(id),
-    type assembly_output_file_type NOT NULL,
+    assembly_id UUID REFERENCES assembly(id) ON DELETE CASCADE NOT NULL,
+    file_type assembly_file_type NOT NULL,
     file_name TEXT NOT NULL,
     file_location TEXT NOT NULL,
     file_size BIGINT,
     file_checksum TEXT,
+    file_checksum_method TEXT DEFAULT 'MD5',
     file_format TEXT,
+    description TEXT,
+    metadata JSONB,
     created_at TIMESTAMP NOT NULL DEFAULT NOW(),
     updated_at TIMESTAMP NOT NULL DEFAULT NOW()
 );
 
+CREATE INDEX idx_assembly_file_assembly_id ON assembly_file(assembly_id);
+CREATE INDEX idx_assembly_file_type ON assembly_file(assembly_id, file_type);
 
--- Assembly submission table
+
+-- Assembly submission table (simplified - no broker integration)
 CREATE TABLE assembly_submission (
     id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
     assembly_id UUID NOT NULL REFERENCES assembly(id) ON DELETE CASCADE,
-    assembly_name TEXT NOT NULL, -- Do we need this for versioning?
     authority authority_type NOT NULL DEFAULT 'ENA',
-    accession TEXT,
-    organism_key TEXT REFERENCES organism(grouping_key) NOT NULL,
-    sample_id UUID NOT NULL REFERENCES sample(id),
-
-    internal_json JSONB,
-    prepared_payload JSONB,
-    returned_payload JSONB,
-    -- The above are in .txt format, TO DO decide how to store these
     status submission_status NOT NULL DEFAULT 'draft',
+    
+    -- ENA accessions
+    accession TEXT,
+    sample_accession TEXT,
+    project_accession TEXT,
+    
+    -- Submission payloads
+    manifest_json JSONB,
+    submission_xml TEXT,
+    response_payload JSONB,
+    
+    -- Metadata
     submitted_at TIMESTAMP,
+    submitted_by UUID REFERENCES users(id),
+    
     created_at TIMESTAMP NOT NULL DEFAULT NOW(),
     updated_at TIMESTAMP NOT NULL DEFAULT NOW()
 );
+
+-- Only one accepted submission per assembly+authority
+CREATE UNIQUE INDEX uq_assembly_one_accepted
+  ON assembly_submission (assembly_id, authority)
+  WHERE status = 'accepted' AND accession IS NOT NULL;
 
 CREATE TABLE assembly_read (
     assembly_id UUID NOT NULL REFERENCES assembly(id),

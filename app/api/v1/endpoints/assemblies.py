@@ -10,7 +10,7 @@ from app.core.dependencies import (
     get_db,
     require_role,
 )
-from app.models.assembly import Assembly, AssemblySubmission
+from app.models.assembly import Assembly, AssemblyFile, AssemblySubmission
 from app.models.experiment import Experiment
 from app.models.organism import Organism
 from app.models.read import Read
@@ -21,6 +21,9 @@ from app.schemas.assembly import (
 )
 from app.schemas.assembly import (
     AssemblyCreate,
+    AssemblyFile as AssemblyFileSchema,
+    AssemblyFileCreate,
+    AssemblyFileUpdate,
     AssemblySubmissionCreate,
     AssemblySubmissionUpdate,
     AssemblyUpdate,
@@ -28,10 +31,12 @@ from app.schemas.assembly import (
 from app.schemas.assembly import (
     AssemblySubmission as AssemblySubmissionSchema,
 )
-from app.schemas.assembly import (
-    SubmissionStatus as SchemaSubmissionStatus,
-)
 from app.schemas.common import SubmissionStatus
+from app.services.assembly_service import (
+    assembly_file_service,
+    assembly_service,
+    assembly_submission_service,
+)
 from app.services.organism_service import organism_service
 
 router = APIRouter()
@@ -199,7 +204,7 @@ def get_pipeline_inputs_by_tax_id(
     return result
 
 
-"""
+
 @router.post("/", response_model=AssemblySchema)
 def create_assembly(
     *,
@@ -290,16 +295,19 @@ def read_assembly_submissions(
     db: Session = Depends(get_db),
     skip: int = 0,
     limit: int = 100,
-    status: Optional[SchemaSubmissionStatus] = Query(None, description="Filter by submission status"),
+    status: Optional[SubmissionStatus] = Query(None, description="Filter by submission status"),
+    assembly_id: Optional[UUID] = Query(None, description="Filter by assembly ID"),
     current_user: User = Depends(get_current_active_user),
 ) -> Any:
-    # Retrieve assembly submissions.
-    # All users can read assembly submissions
-    query = db.query(AssemblySubmission)
-    if status:
-        query = query.filter(AssemblySubmission.status == status)
-
-    submissions = query.offset(skip).limit(limit).all()
+    """Retrieve assembly submissions."""
+    if assembly_id:
+        submissions = assembly_submission_service.get_by_assembly_id(db, assembly_id=assembly_id)
+    else:
+        query = db.query(AssemblySubmission)
+        if status:
+            query = query.filter(AssemblySubmission.status == status.value)
+        submissions = query.offset(skip).limit(limit).all()
+    
     return submissions
 
 
@@ -310,24 +318,15 @@ def create_assembly_submission(
     submission_in: AssemblySubmissionCreate,
     current_user: User = Depends(get_current_active_user),
 ) -> Any:
-    # Create new assembly submission.
-    # Only users with 'curator' or 'admin' role can create assembly submissions
+    """Create new assembly submission."""
     require_role(current_user, ["curator", "admin"])
 
-    submission = AssemblySubmission(
-        assembly_id=submission_in.assembly_id,
-        organism_id=submission_in.organism_id,
-        sample_id=submission_in.sample_id,
-        experiment_id=submission_in.experiment_id,
-        assembly_accession=submission_in.assembly_accession,
-        submission_json=submission_in.submission_json,
-        internal_json=submission_in.internal_json,
-        status=submission_in.status,
-        submission_at=submission_in.submission_at,
-    )
-    db.add(submission)
-    db.commit()
-    db.refresh(submission)
+    # Verify assembly exists
+    assembly = assembly_service.get(db, id=submission_in.assembly_id)
+    if not assembly:
+        raise HTTPException(status_code=404, detail="Assembly not found")
+
+    submission = assembly_submission_service.create(db, obj_in=submission_in)
     return submission
 
 
@@ -339,21 +338,97 @@ def update_assembly_submission(
     submission_in: AssemblySubmissionUpdate,
     current_user: User = Depends(get_current_active_user),
 ) -> Any:
-    # Update an assembly submission.
-    # Only users with 'curator' or 'admin' role can update assembly submissions
+    """Update an assembly submission."""
     require_role(current_user, ["curator", "admin"])
 
-    submission = db.query(AssemblySubmission).filter(AssemblySubmission.id == submission_id).first()
+    submission = assembly_submission_service.get(db, id=submission_id)
     if not submission:
         raise HTTPException(status_code=404, detail="Assembly submission not found")
 
-    update_data = submission_in.dict(exclude_unset=True)
-    for field, value in update_data.items():
-        setattr(submission, field, value)
-
-    db.add(submission)
-    db.commit()
-    db.refresh(submission)
+    submission = assembly_submission_service.update(db, db_obj=submission, obj_in=submission_in)
     return submission
 
-"""
+
+# ==========================================
+# Assembly File endpoints
+# ==========================================
+
+@router.get("/{assembly_id}/files", response_model=List[AssemblyFileSchema])
+def read_assembly_files(
+    *,
+    db: Session = Depends(get_db),
+    assembly_id: UUID,
+    file_type: Optional[str] = Query(None, description="Filter by file type"),
+    current_user: User = Depends(get_current_active_user),
+) -> Any:
+    """Get all files for an assembly."""
+    assembly = assembly_service.get(db, id=assembly_id)
+    if not assembly:
+        raise HTTPException(status_code=404, detail="Assembly not found")
+
+    if file_type:
+        files = assembly_file_service.get_by_assembly_and_type(db, assembly_id=assembly_id, file_type=file_type)
+    else:
+        files = assembly_file_service.get_by_assembly_id(db, assembly_id=assembly_id)
+    
+    return files
+
+
+@router.post("/{assembly_id}/files", response_model=AssemblyFileSchema)
+def create_assembly_file(
+    *,
+    db: Session = Depends(get_db),
+    assembly_id: UUID,
+    file_in: AssemblyFileCreate,
+    current_user: User = Depends(get_current_active_user),
+) -> Any:
+    """Add a file to an assembly."""
+    require_role(current_user, ["curator", "admin"])
+
+    # Verify assembly exists
+    assembly = assembly_service.get(db, id=assembly_id)
+    if not assembly:
+        raise HTTPException(status_code=404, detail="Assembly not found")
+
+    # Ensure assembly_id matches
+    if file_in.assembly_id != assembly_id:
+        raise HTTPException(status_code=400, detail="Assembly ID mismatch")
+
+    file = assembly_file_service.create(db, obj_in=file_in)
+    return file
+
+
+@router.put("/files/{file_id}", response_model=AssemblyFileSchema)
+def update_assembly_file(
+    *,
+    db: Session = Depends(get_db),
+    file_id: UUID,
+    file_in: AssemblyFileUpdate,
+    current_user: User = Depends(get_current_active_user),
+) -> Any:
+    """Update an assembly file."""
+    require_role(current_user, ["curator", "admin"])
+
+    file = assembly_file_service.get(db, id=file_id)
+    if not file:
+        raise HTTPException(status_code=404, detail="Assembly file not found")
+
+    file = assembly_file_service.update(db, db_obj=file, obj_in=file_in)
+    return file
+
+
+@router.delete("/files/{file_id}")
+def delete_assembly_file(
+    *,
+    db: Session = Depends(get_db),
+    file_id: UUID,
+    current_user: User = Depends(get_current_superuser),
+) -> Any:
+    """Delete an assembly file."""
+    file = assembly_file_service.get(db, id=file_id)
+    if not file:
+        raise HTTPException(status_code=404, detail="Assembly file not found")
+
+    assembly_file_service.remove(db, id=file_id)
+    return {"message": "File deleted successfully"}
+

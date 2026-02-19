@@ -1,5 +1,5 @@
 from app.models.accession_registry import AccessionRegistry
-from app.models.assembly import Assembly, AssemblyOutputFile, AssemblyRead, AssemblySubmission
+from app.models.assembly import Assembly, AssemblyFile, AssemblyRead, AssemblySubmission
 from app.models.bpa_initiative import BPAInitiative
 from app.models.broker import SubmissionAttempt, SubmissionEvent
 from app.models.experiment import Experiment, ExperimentSubmission

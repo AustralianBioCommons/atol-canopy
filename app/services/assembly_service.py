@@ -3,8 +3,15 @@ from uuid import UUID
 
 from sqlalchemy.orm import Session
 
-from app.models.assembly import Assembly, AssemblyOutputFile, AssemblyRead, AssemblySubmission
-from app.schemas.assembly import AssemblyCreate, AssemblyUpdate
+from app.models.assembly import Assembly, AssemblyFile, AssemblyRead, AssemblySubmission
+from app.schemas.assembly import (
+    AssemblyCreate,
+    AssemblyFileCreate,
+    AssemblyFileUpdate,
+    AssemblySubmissionCreate,
+    AssemblySubmissionUpdate,
+    AssemblyUpdate,
+)
 from app.services.base_service import BaseService
 
 
@@ -43,7 +50,9 @@ class AssemblyService(BaseService[Assembly, AssemblyCreate, AssemblyUpdate]):
         return query.offset(skip).limit(limit).all()
 
 
-class AssemblySubmissionService(BaseService[AssemblySubmission, AssemblyCreate, AssemblyUpdate]):
+class AssemblySubmissionService(
+    BaseService[AssemblySubmission, AssemblySubmissionCreate, AssemblySubmissionUpdate]
+):
     """Service for AssemblySubmission operations."""
 
     def get_by_assembly_id(self, db: Session, assembly_id: UUID) -> List[AssemblySubmission]:
@@ -58,14 +67,35 @@ class AssemblySubmissionService(BaseService[AssemblySubmission, AssemblyCreate, 
             db.query(AssemblySubmission).filter(AssemblySubmission.accession == accession).first()
         )
 
-
-class AssemblyOutputFileService(BaseService[AssemblyOutputFile, AssemblyCreate, AssemblyUpdate]):
-    """Service for AssemblyOutputFile operations."""
-
-    def get_by_assembly_id(self, db: Session, assembly_id: UUID) -> List[AssemblyOutputFile]:
-        """Get output files by assembly ID."""
+    def get_accepted_by_assembly_id(
+        self, db: Session, assembly_id: UUID
+    ) -> Optional[AssemblySubmission]:
+        """Get accepted submission for an assembly."""
         return (
-            db.query(AssemblyOutputFile).filter(AssemblyOutputFile.assembly_id == assembly_id).all()
+            db.query(AssemblySubmission)
+            .filter(
+                AssemblySubmission.assembly_id == assembly_id,
+                AssemblySubmission.status == "accepted",
+            )
+            .first()
+        )
+
+
+class AssemblyFileService(BaseService[AssemblyFile, AssemblyFileCreate, AssemblyFileUpdate]):
+    """Service for AssemblyFile operations."""
+
+    def get_by_assembly_id(self, db: Session, assembly_id: UUID) -> List[AssemblyFile]:
+        """Get files by assembly ID."""
+        return db.query(AssemblyFile).filter(AssemblyFile.assembly_id == assembly_id).all()
+
+    def get_by_assembly_and_type(
+        self, db: Session, assembly_id: UUID, file_type: str
+    ) -> List[AssemblyFile]:
+        """Get files by assembly ID and file type."""
+        return (
+            db.query(AssemblyFile)
+            .filter(AssemblyFile.assembly_id == assembly_id, AssemblyFile.file_type == file_type)
+            .all()
         )
 
 
@@ -79,5 +109,5 @@ class AssemblyReadService(BaseService[AssemblyRead, AssemblyCreate, AssemblyUpda
 
 assembly_service = AssemblyService(Assembly)
 assembly_submission_service = AssemblySubmissionService(AssemblySubmission)
-assembly_output_file_service = AssemblyOutputFileService(AssemblyOutputFile)
+assembly_file_service = AssemblyFileService(AssemblyFile)
 assembly_read_service = AssemblyReadService(AssemblyRead)
