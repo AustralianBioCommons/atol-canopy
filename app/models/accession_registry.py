@@ -1,10 +1,8 @@
 import uuid
-from datetime import datetime, timezone
 
-from sqlalchemy import BigInteger, Column, DateTime, ForeignKey, String, Text
+from sqlalchemy import Column, DateTime, Text, func
 from sqlalchemy import Enum as SQLAlchemyEnum
-from sqlalchemy.dialects.postgresql import JSONB, UUID
-from sqlalchemy.orm import relationship
+from sqlalchemy.dialects.postgresql import UUID
 
 from app.db.session import Base
 
@@ -29,15 +27,13 @@ class AccessionRegistry(Base):
         nullable=False,
     )
     entity_id = Column(UUID(as_uuid=True), nullable=False)
-    accepted_at = Column(
-        DateTime(timezone=True), nullable=False, default=datetime.now(timezone.utc)
-    )
-    created_at = Column(DateTime, nullable=False, default=datetime.now(timezone.utc))
+    accepted_at = Column(DateTime(timezone=True), nullable=False, server_default=func.now())
+    created_at = Column(DateTime(timezone=True), nullable=False, server_default=func.now())
     updated_at = Column(
-        DateTime,
+        DateTime(timezone=True),
         nullable=False,
-        default=datetime.now(timezone.utc),
-        onupdate=datetime.now(timezone.utc),
+        server_default=func.now(),
+        onupdate=func.now(),
     )
 
     # Table constraints

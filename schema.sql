@@ -38,8 +38,8 @@ CREATE TABLE users (
     roles TEXT[] NOT NULL DEFAULT '{}',
     is_active BOOLEAN NOT NULL DEFAULT TRUE,
     is_superuser BOOLEAN NOT NULL DEFAULT FALSE,
-    created_at TIMESTAMP NOT NULL DEFAULT NOW(),
-    updated_at TIMESTAMP NOT NULL DEFAULT NOW()
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
 -- ==========================================
@@ -50,10 +50,10 @@ CREATE TABLE refresh_token (
     id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
     token_hash TEXT NOT NULL,
     user_id UUID NOT NULL REFERENCES users(id),
-    expires_at TIMESTAMP WITHOUT TIME ZONE NOT NULL,
+    expires_at TIMESTAMPTZ NOT NULL,
     revoked BOOLEAN NOT NULL DEFAULT FALSE,
-    created_at TIMESTAMP NOT NULL DEFAULT NOW(),
-    updated_at TIMESTAMP NOT NULL DEFAULT NOW()
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
 -- ==========================================
@@ -70,8 +70,8 @@ CREATE TABLE organism (
     common_name_source TEXT,
     bpa_json JSONB,
     taxonomy_lineage_json JSONB,
-    created_at TIMESTAMP NOT NULL DEFAULT NOW(),
-    updated_at TIMESTAMP NOT NULL DEFAULT NOW()
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 /*
     -- BPA organism table
@@ -79,8 +79,8 @@ CREATE TABLE organism (
         id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
         organism_id UUID REFERENCES organism(id),
         bpa_json JSONB,
-        created_at TIMESTAMP NOT NULL DEFAULT NOW(),
-        updated_at TIMESTAMP NOT NULL DEFAULT NOW()
+        created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+        updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
     );
 */
 
@@ -96,8 +96,8 @@ CREATE TABLE accession_registry (
     entity_type entity_type NOT NULL,
     entity_id UUID NOT NULL,
     accepted_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-    created_at TIMESTAMP NOT NULL DEFAULT NOW(),
-    updated_at TIMESTAMP NOT NULL DEFAULT NOW(),
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     UNIQUE (authority, entity_type, entity_id),
     UNIQUE (authority, accession)
 );
@@ -121,12 +121,12 @@ CREATE TABLE project (
     description TEXT NOT NULL,
     centre_name TEXT,
     study_attributes JSONB,
-    submitted_at TIMESTAMP,
+    submitted_at TIMESTAMPTZ,
     status submission_status NOT NULL DEFAULT 'draft',
     authority authority_type NOT NULL DEFAULT 'ENA',
     -- TODO confirm if we want study attributes, and enforece schema for json (or include as seperate table)
-    created_at TIMESTAMP NOT NULL DEFAULT NOW(),
-    updated_at TIMESTAMP NOT NULL DEFAULT NOW()
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
 CREATE UNIQUE INDEX uq_one_project_type_per_organism
@@ -147,17 +147,17 @@ CREATE TABLE IF NOT EXISTS project_submission (
     -- constant to help the composite FK
     entity_type_const entity_type NOT NULL DEFAULT 'project' CHECK (entity_type_const = 'project'),
 
-    submitted_at TIMESTAMP,
-    created_at TIMESTAMP NOT NULL DEFAULT NOW(),
-    updated_at TIMESTAMP NOT NULL DEFAULT NOW(),
+    submitted_at TIMESTAMPTZ,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
 
     -- attempt linkage
     attempt_id UUID,
     finalised_attempt_id UUID,
 
     -- broker lease/claim fields (attempt-scoped)
-    lock_acquired_at TIMESTAMP,
-    lock_expires_at TIMESTAMP,
+    lock_acquired_at TIMESTAMPTZ,
+    lock_expires_at TIMESTAMPTZ,
 
     CONSTRAINT fk_self_project_accession
       FOREIGN KEY (accession, authority, entity_type_const, project_id)
@@ -173,6 +173,8 @@ CREATE UNIQUE INDEX IF NOT EXISTS uq_project_one_accepted
 -- Broker claim indexes
 CREATE INDEX IF NOT EXISTS idx_project_submission_attempt ON project_submission (attempt_id);
 CREATE INDEX IF NOT EXISTS idx_project_submission_finalised_attempt ON project_submission (finalised_attempt_id);
+CREATE INDEX IF NOT EXISTS idx_project_submission_status ON project_submission (status);
+CREATE INDEX IF NOT EXISTS idx_project_submission_lock_expires_at ON project_submission (lock_expires_at);
 
 -- ==========================================
 -- Sample tables
@@ -225,9 +227,11 @@ CREATE TABLE sample (
     OR
     (kind = 'derived'  AND derived_from_sample_id IS NOT NULL)
   ),
+  CONSTRAINT chk_sample_latitude CHECK (latitude IS NULL OR latitude BETWEEN -90 AND 90),
+  CONSTRAINT chk_sample_longitude CHECK (longitude IS NULL OR longitude BETWEEN -180 AND 180),
     extensions JSONB,
-    created_at TIMESTAMP NOT NULL DEFAULT NOW(),
-    updated_at TIMESTAMP NOT NULL DEFAULT NOW()
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
 -- Sample submission table
@@ -241,9 +245,9 @@ CREATE TABLE sample_submission (
     biosample_accession TEXT,
     -- TODO undecided whether to keep biosample_accession here or rely on the accession_registry table
     status submission_status NOT NULL DEFAULT 'draft',
-    submitted_at TIMESTAMP,
-    created_at TIMESTAMP NOT NULL DEFAULT NOW(),
-    updated_at TIMESTAMP NOT NULL DEFAULT NOW(),
+    submitted_at TIMESTAMPTZ,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
 
     -- constant to help the composite FK
     entity_type_const entity_type NOT NULL DEFAULT 'sample' CHECK (entity_type_const = 'sample'),
@@ -253,8 +257,8 @@ CREATE TABLE sample_submission (
     finalised_attempt_id UUID,
 
     -- broker lease/claim fields (attempt-scoped)
-    lock_acquired_at TIMESTAMP,
-    lock_expires_at TIMESTAMP,
+    lock_acquired_at TIMESTAMPTZ,
+    lock_expires_at TIMESTAMPTZ,
 
     CONSTRAINT fk_self_accession
     FOREIGN KEY (accession, authority, entity_type_const, sample_id)
@@ -271,6 +275,8 @@ CREATE UNIQUE INDEX uq_sample_one_accepted
 -- Broker claim indexes
 CREATE INDEX IF NOT EXISTS idx_sample_submission_attempt ON sample_submission (attempt_id);
 CREATE INDEX IF NOT EXISTS idx_sample_submission_finalised_attempt ON sample_submission (finalised_attempt_id);
+CREATE INDEX IF NOT EXISTS idx_sample_submission_status ON sample_submission (status);
+CREATE INDEX IF NOT EXISTS idx_sample_submission_lock_expires_at ON sample_submission (lock_expires_at);
 
 -- Support parent/child lookups for derived samples
 CREATE INDEX IF NOT EXISTS idx_sample_derived_from_sample_id ON sample(derived_from_sample_id);
@@ -328,8 +334,8 @@ CREATE TABLE experiment (
 
     -- bpa_dataset_id TEXT UNIQUE NOT NULL,
     extensions JSONB,
-    created_at TIMESTAMP NOT NULL DEFAULT NOW(),
-    updated_at TIMESTAMP NOT NULL DEFAULT NOW()
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
 -- Experiment submission table
@@ -354,16 +360,16 @@ CREATE TABLE experiment_submission (
     -- constant to help the composite FK
     entity_type_const entity_type NOT NULL DEFAULT 'experiment' CHECK (entity_type_const = 'experiment'),
 
-    submitted_at TIMESTAMP,
-    created_at TIMESTAMP NOT NULL DEFAULT NOW(),
-    updated_at TIMESTAMP NOT NULL DEFAULT NOW(),
+    submitted_at TIMESTAMPTZ,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
 
     attempt_id UUID,
     finalised_attempt_id UUID,
 
     -- broker lease/claim fields
-    lock_acquired_at TIMESTAMP,
-    lock_expires_at TIMESTAMP,
+    lock_acquired_at TIMESTAMPTZ,
+    lock_expires_at TIMESTAMPTZ,
 
       -- When accession is present, it must exist in the registry AND map to this same experiment:
   CONSTRAINT fk_self_accession
@@ -383,6 +389,8 @@ CREATE TABLE experiment_submission (
 -- Broker lease/claim index
 CREATE INDEX IF NOT EXISTS idx_experiment_submission_attempt ON experiment_submission (attempt_id);
 CREATE INDEX IF NOT EXISTS idx_experiment_submission_finalised_attempt ON experiment_submission (finalised_attempt_id);
+CREATE INDEX IF NOT EXISTS idx_experiment_submission_status ON experiment_submission (status);
+CREATE INDEX IF NOT EXISTS idx_experiment_submission_lock_expires_at ON experiment_submission (lock_expires_at);
 
 -- TODO consider if we want to keep track of former submissions that have been replaced/modified
 CREATE UNIQUE INDEX uq_exp_one_accepted
@@ -417,8 +425,8 @@ CREATE TABLE read (
     run_read_count TEXT,
     run_base_count TEXT,
     extensions JSONB,
-    created_at TIMESTAMP NOT NULL DEFAULT NOW(),
-    updated_at TIMESTAMP NOT NULL DEFAULT NOW()
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
 CREATE TABLE read_submission (
@@ -437,16 +445,16 @@ CREATE TABLE read_submission (
 
     accession TEXT,
 
-    created_at TIMESTAMP NOT NULL DEFAULT NOW(),
-    updated_at TIMESTAMP NOT NULL DEFAULT NOW(),
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
 
     -- attempt linkage
     attempt_id UUID,
     finalised_attempt_id UUID,
 
     -- broker lease/claim fields (attempt-scoped)
-    lock_acquired_at TIMESTAMP,
-    lock_expires_at TIMESTAMP,
+    lock_acquired_at TIMESTAMPTZ,
+    lock_expires_at TIMESTAMPTZ,
 
     -- constant to help the composite FK
     entity_type_const entity_type NOT NULL DEFAULT 'read' CHECK (entity_type_const = 'read'),
@@ -471,6 +479,8 @@ CREATE UNIQUE INDEX uq_read_one_accepted
 -- removed batch index; attempt-only
 CREATE INDEX IF NOT EXISTS idx_read_submission_attempt ON read_submission (attempt_id);
 CREATE INDEX IF NOT EXISTS idx_read_submission_finalised_attempt ON read_submission (finalised_attempt_id);
+CREATE INDEX IF NOT EXISTS idx_read_submission_status ON read_submission (status);
+CREATE INDEX IF NOT EXISTS idx_read_submission_lock_expires_at ON read_submission (lock_expires_at);
 
 -- ==========================================
 -- Broker Attempt table
@@ -481,11 +491,14 @@ CREATE TABLE submission_attempt (
     organism_key TEXT REFERENCES organism(grouping_key),
     campaign_label TEXT,
     status TEXT NOT NULL DEFAULT 'processing',
-    lock_acquired_at TIMESTAMP NOT NULL DEFAULT NOW(),
-    lock_expires_at TIMESTAMP,
-    created_at TIMESTAMP NOT NULL DEFAULT NOW(),
-    updated_at TIMESTAMP NOT NULL DEFAULT NOW()
+    lock_acquired_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    lock_expires_at TIMESTAMPTZ,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
+
+CREATE INDEX IF NOT EXISTS idx_submission_attempt_status ON submission_attempt (status);
+CREATE INDEX IF NOT EXISTS idx_submission_attempt_lock_expires_at ON submission_attempt (lock_expires_at);
 
 -- ==========================================
 -- Submission events (append-only audit trail)
@@ -499,7 +512,7 @@ CREATE TABLE submission_event (
     action TEXT NOT NULL CHECK (action IN ('claimed','accepted','rejected','released','expired','progress')),
     accession TEXT,
     details JSONB,
-    at TIMESTAMP NOT NULL DEFAULT NOW()
+    at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
 CREATE INDEX IF NOT EXISTS idx_submission_event_attempt ON submission_event (attempt_id);
@@ -529,8 +542,8 @@ CREATE TABLE assembly (
     -- Auto-incremented version per (data_types, organism_key, sample_id)
     version INTEGER NOT NULL DEFAULT 1,
 
-    created_at TIMESTAMP NOT NULL DEFAULT NOW(),
-    updated_at TIMESTAMP NOT NULL DEFAULT NOW()
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
 CREATE TABLE assembly_file (
@@ -545,8 +558,8 @@ CREATE TABLE assembly_file (
     file_format TEXT,
     description TEXT,
     metadata JSONB,
-    created_at TIMESTAMP NOT NULL DEFAULT NOW(),
-    updated_at TIMESTAMP NOT NULL DEFAULT NOW()
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
 CREATE INDEX idx_assembly_file_assembly_id ON assembly_file(assembly_id);
@@ -574,11 +587,11 @@ CREATE TABLE assembly_submission (
     response_payload JSONB,
 
     -- Metadata
-    submitted_at TIMESTAMP,
+    submitted_at TIMESTAMPTZ,
     submitted_by UUID REFERENCES users(id),
 
-    created_at TIMESTAMP NOT NULL DEFAULT NOW(),
-    updated_at TIMESTAMP NOT NULL DEFAULT NOW()
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
 -- Only one accepted submission per assembly+authority
@@ -613,10 +626,10 @@ CREATE TABLE genome_note (
 
     -- Publication status
     is_published BOOLEAN NOT NULL DEFAULT FALSE,
-    published_at TIMESTAMP,
+    published_at TIMESTAMPTZ,
 
-    created_at TIMESTAMP NOT NULL DEFAULT NOW(),
-    updated_at TIMESTAMP NOT NULL DEFAULT NOW(),
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
 
     -- Ensure version uniqueness per organism
     UNIQUE (organism_key, version)
@@ -641,8 +654,8 @@ CREATE TABLE bpa_initiative (
     project_code TEXT PRIMARY KEY,
     title TEXT NOT NULL,
     url TEXT,
-    created_at TIMESTAMP NOT NULL DEFAULT NOW(),
-    updated_at TIMESTAMP NOT NULL DEFAULT NOW()
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
 -- Create indexes for common query patterns

@@ -1,5 +1,4 @@
 import uuid
-from datetime import datetime, timezone
 
 from sqlalchemy import (
     BigInteger,
@@ -9,10 +8,10 @@ from sqlalchemy import (
     ForeignKey,
     Integer,
     PrimaryKeyConstraint,
-    String,
     Text,
 )
 from sqlalchemy import Enum as SQLAlchemyEnum
+from sqlalchemy import func
 from sqlalchemy.dialects.postgresql import JSONB, UUID
 from sqlalchemy.orm import backref, relationship
 
@@ -59,12 +58,12 @@ class Assembly(Base):
     description = Column(Text, nullable=True)
     version = Column(Integer, nullable=False, default=1)
 
-    created_at = Column(DateTime, nullable=False, default=datetime.now(timezone.utc))
+    created_at = Column(DateTime(timezone=True), nullable=False, server_default=func.now())
     updated_at = Column(
-        DateTime,
+        DateTime(timezone=True),
         nullable=False,
-        default=datetime.now(timezone.utc),
-        onupdate=datetime.now(timezone.utc),
+        server_default=func.now(),
+        onupdate=func.now(),
     )
 
     # Relationships
@@ -115,15 +114,15 @@ class AssemblySubmission(Base):
     response_payload = Column(JSONB, nullable=True)
 
     # Metadata
-    submitted_at = Column(DateTime, nullable=True)
+    submitted_at = Column(DateTime(timezone=True), nullable=True)
     submitted_by = Column(UUID(as_uuid=True), ForeignKey("users.id"), nullable=True)
 
-    created_at = Column(DateTime, nullable=False, default=datetime.now(timezone.utc))
+    created_at = Column(DateTime(timezone=True), nullable=False, server_default=func.now())
     updated_at = Column(
-        DateTime,
+        DateTime(timezone=True),
         nullable=False,
-        default=datetime.now(timezone.utc),
-        onupdate=datetime.now(timezone.utc),
+        server_default=func.now(),
+        onupdate=func.now(),
     )
 
     # Relationships
@@ -164,12 +163,12 @@ class AssemblyFile(Base):
     file_checksum_method = Column(Text, nullable=True, default="MD5")
     file_format = Column(Text, nullable=True)
     description = Column(Text, nullable=True)
-    created_at = Column(DateTime, nullable=False, default=datetime.now(timezone.utc))
+    created_at = Column(DateTime(timezone=True), nullable=False, server_default=func.now())
     updated_at = Column(
-        DateTime,
+        DateTime(timezone=True),
         nullable=False,
-        default=datetime.now(timezone.utc),
-        onupdate=datetime.now(timezone.utc),
+        server_default=func.now(),
+        onupdate=func.now(),
     )
 
     # Relationships

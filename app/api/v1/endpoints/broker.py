@@ -16,6 +16,7 @@ from app.models.organism import Organism
 from app.models.project import Project, ProjectSubmission
 from app.models.read import Read, ReadSubmission
 from app.models.sample import Sample, SampleSubmission
+from app.services.broker_service import expire_leases
 
 router = APIRouter(dependencies=[Depends(has_role(["broker"]))])
 
@@ -79,6 +80,10 @@ class ReportRequest(BaseModel):
 
 class ReportResult(BaseModel):
     updated_counts: Dict[str, int]
+
+
+class ExpireLeasesResult(BaseModel):
+    expired_counts: Dict[str, int]
 
 
 # ---------- Endpoints ----------
@@ -926,6 +931,16 @@ def report_results(
             "projects": updated_projects,
         }
     )
+
+
+@router.post("/attempts/expire", response_model=ExpireLeasesResult)
+def expire_broker_leases(db: Session = Depends(get_db)) -> Any:
+    """
+    Expire broker leases whose lock has passed and return counts by entity type.
+    """
+    expired = expire_leases(db)
+    db.commit()
+    return {"expired_counts": expired}
 
 
 # ---------- Dashboard Helpers ----------

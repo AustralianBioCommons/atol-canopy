@@ -1,10 +1,7 @@
 import uuid
-from datetime import datetime, timezone
 
-from sqlalchemy import Column, DateTime, ForeignKey, String, Text
+from sqlalchemy import Column, DateTime, ForeignKey, String, Text, func
 from sqlalchemy.dialects.postgresql import JSONB, UUID
-from sqlalchemy.orm import backref, relationship
-
 from app.db.session import Base
 
 
@@ -17,14 +14,14 @@ class SubmissionAttempt(Base):
     )
     campaign_label = Column(Text, nullable=True)
     status = Column(String, nullable=False, default="processing")
-    lock_acquired_at = Column(DateTime, nullable=False, default=datetime.now(timezone.utc))
-    lock_expires_at = Column(DateTime, nullable=True)
-    created_at = Column(DateTime, nullable=False, default=datetime.now(timezone.utc))
+    lock_acquired_at = Column(DateTime(timezone=True), nullable=False, server_default=func.now())
+    lock_expires_at = Column(DateTime(timezone=True), nullable=True)
+    created_at = Column(DateTime(timezone=True), nullable=False, server_default=func.now())
     updated_at = Column(
-        DateTime,
+        DateTime(timezone=True),
         nullable=False,
-        default=datetime.now(timezone.utc),
-        onupdate=datetime.now(timezone.utc),
+        server_default=func.now(),
+        onupdate=func.now(),
     )
 
 
@@ -40,4 +37,4 @@ class SubmissionEvent(Base):
     action = Column(String, nullable=False)  # claimed|accepted|rejected|released|expired|progress
     accession = Column(Text, nullable=True)
     details = Column(JSONB, nullable=True)
-    at = Column(DateTime, nullable=False, default=datetime.now(timezone.utc))
+    at = Column(DateTime(timezone=True), nullable=False, server_default=func.now())
