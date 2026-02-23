@@ -104,6 +104,18 @@ def root():
     }
 
 
+@app.get("/health")
+def health():
+    """ALB health-check endpoint."""
+    return {"status": "ok"}
+
+
+@app.get("/version")
+def version():
+    """Application version endpoint."""
+    return {"version": settings.APP_VERSION}
+
+
 if __name__ == "__main__":
     import uvicorn
 

@@ -350,6 +350,7 @@ The system implements role-based access control with the following roles:
   - Apply migrations: `uv run alembic upgrade head`
   - Create a new revision: `uv run alembic revision --autogenerate -m "description"`
   - Docker Compose runs migrations automatically on container start via `scripts/entrypoint.sh`.
+  - `scripts/entrypoint.sh` supports `APP_MODE=serve` (default) and `APP_MODE=migrate` (run migrations then exit).
 
   ### Environment configuration
 

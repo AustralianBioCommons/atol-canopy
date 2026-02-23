@@ -1,6 +1,7 @@
 FROM ghcr.io/astral-sh/uv:python3.13-bookworm-slim
 
 WORKDIR /app
+ARG APP_VERSION=dev
 
 # Ensure uv installs into a local virtual environment for the project
 ENV UV_PROJECT_ENVIRONMENT=/app/.venv
@@ -18,6 +19,7 @@ RUN chmod +x scripts/entrypoint.sh
 ENV PATH="/app/.venv/bin:${PATH}"
 ENV PYTHONPATH=/app
 ENV PORT=8000
+ENV APP_VERSION=${APP_VERSION}
 
 EXPOSE 8000
 

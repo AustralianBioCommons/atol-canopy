@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
+MODE="${APP_MODE:-serve}"
 DB_URL="${DATABASE_URI:-}"
 if [ -z "${DB_URL}" ]; then
   echo "DATABASE_URI is not set; cannot run migrations."
@@ -25,6 +26,16 @@ done
 
 echo "Running database migrations..."
 uv run alembic upgrade head
+
+if [ "${MODE}" = "migrate" ]; then
+  echo "Migration-only mode complete."
+  exit 0
+fi
+
+if [ "${MODE}" != "serve" ]; then
+  echo "Unknown APP_MODE '${MODE}'. Expected 'serve' or 'migrate'."
+  exit 1
+fi
 
 if [ "${ENVIRONMENT:-prod}" = "dev" ]; then
   echo "Starting application (dev mode with reload)..."
