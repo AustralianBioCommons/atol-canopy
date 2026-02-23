@@ -104,6 +104,12 @@ def root():
     }
 
 
+@app.get("/health")
+def health():
+    """ALB health-check endpoint."""
+    return {"status": "ok"}
+
+
 if __name__ == "__main__":
     import uvicorn
 
