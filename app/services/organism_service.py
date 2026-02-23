@@ -1,7 +1,7 @@
 from typing import Any, Dict, List, Optional
 from uuid import UUID
 
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, selectinload
 
 from app.models.experiment import Experiment, ExperimentSubmission
 from app.models.organism import Organism
@@ -79,10 +79,13 @@ class OrganismService(BaseService[Organism, OrganismCreate, OrganismUpdate]):
         samples = db.query(Sample.id).filter(Sample.organism_key == grouping_key).all()
         sample_ids = [sid for (sid,) in samples]
 
-        # Load experiments
+        # Load experiments (eager load reads when requested)
         experiments: List[Experiment] = []
         if sample_ids:
-            experiments = db.query(Experiment).filter(Experiment.sample_id.in_(sample_ids)).all()
+            query = db.query(Experiment).filter(Experiment.sample_id.in_(sample_ids))
+            if include_reads:
+                query = query.options(selectinload(Experiment.reads))
+            experiments = query.all()
 
         # Build response
         if not include_reads:
@@ -90,15 +93,11 @@ class OrganismService(BaseService[Organism, OrganismCreate, OrganismUpdate]):
             return {"grouping_key": grouping_key, "experiments": exp_list}
 
         # include_reads = True
-        exp_ids = [e.id for e in experiments]
         reads_by_exp: Dict[str, List[Dict[str, Any]]] = {}
-        if exp_ids:
-            reads = db.query(Read).filter(Read.experiment_id.in_(exp_ids)).all()
-            for r in reads:
-                key = str(r.experiment_id) if r.experiment_id else "null"
-                if key not in reads_by_exp:
-                    reads_by_exp[key] = []
-                reads_by_exp[key].append(self._sa_obj_to_dict(r))
+        for e in experiments:
+            if not e.reads:
+                continue
+            reads_by_exp[str(e.id)] = [self._sa_obj_to_dict(r) for r in e.reads]
 
         exp_with_reads: List[Dict[str, Any]] = []
         for e in experiments:

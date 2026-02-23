@@ -2,8 +2,12 @@ import logging
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse
+from fastapi.exceptions import RequestValidationError
+from starlette.exceptions import HTTPException as StarletteHTTPException
 
 from app.api.v1.api import api_router
+from app.core.errors import AppError
 from app.core.settings import settings
 
 # Configure logging based on environment
@@ -35,6 +39,47 @@ if settings.BACKEND_CORS_ORIGINS:
 # Include API router
 app.include_router(api_router, prefix=settings.API_V1_STR)
 
+
+@app.exception_handler(AppError)
+def app_error_handler(_, exc: AppError):
+    return JSONResponse(
+        status_code=exc.status_code,
+        content={
+            "error": {
+                "code": exc.code,
+                "message": exc.message,
+                "details": exc.details,
+            }
+        },
+    )
+
+
+@app.exception_handler(StarletteHTTPException)
+def http_exception_handler(_, exc: StarletteHTTPException):
+    return JSONResponse(
+        status_code=exc.status_code,
+        content={
+            "error": {
+                "code": "http_error",
+                "message": exc.detail,
+                "details": {},
+            }
+        },
+    )
+
+
+@app.exception_handler(RequestValidationError)
+def validation_exception_handler(_, exc: RequestValidationError):
+    return JSONResponse(
+        status_code=422,
+        content={
+            "error": {
+                "code": "validation_error",
+                "message": "Request validation failed",
+                "details": {"errors": exc.errors()},
+            }
+        },
+    )
 
 @app.get("/")
 def root():

@@ -4,12 +4,9 @@ from uuid import UUID
 from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.orm import Session
 
-from app.core.dependencies import (
-    get_current_active_user,
-    get_current_superuser,
-    get_db,
-    require_role,
-)
+from app.core.dependencies import get_current_active_user, get_db
+from app.core.pagination import Pagination, apply_pagination, pagination_params
+from app.core.policy import policy
 from app.models.project import Project
 from app.models.user import User
 from app.schemas.project import (
@@ -26,19 +23,19 @@ router = APIRouter()
 @router.get("/", response_model=List[ProjectSchema])
 def read_projects(
     db: Session = Depends(get_db),
-    skip: int = 0,
-    limit: int = 100,
+    pagination: Pagination = Depends(pagination_params),
     current_user: User = Depends(get_current_active_user),
 ) -> Any:
     """
     Retrieve projects.
     """
     # All users can read projects
-    projects = db.query(Project).offset(skip).limit(limit).all()
+    projects = apply_pagination(db.query(Project), pagination).all()
     return projects
 
 
 @router.post("/", response_model=ProjectSchema)
+@policy("projects:create")
 def create_project(
     *,
     db: Session = Depends(get_db),
@@ -48,9 +45,6 @@ def create_project(
     """
     Create new project.
     """
-    # Only users with 'curator' or 'admin' role can create projects
-    require_role(current_user, ["curator", "admin"])
-
     project = Project(
         project_accession=project_in.project_accession,
         alias=project_in.alias,
@@ -83,6 +77,7 @@ def read_project(
 
 
 @router.put("/{project_id}", response_model=ProjectSchema)
+@policy("projects:update")
 def update_project(
     *,
     db: Session = Depends(get_db),
@@ -93,9 +88,6 @@ def update_project(
     """
     Update a project.
     """
-    # Only users with 'curator' or 'admin' role can update projects
-    require_role(current_user, ["curator", "admin"])
-
     project = db.query(Project).filter(Project.id == project_id).first()
     if not project:
         raise HTTPException(status_code=404, detail="Project not found")
@@ -111,16 +103,16 @@ def update_project(
 
 
 @router.delete("/{project_id}", response_model=ProjectSchema)
+@policy("projects:delete")
 def delete_project(
     *,
     db: Session = Depends(get_db),
     project_id: UUID,
-    current_user: User = Depends(get_current_superuser),
+    current_user: User = Depends(get_current_active_user),
 ) -> Any:
     """
     Delete a project.
     """
-    # Only superusers can delete projects
     project = db.query(Project).filter(Project.id == project_id).first()
     if not project:
         raise HTTPException(status_code=404, detail="Project not found")

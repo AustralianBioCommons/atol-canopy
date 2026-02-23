@@ -8,12 +8,9 @@ from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy.orm import Session
 from sqlalchemy.orm.attributes import flag_modified
 
-from app.core.dependencies import (
-    get_current_active_user,
-    get_current_superuser,
-    get_db,
-    require_role,
-)
+from app.core.dependencies import get_current_active_user, get_db
+from app.core.pagination import Pagination, apply_pagination, pagination_params
+from app.core.policy import policy
 from app.models.read import Read, ReadSubmission
 from app.models.user import User
 from app.schemas.common import SubmissionJsonResponse, SubmissionStatus
@@ -31,8 +28,7 @@ router = APIRouter()
 @router.get("/", response_model=List[ReadSchema])
 def read_reads(
     db: Session = Depends(get_db),
-    skip: int = 0,
-    limit: int = 100,
+    pagination: Pagination = Depends(pagination_params),
     experiment_id: Optional[UUID] = Query(None, description="Filter by experiment ID"),
     current_user: User = Depends(get_current_active_user),
 ) -> Any:
@@ -44,11 +40,12 @@ def read_reads(
     if experiment_id:
         query = query.filter(Read.experiment_id == experiment_id)
 
-    reads = query.offset(skip).limit(limit).all()
+    reads = apply_pagination(query, pagination).all()
     return reads
 
 
 @router.post("/", response_model=ReadSchema)
+@policy("reads:create")
 def create_read(
     *,
     db: Session = Depends(get_db),
@@ -58,8 +55,6 @@ def create_read(
     """
     Create new read.
     """
-    # Only users with 'curator' or 'admin' role can create reads
-    require_role(current_user, ["curator", "admin"])
     read_id = uuid.uuid4()
 
     # Auto-map from Pydantic schema to Read columns
@@ -152,6 +147,7 @@ def read_read(
 
 
 @router.put("/{read_id}", response_model=ReadSchema)
+@policy("reads:update")
 def update_read(
     *,
     db: Session = Depends(get_db),
@@ -162,8 +158,6 @@ def update_read(
     """
     Update a read.
     """
-    # Only users with 'curator' or 'admin' role can update reads
-    require_role(current_user, ["curator", "admin"])
 
     read = db.query(Read).filter(Read.id == read_id).first()
     if not read:
@@ -271,16 +265,16 @@ def update_read(
 
 
 @router.delete("/{read_id}", response_model=ReadSchema)
+@policy("reads:delete")
 def delete_read(
     *,
     db: Session = Depends(get_db),
     read_id: UUID,
-    current_user: User = Depends(get_current_superuser),
+    current_user: User = Depends(get_current_active_user),
 ) -> Any:
     """
     Delete a read.
     """
-    # Only superusers can delete reads
     read = db.query(Read).filter(Read.id == read_id).first()
     if not read:
         raise HTTPException(status_code=404, detail="Read not found")
