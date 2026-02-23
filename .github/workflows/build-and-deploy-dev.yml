@@ -39,6 +39,8 @@ jobs:
           context: .
           file: ./Dockerfile
           platforms: linux/amd64
+          build-args: |
+            APP_VERSION=dev-${{ github.sha }}
           push: true
           tags: |
             ${{ env.IMAGE_REPO }}:latest

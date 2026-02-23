@@ -39,6 +39,8 @@ jobs:
           context: .
           file: ./Dockerfile
           platforms: linux/amd64
+          build-args: |
+            APP_VERSION=${{ github.ref_name }}
           push: true
           tags: |
             ${{ env.IMAGE_REPO }}:${{ github.ref_name }}

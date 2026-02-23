@@ -35,6 +35,7 @@ class Settings(BaseSettings):
 
     # Environment
     ENVIRONMENT: Optional[str] = None  # Options: "dev", "prod"
+    APP_VERSION: str = "dev"
 
     # Model config
     model_config = SettingsConfigDict(
