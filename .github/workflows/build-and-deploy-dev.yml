@@ -1,0 +1,79 @@
+name: build-and-deploy-dev
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  id-token: write
+
+env:
+  AWS_REGION: ap-southeast-2
+  IMAGE_REPO: 868550873346.dkr.ecr.ap-southeast-2.amazonaws.com/atol-backend-dev
+  DEPLOY_FUNCTION_NAME: AtolBackendDevDeploymentFunction
+
+jobs:
+  docker:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ secrets.AWS_ROLE_ECR_PUSH }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Login to ECR
+        uses: aws-actions/amazon-ecr-login@v2
+
+      - name: Build and push dev image
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: ./Dockerfile
+          platforms: linux/amd64
+          push: true
+          tags: |
+            ${{ env.IMAGE_REPO }}:latest
+            ${{ env.IMAGE_REPO }}:${{ github.sha }}
+          provenance: false
+          sbom: false
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      - name: Deploy backend via Lambda
+        env:
+          IMAGE_TAG: latest
+        run: |
+          set -euo pipefail
+          PAYLOAD=$(jq -n --arg tag "${IMAGE_TAG}" '{tag: $tag}')
+          RESPONSE_FILE=$(mktemp)
+
+          INVOKE_METADATA=$(aws lambda invoke \
+            --function-name "${DEPLOY_FUNCTION_NAME}" \
+            --payload "${PAYLOAD}" \
+            --cli-binary-format raw-in-base64-out \
+            --cli-read-timeout 0 \
+            "${RESPONSE_FILE}")
+
+          echo "${INVOKE_METADATA}"
+          cat "${RESPONSE_FILE}"
+
+          FUNCTION_ERROR=$(echo "${INVOKE_METADATA}" | jq -r '.FunctionError // empty')
+          if [ -n "${FUNCTION_ERROR}" ]; then
+            echo "Deployment lambda reported an error: ${FUNCTION_ERROR}" >&2
+            exit 1
+          fi
+
+          STATUS=$(jq -r '.status // empty' "${RESPONSE_FILE}")
+          if [ "${STATUS}" != "SUCCESS" ]; then
+            echo "Deployment lambda returned unexpected status: ${STATUS}" >&2
+            exit 1
+          fi
