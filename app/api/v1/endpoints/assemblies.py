@@ -4,12 +4,9 @@ from uuid import UUID
 from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.orm import Session
 
-from app.core.dependencies import (
-    get_current_active_user,
-    get_current_superuser,
-    get_db,
-    require_role,
-)
+from app.core.dependencies import get_current_active_user, get_db
+from app.core.pagination import Pagination, apply_pagination, pagination_params
+from app.core.policy import policy
 from app.models.assembly import Assembly, AssemblyFile, AssemblySubmission
 from app.models.experiment import Experiment
 from app.models.organism import Organism
@@ -268,6 +265,7 @@ def get_assembly_manifest(
 
 
 @router.post("/from-experiments/{tax_id}", response_model=Dict[str, Any])
+@policy("assemblies:write")
 def create_assembly_from_experiments(
     *,
     db: Session = Depends(get_db),
@@ -285,8 +283,6 @@ def create_assembly_from_experiments(
 
     The data_types field in assembly_in will be ignored and auto-determined.
     """
-    require_role(current_user, ["curator", "admin"])
-
     try:
         assembly, platform_info = assembly_service.create_from_experiments(
             db, tax_id=tax_id, assembly_in=assembly_in
@@ -302,16 +298,13 @@ def create_assembly_from_experiments(
 
 
 @router.post("/", response_model=AssemblySchema)
+@policy("assemblies:write")
 def create_assembly(
     *,
     db: Session = Depends(get_db),
     assembly_in: AssemblyCreate,
     current_user: User = Depends(get_current_active_user),
 ) -> Any:
-    # Create new assembly.
-    # Only users with 'curator' or 'admin' role can create assemblies
-    require_role(current_user, ["curator", "admin"])
-
     assembly = assembly_service.create(db, obj_in=assembly_in)
     return assembly
 
@@ -332,6 +325,7 @@ def read_assembly(
 
 
 @router.put("/{assembly_id}", response_model=AssemblySchema)
+@policy("assemblies:write")
 def update_assembly(
     *,
     db: Session = Depends(get_db),
@@ -339,10 +333,6 @@ def update_assembly(
     assembly_in: AssemblyUpdate,
     current_user: User = Depends(get_current_active_user),
 ) -> Any:
-    # Update an assembly.
-    # Only users with 'curator' or 'admin' role can update assemblies
-    require_role(current_user, ["curator", "admin"])
-
     assembly = db.query(Assembly).filter(Assembly.id == assembly_id).first()
     if not assembly:
         raise HTTPException(status_code=404, detail="Assembly not found")
@@ -358,11 +348,12 @@ def update_assembly(
 
 
 @router.delete("/{assembly_id}", response_model=AssemblySchema)
+@policy("assemblies:delete")
 def delete_assembly(
     *,
     db: Session = Depends(get_db),
     assembly_id: UUID,
-    current_user: User = Depends(get_current_superuser),
+    current_user: User = Depends(get_current_active_user),
 ) -> Any:
     # Delete an assembly.
     # Only superusers can delete assemblies
@@ -379,8 +370,7 @@ def delete_assembly(
 @router.get("/submission/", response_model=List[AssemblySubmissionSchema])
 def read_assembly_submissions(
     db: Session = Depends(get_db),
-    skip: int = 0,
-    limit: int = 100,
+    pagination: Pagination = Depends(pagination_params),
     status: Optional[SubmissionStatus] = Query(None, description="Filter by submission status"),
     assembly_id: Optional[UUID] = Query(None, description="Filter by assembly ID"),
     current_user: User = Depends(get_current_active_user),
@@ -392,12 +382,13 @@ def read_assembly_submissions(
         query = db.query(AssemblySubmission)
         if status:
             query = query.filter(AssemblySubmission.status == status.value)
-        submissions = query.offset(skip).limit(limit).all()
+        submissions = apply_pagination(query, pagination).all()
 
     return submissions
 
 
 @router.post("/submission/", response_model=AssemblySubmissionSchema)
+@policy("assemblies:write")
 def create_assembly_submission(
     *,
     db: Session = Depends(get_db),
@@ -405,7 +396,6 @@ def create_assembly_submission(
     current_user: User = Depends(get_current_active_user),
 ) -> Any:
     """Create new assembly submission."""
-    require_role(current_user, ["curator", "admin"])
 
     # Verify assembly exists
     assembly = assembly_service.get(db, id=submission_in.assembly_id)
@@ -417,6 +407,7 @@ def create_assembly_submission(
 
 
 @router.put("/submission/{submission_id}", response_model=AssemblySubmissionSchema)
+@policy("assemblies:write")
 def update_assembly_submission(
     *,
     db: Session = Depends(get_db),
@@ -425,7 +416,6 @@ def update_assembly_submission(
     current_user: User = Depends(get_current_active_user),
 ) -> Any:
     """Update an assembly submission."""
-    require_role(current_user, ["curator", "admin"])
 
     submission = assembly_submission_service.get(db, id=submission_id)
     if not submission:
@@ -461,6 +451,7 @@ def read_assembly_files(
 
 
 @router.post("/{assembly_id}/files", response_model=AssemblyFileSchema)
+@policy("assemblies:write")
 def create_assembly_file(
     *,
     db: Session = Depends(get_db),
@@ -469,7 +460,6 @@ def create_assembly_file(
     current_user: User = Depends(get_current_active_user),
 ) -> Any:
     """Add a file to an assembly."""
-    require_role(current_user, ["curator", "admin"])
 
     # Verify assembly exists
     assembly = assembly_service.get(db, id=assembly_id)
@@ -485,6 +475,7 @@ def create_assembly_file(
 
 
 @router.put("/files/{file_id}", response_model=AssemblyFileSchema)
+@policy("assemblies:write")
 def update_assembly_file(
     *,
     db: Session = Depends(get_db),
@@ -493,7 +484,6 @@ def update_assembly_file(
     current_user: User = Depends(get_current_active_user),
 ) -> Any:
     """Update an assembly file."""
-    require_role(current_user, ["curator", "admin"])
 
     file = assembly_file_service.get(db, id=file_id)
     if not file:
@@ -504,11 +494,12 @@ def update_assembly_file(
 
 
 @router.delete("/files/{file_id}")
+@policy("assemblies:delete")
 def delete_assembly_file(
     *,
     db: Session = Depends(get_db),
     file_id: UUID,
-    current_user: User = Depends(get_current_superuser),
+    current_user: User = Depends(get_current_active_user),
 ) -> Any:
     """Delete an assembly file."""
     file = assembly_file_service.get(db, id=file_id)

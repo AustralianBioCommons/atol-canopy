@@ -4,12 +4,9 @@ from uuid import UUID
 from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.orm import Session
 
-from app.core.dependencies import (
-    get_current_active_user,
-    get_current_superuser,
-    get_db,
-    require_role,
-)
+from app.core.dependencies import get_current_active_user, get_db
+from app.core.pagination import Pagination, pagination_params
+from app.core.policy import policy
 from app.models.user import User
 from app.schemas.bulk_import import BulkImportResponse, BulkImportResponseExperiments
 from app.schemas.experiment import Experiment as ExperimentSchema
@@ -23,8 +20,7 @@ router = APIRouter()
 @router.get("/", response_model=List[ExperimentSchema])
 def read_experiments(
     db: Session = Depends(get_db),
-    skip: int = 0,
-    limit: int = 100,
+    pagination: Pagination = Depends(pagination_params),
     sample_id: Optional[UUID] = Query(None, description="Filter by sample ID"),
     current_user: User = Depends(get_current_active_user),
 ) -> Any:
@@ -32,10 +28,13 @@ def read_experiments(
     Retrieve experiments.
     """
     # All users can read experiments
-    return experiment_service.list_experiments(db, skip=skip, limit=limit, sample_id=sample_id)
+    return experiment_service.list_experiments(
+        db, skip=pagination.offset, limit=pagination.limit, sample_id=sample_id
+    )
 
 
 @router.post("/", response_model=ExperimentSchema)
+@policy("experiments:create")
 def create_experiment(
     *,
     db: Session = Depends(get_db),
@@ -45,8 +44,6 @@ def create_experiment(
     """
     Create new experiment.
     """
-    # Only users with 'curator' or 'admin' role can create experiments
-    require_role(current_user, ["curator", "admin"])
     try:
         experiment = experiment_service.create_experiment(db, experiment_in=experiment_in)
         return experiment
@@ -87,6 +84,7 @@ def read_experiment(
 
 
 @router.put("/{experiment_id}", response_model=ExperimentSchema)
+@policy("experiments:update")
 def update_experiment(
     *,
     db: Session = Depends(get_db),
@@ -97,8 +95,6 @@ def update_experiment(
     """
     Update an experiment.
     """
-    # Only users with 'curator' or 'admin' role can update experiments
-    require_role(current_user, ["curator", "admin"])
     try:
         experiment = experiment_service.update_experiment(
             db, experiment_id=experiment_id, experiment_in=experiment_in
@@ -117,11 +113,12 @@ def update_experiment(
 
 
 @router.delete("/{experiment_id}", response_model=ExperimentSchema)
+@policy("experiments:delete")
 def delete_experiment(
     *,
     db: Session = Depends(get_db),
     experiment_id: UUID,
-    current_user: User = Depends(get_current_superuser),
+    current_user: User = Depends(get_current_active_user),
 ) -> Any:
     """
     Delete an experiment.
@@ -134,6 +131,7 @@ def delete_experiment(
 
 
 @router.post("/bulk-import", response_model=BulkImportResponseExperiments)
+@policy("experiments:bulk_import")
 def bulk_import_experiments(
     *,
     db: Session = Depends(get_db),
@@ -148,7 +146,5 @@ def bulk_import_experiments(
     The request body should directly match the format of the JSON file in data/experiments.json,
     which is a dictionary keyed by package_id without a wrapping 'experiments' key.
     """
-    # Only users with 'curator' or 'admin' role can import experiments
-    require_role(current_user, ["curator", "admin"])
     result = experiment_service.bulk_import_experiments(db, experiments_data=experiments_data)
     return result

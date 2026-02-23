@@ -8,7 +8,8 @@ from sqlalchemy import func, or_
 from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.orm import Session
 
-from app.core.dependencies import get_current_active_user, get_db, has_role, require_role
+from app.core.dependencies import get_current_active_user, get_db, has_role
+from app.core.policy import policy
 from app.models.accession_registry import AccessionRegistry
 from app.models.broker import SubmissionAttempt, SubmissionEvent
 from app.models.experiment import Experiment, ExperimentSubmission
@@ -117,6 +118,7 @@ class ReportResult(BaseModel):
 
 
 @router.post("/claim", response_model=ClaimByEntityResponse)
+@policy("broker:claim")
 def claim_by_entity_ids(
     *,
     payload: ClaimByEntityRequest,
@@ -128,7 +130,6 @@ def claim_by_entity_ids(
     This endpoint allows claiming specific entities without requiring an organism_key.
     It will find the latest draft submission for each entity and claim it with a lease.
     """
-    require_role(current_user, ["broker"])
     # Expire any stale leases before claiming
     expire_stale_leases(db)
 
@@ -543,6 +544,7 @@ def claim_by_entity_ids(
 
 
 @router.post("/organisms/{organism_key}/claim", response_model=ClaimResponse)
+@policy("broker:claim")
 def claim_drafts_for_organism(
     *,
     organism_key: str = Path(..., description="Organism grouping_key"),
@@ -554,7 +556,6 @@ def claim_drafts_for_organism(
     """Claim latest draft SampleSubmissions for an organism and mark them 'submitting'.
     This acts as a short lease to prevent concurrent edits.
     """
-    require_role(current_user, ["broker"])
     # Expire any stale leases before claiming
     expire_stale_leases(db)
 

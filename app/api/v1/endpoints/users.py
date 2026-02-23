@@ -6,6 +6,8 @@ from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.orm import Session
 
 from app.core.dependencies import get_current_active_user
+from app.core.pagination import Pagination, apply_pagination, pagination_params
+from app.core.policy import policy
 from app.core.security import get_password_hash
 from app.db.session import get_db
 from app.models.user import User
@@ -16,10 +18,11 @@ router = APIRouter()
 
 
 @router.get("/", response_model=List[UserSchema])
+@policy("users:read")
 def read_users(
     db: Session = Depends(get_db),
-    skip: int = 0,
-    limit: int = 100,
+    pagination: Pagination = Depends(pagination_params),
+    current_user: User = Depends(get_current_active_user),
 ) -> Any:
     """
     Retrieve users.
@@ -33,15 +36,17 @@ def read_users(
     Returns:
         List[User]: List of users
     """
-    users = db.query(User).offset(skip).limit(limit).all()
+    users = apply_pagination(db.query(User), pagination).all()
     return users
 
 
 @router.post("/", response_model=UserSchema)
+@policy("users:create")
 def create_user(
     *,
     db: Session = Depends(get_db),
     user_in: UserCreate,
+    current_user: User = Depends(get_current_active_user),
 ) -> Any:
     """
     Create new user.
