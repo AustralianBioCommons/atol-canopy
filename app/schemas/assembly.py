@@ -10,6 +10,7 @@ from app.schemas.common import SubmissionStatus
 
 class AssemblyDataTypes(str, Enum):
     """Enum for assembly data types (sequencing platforms)."""
+
     PACBIO_SMRT = "PACBIO_SMRT"
     PACBIO_SMRT_HIC = "PACBIO_SMRT_HIC"
     OXFORD_NANOPORE = "OXFORD_NANOPORE"
@@ -20,6 +21,7 @@ class AssemblyDataTypes(str, Enum):
 
 class AssemblyFileType(str, Enum):
     """Enum for assembly file types."""
+
     FASTA = "FASTA"
     QC_REPORT = "QC_REPORT"
     STATISTICS = "STATISTICS"
@@ -49,6 +51,22 @@ class AssemblyCreate(AssemblyBase):
     """Schema for creating a new assembly."""
 
     pass
+
+
+# Schema for creating assembly from experiments (organism_key derived from tax_id)
+class AssemblyCreateFromExperiments(BaseModel):
+    """Schema for creating assembly from experiments - organism_key is auto-filled from tax_id."""
+
+    sample_id: UUID
+    project_id: Optional[UUID] = None
+    assembly_name: str
+    assembly_type: str = "clone or isolate"
+    data_types: Optional[AssemblyDataTypes] = None  # Auto-detected, can be overridden
+    coverage: float
+    program: str
+    mingaplength: Optional[float] = None
+    moleculetype: str = "genomic DNA"
+    description: Optional[str] = None
 
 
 # Schema for updating an existing assembly
@@ -155,6 +173,7 @@ class AssemblySubmission(AssemblySubmissionInDBBase):
 # AssemblyFile schemas
 # ==========================================
 
+
 # Base AssemblyFile schema
 class AssemblyFileBase(BaseModel):
     """Base AssemblyFile schema with common attributes."""
@@ -173,6 +192,7 @@ class AssemblyFileBase(BaseModel):
 # Schema for creating a new assembly file
 class AssemblyFileCreate(AssemblyFileBase):
     """Schema for creating a new assembly file."""
+
     pass
 
 
@@ -205,4 +225,5 @@ class AssemblyFileInDBBase(AssemblyFileBase):
 # Schema for returning assembly file information
 class AssemblyFile(AssemblyFileInDBBase):
     """Schema for returning assembly file information."""
+
     pass

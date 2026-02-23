@@ -4,7 +4,9 @@ from uuid import UUID
 from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.orm import Session
 
-from app.core.dependencies import get_current_active_user, get_db, require_role
+from app.core.dependencies import get_current_active_user, get_db
+from app.core.pagination import Pagination, apply_pagination, pagination_params
+from app.core.policy import policy
 from app.models.experiment import Experiment, ExperimentSubmission
 from app.models.user import User
 from app.schemas.bulk_import import BulkExperimentImport, BulkImportResponse
@@ -25,10 +27,10 @@ router = APIRouter()
 
 # Experiment Submission endpoints
 @router.get("/", response_model=List[ExperimentSubmissionSchema])
+@policy("experiment_submissions:read")
 def read_experiment_submissions(
     db: Session = Depends(get_db),
-    skip: int = 0,
-    limit: int = 100,
+    pagination: Pagination = Depends(pagination_params),
     status: Optional[SubmissionStatus] = Query(None, description="Filter by submission status"),
     full_history: Optional[bool] = Query(False, description="Return full submission history"),
     current_user: User = Depends(get_current_active_user),
@@ -46,11 +48,12 @@ def read_experiment_submissions(
             ExperimentSubmission.created_at.desc(),
         ).distinct(ExperimentSubmission.experiment_id)
 
-    submissions = query.offset(skip).limit(limit).all()
+    submissions = apply_pagination(query, pagination).all()
     return submissions
 
 
 @router.get("/by-experiment-attr", response_model=List[ExperimentSubmissionSchema])
+@policy("experiment_submissions:read")
 async def get_experiment_submission_by_experiment_attr(
     db: Session = Depends(get_db),
     bpa_package_id: Optional[str] = Query(None, description="Filter by bpa_package_id"),
@@ -102,6 +105,7 @@ async def get_experiment_submission_by_experiment_attr(
 
 
 @router.get("/{submission_id}", response_model=ExperimentSubmissionSchema)
+@policy("experiment_submissions:read")
 def read_experiment_submission(
     *,
     db: Session = Depends(get_db),

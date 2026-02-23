@@ -5,12 +5,10 @@ from uuid import UUID
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy.orm import Session
 
-from app.core.dependencies import (
-    get_current_active_user,
-    get_current_superuser,
-    get_db,
-    require_role,
-)
+from app.core.dependencies import get_current_active_user, get_db
+from app.core.pagination import Pagination, apply_pagination, pagination_params
+from app.core.policy import policy
+from app.models.organism import Organism
 from app.models.user import User
 from app.schemas.aggregate import OrganismSubmissionJsonResponse
 from app.schemas.bulk_import import BulkImportResponse
@@ -29,18 +27,20 @@ router = APIRouter()
 @router.get("/", response_model=List[OrganismSchema])
 def read_organisms(
     db: Session = Depends(get_db),
-    skip: int = 0,
-    limit: int = 100,
+    pagination: Pagination = Depends(pagination_params),
     current_user: User = Depends(get_current_active_user),
 ) -> Any:
     """
     Retrieve organisms.
     """
     # All users can read organisms
-    return organism_service.list_organisms(db, skip=skip, limit=limit)
+    query = db.query(Organism)
+    query = apply_pagination(query, pagination)
+    return query.all()
 
 
 @router.get("/{grouping_key}/experiments")
+@policy("organisms:read_sensitive")
 def get_experiments_for_organism(
     *,
     db: Session = Depends(get_db),
@@ -51,8 +51,6 @@ def get_experiments_for_organism(
     """
     Return all experiments for the organism, and optionally all reads for each experiment when includeReads is true.
     """
-    # Admin, curator, broker and genome_launcher can get expanded organism data
-    require_role(current_user, ["admin", "curator", "broker", "genome_launcher"])
     data = organism_service.get_experiments_for_organism(
         db, grouping_key=grouping_key, include_reads=includeReads
     )
@@ -65,6 +63,7 @@ def get_experiments_for_organism(
 
 
 @router.get("/submissions/{grouping_key}", response_model=OrganismSubmissionJsonResponse)
+@policy("organisms:read_sensitive")
 def get_organism_prepared_payload(
     *,
     db: Session = Depends(get_db),
@@ -74,8 +73,6 @@ def get_organism_prepared_payload(
     """
     Get all prepared_payload data for samples, experiments, and reads related to a specific organism.grouping_key.
     """
-    # Admin, curator, broker and genome_launcher can get prepared_payload data
-    require_role(current_user, ["admin", "curator", "broker", "genome_launcher"])
     data = organism_service.get_organism_prepared_payload(db, grouping_key=grouping_key)
     if data is None:
         raise HTTPException(
@@ -86,6 +83,7 @@ def get_organism_prepared_payload(
 
 
 @router.post("/", response_model=OrganismSchema)
+@policy("organisms:create")
 def create_organism(
     *,
     db: Session = Depends(get_db),
@@ -95,8 +93,6 @@ def create_organism(
     """
     Create new organism.
     """
-    # Only users with 'curator' or 'admin' role can create organisms
-    require_role(current_user, ["curator", "admin"])
     try:
         organism = organism_service.create_organism(db, organism_in=organism_in)
     except Exception as e:
@@ -122,6 +118,7 @@ def read_organism(
 
 
 @router.patch("/{grouping_key}", response_model=OrganismSchema)
+@policy("organisms:update")
 def update_organism(
     *,
     db: Session = Depends(get_db),
@@ -132,8 +129,6 @@ def update_organism(
     """
     Update an organism.
     """
-    # Only users with 'curator' or 'admin' role can update organisms
-    require_role(current_user, ["curator", "admin"])
     organism = organism_service.update_organism(
         db, grouping_key=grouping_key, organism_in=organism_in
     )
@@ -143,17 +138,16 @@ def update_organism(
 
 
 @router.delete("/{grouping_key}", response_model=OrganismSchema)
+@policy("organisms:delete")
 def delete_organism(
     *,
     db: Session = Depends(get_db),
     grouping_key: str,
-    current_user: User = Depends(get_current_superuser),
+    current_user: User = Depends(get_current_active_user),
 ) -> Any:
     """
     Delete an organism.
     """
-    # Only users with 'superuser' or 'admin' role can delete organisms
-    require_role(current_user, ["admin", "superuser"])
     organism = organism_service.delete_organism(db, grouping_key=grouping_key)
     if not organism:
         raise HTTPException(status_code=404, detail="Organism not found")
@@ -161,6 +155,7 @@ def delete_organism(
 
 
 @router.post("/bulk-import", response_model=BulkImportResponse)
+@policy("organisms:bulk_import")
 def bulk_import_organisms(
     *,
     db: Session = Depends(get_db),
@@ -175,7 +170,5 @@ def bulk_import_organisms(
     The request body should directly match the format of the JSON file in data/unique_organisms.json,
     which is a dictionary keyed by organism_grouping_key without a wrapping 'organisms' key.
     """
-    # Only users with 'curator' or 'admin' role can import organisms
-    require_role(current_user, ["curator", "admin"])
     result = organism_service.bulk_import_organisms(db, organisms_data=organisms_data)
     return result

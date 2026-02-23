@@ -1,18 +1,19 @@
 import logging
 
 from fastapi import FastAPI
+from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse
+from starlette.exceptions import HTTPException as StarletteHTTPException
 
 from app.api.v1.api import api_router
+from app.core.errors import AppError
 from app.core.settings import settings
 
 # Configure logging based on environment
 # Default to INFO if ENVIRONMENT not set, DEBUG only if explicitly "dev"
 log_level = logging.DEBUG if settings.ENVIRONMENT == "dev" else logging.INFO
-logging.basicConfig(
-    level=log_level,
-    format="%(levelname)s:%(name)s:%(message)s"
-)
+logging.basicConfig(level=log_level, format="%(levelname)s:%(name)s:%(message)s")
 
 # Create FastAPI app
 app = FastAPI(
@@ -34,6 +35,59 @@ if settings.BACKEND_CORS_ORIGINS:
 
 # Include API router
 app.include_router(api_router, prefix=settings.API_V1_STR)
+
+
+@app.exception_handler(AppError)
+def app_error_handler(_, exc: AppError):
+    return JSONResponse(
+        status_code=exc.status_code,
+        content={
+            "error": {
+                "code": exc.code,
+                "message": exc.message,
+                "details": exc.details,
+            }
+        },
+    )
+
+
+@app.exception_handler(StarletteHTTPException)
+def http_exception_handler(_, exc: StarletteHTTPException):
+    return JSONResponse(
+        status_code=exc.status_code,
+        content={
+            "error": {
+                "code": "http_error",
+                "message": exc.detail,
+                "details": {},
+            }
+        },
+    )
+
+
+@app.exception_handler(RequestValidationError)
+def validation_exception_handler(_, exc: RequestValidationError):
+    errors = exc.errors()
+    # Ensure errors are JSON-serializable (e.g., ValueError in ctx)
+    for err in errors:
+        ctx = err.get("ctx")
+        if ctx and "error" in ctx:
+            try:
+                import json  # local import to keep module load light
+
+                json.dumps(ctx["error"])
+            except Exception:
+                ctx["error"] = str(ctx["error"])
+    return JSONResponse(
+        status_code=422,
+        content={
+            "error": {
+                "code": "validation_error",
+                "message": "Request validation failed",
+                "details": {"errors": errors},
+            }
+        },
+    )
 
 
 @app.get("/")

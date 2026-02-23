@@ -1,7 +1,6 @@
 import uuid
-from datetime import datetime, timezone
 
-from sqlalchemy import Column, DateTime, Integer, String, Text
+from sqlalchemy import Column, DateTime, Integer, Text, func
 from sqlalchemy.dialects.postgresql import JSONB, UUID
 
 from app.db.session import Base
@@ -35,10 +34,10 @@ class Organism(Base):
     augustus_dataset_name = Column(Text, nullable=True)
     bpa_json = Column(JSONB, nullable=True)
     taxonomy_lineage_json = Column(JSONB, nullable=True)
-    created_at = Column(DateTime, nullable=False, default=datetime.now(timezone.utc))
+    created_at = Column(DateTime(timezone=True), nullable=False, server_default=func.now())
     updated_at = Column(
-        DateTime,
+        DateTime(timezone=True),
         nullable=False,
-        default=datetime.now(timezone.utc),
-        onupdate=datetime.now(timezone.utc),
+        server_default=func.now(),
+        onupdate=func.now(),
     )

@@ -1,4 +1,5 @@
 """Helper functions for assembly operations."""
+
 import logging
 from typing import Dict, List, Set
 
@@ -90,14 +91,12 @@ def get_detected_platforms(experiments: List[Experiment]) -> dict:
     return {
         "platforms": list(platforms),
         "library_strategies": list(library_strategies),
-        "experiment_count": len(experiments)
+        "experiment_count": len(experiments),
     }
 
 
 def generate_assembly_manifest(
-    organism: Organism,
-    reads: List[Read],
-    experiments: List[Experiment]
+    organism: Organism, reads: List[Read], experiments: List[Experiment]
 ) -> str:
     """Generate assembly manifest YAML from organism and reads data.
 
@@ -115,13 +114,17 @@ def generate_assembly_manifest(
     Returns:
         YAML string formatted as assembly manifest
     """
-    logger.info(f"Generating manifest for organism: {organism.scientific_name} (tax_id: {organism.tax_id})")
+    logger.info(
+        f"Generating manifest for organism: {organism.scientific_name} (tax_id: {organism.tax_id})"
+    )
     logger.info(f"Total experiments: {len(experiments)}, Total reads: {len(reads)}")
 
     # Create experiment_id to platform mapping
     exp_platform_map = {}
     for exp in experiments:
-        logger.info(f"Experiment {exp.id}: platform={exp.platform}, library_strategy={exp.library_strategy}")
+        logger.info(
+            f"Experiment {exp.id}: platform={exp.platform}, library_strategy={exp.library_strategy}"
+        )
         if exp.platform:
             exp_platform_map[exp.id] = exp.platform.upper()
         if exp.library_strategy:
@@ -139,40 +142,50 @@ def generate_assembly_manifest(
         platform = exp_platform_map.get(read.experiment_id, "")
         library_strategy = exp_platform_map.get(f"{read.experiment_id}_strategy", "")
 
-        logger.debug(f"Read {read.id} (file: {read.file_name}): platform={platform}, library_strategy={library_strategy}")
+        logger.debug(
+            f"Read {read.id} (file: {read.file_name}): platform={platform}, library_strategy={library_strategy}"
+        )
 
         # Check for PacBio SMRT reads (only .ccs.bam or hifi_reads.bam)
         if platform == "PACBIO_SMRT" and read.file_name:
             if read.file_name.endswith(".ccs.bam") or read.file_name.endswith("hifi_reads.bam"):
                 # TODO remove logging
                 logger.info(f"Adding PacBio read: {read.file_name}")
-                pacbio_reads.append({
-                    "file_name": read.file_name,
-                    "file_checksum": read.file_checksum,
-                    "url": read.bioplatforms_url
-                })
+                pacbio_reads.append(
+                    {
+                        "file_name": read.file_name,
+                        "file_checksum": read.file_checksum,
+                        "url": read.bioplatforms_url,
+                    }
+                )
             else:
-                logger.debug(f"Skipping PacBio read {read.file_name} - doesn't match .ccs.bam or hifi_reads.bam")
+                logger.debug(
+                    f"Skipping PacBio read {read.file_name} - doesn't match .ccs.bam or hifi_reads.bam"
+                )
 
         # Check for Hi-C reads (Illumina + Hi-C or WGS library strategy)
         elif platform == "ILLUMINA" and library_strategy in ("HI-C", "WGS"):
             # TODO remove logging
             logger.info(f"Adding Hi-C read: {read.file_name} (library_strategy={library_strategy})")
-            hic_reads.append({
-                "file_name": read.file_name,
-                "file_checksum": read.file_checksum,
-                "url": read.bioplatforms_url,
-                "read_number": read.read_number,
-                "lane_number": read.lane_number
-            })
+            hic_reads.append(
+                {
+                    "file_name": read.file_name,
+                    "file_checksum": read.file_checksum,
+                    "url": read.bioplatforms_url,
+                    "read_number": read.read_number,
+                    "lane_number": read.lane_number,
+                }
+            )
         else:
-            logger.debug(f"Read {read.file_name} doesn't match criteria: platform={platform}, library_strategy={library_strategy}")
+            logger.debug(
+                f"Read {read.file_name} doesn't match criteria: platform={platform}, library_strategy={library_strategy}"
+            )
 
     # Build manifest structure
     manifest = {
         "scientific_name": organism.scientific_name,
         "taxon_id": organism.tax_id,
-        "reads": {}
+        "reads": {},
     }
 
     if pacbio_reads:

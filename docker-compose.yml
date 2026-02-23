@@ -9,6 +9,7 @@ services:
       - ./app:/app/app
       - ./scripts:/app/scripts
       - ./alembic:/app/alembic
+      - ./tests:/app/tests
     env_file:
       - .env
     environment:

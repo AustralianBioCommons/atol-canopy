@@ -1,10 +1,8 @@
 import uuid
-from datetime import datetime, timezone
 from typing import List
 
-from sqlalchemy import ARRAY, Boolean, Column, DateTime, String, Text
+from sqlalchemy import ARRAY, Boolean, Column, DateTime, Text, func
 from sqlalchemy.dialects.postgresql import UUID
-from sqlalchemy.orm import relationship
 
 from app.db.session import Base
 
@@ -26,10 +24,10 @@ class User(Base):
     roles = Column(ARRAY(Text), nullable=False, default=[])
     is_active = Column(Boolean, nullable=False, default=True)
     is_superuser = Column(Boolean, nullable=False, default=False)
-    created_at = Column(DateTime, nullable=False, default=datetime.now(timezone.utc))
+    created_at = Column(DateTime(timezone=True), nullable=False, server_default=func.now())
     updated_at = Column(
-        DateTime,
+        DateTime(timezone=True),
         nullable=False,
-        default=datetime.now(timezone.utc),
-        onupdate=datetime.now(timezone.utc),
+        server_default=func.now(),
+        onupdate=func.now(),
     )

@@ -9,12 +9,9 @@ from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy.orm import Session
 from sqlalchemy.orm.attributes import flag_modified
 
-from app.core.dependencies import (
-    get_current_active_user,
-    get_current_superuser,
-    get_db,
-    require_role,
-)
+from app.core.dependencies import get_current_active_user, get_db
+from app.core.pagination import Pagination, apply_pagination, pagination_params
+from app.core.policy import policy
 from app.models.experiment import Experiment
 from app.models.organism import Organism
 from app.models.sample import Sample, SampleSubmission
@@ -37,8 +34,7 @@ router = APIRouter()
 @router.get("/", response_model=List[SampleSchema])
 def read_samples(
     db: Session = Depends(get_db),
-    skip: int = 0,
-    limit: int = 100,
+    pagination: Pagination = Depends(pagination_params),
     organism_key: Optional[str] = Query(None, description="Filter by organism key"),
     current_user: User = Depends(get_current_active_user),
 ) -> Any:
@@ -50,7 +46,7 @@ def read_samples(
     if organism_key:
         query = query.filter(Sample.organism_key == organism_key)
 
-    samples = query.offset(skip).limit(limit).all()
+    samples = apply_pagination(query, pagination).all()
     return samples
 
 
@@ -98,6 +94,7 @@ def get_specimen_by_taxid_and_specimen_id(
 
 
 @router.post("/", response_model=SampleSchema)
+@policy("samples:create")
 def create_sample(
     *,
     db: Session = Depends(get_db),
@@ -107,9 +104,6 @@ def create_sample(
     """
     Create new sample.
     """
-    # Only users with 'curator' or 'admin' role can create samples
-    require_role(current_user, ["curator", "admin"])
-
     sample_data = sample_in.dict(exclude_unset=True)
     sample_id = uuid.uuid4()
 
@@ -361,6 +355,7 @@ def _create_sample_with_submission(
 
 
 @router.post("/bulk-import-specimens", response_model=BulkImportResponse)
+@policy("samples:bulk_import")
 def bulk_import_specimen_samples(
     *,
     db: Session = Depends(get_db),
@@ -374,8 +369,6 @@ def bulk_import_specimen_samples(
     Each sample must have organism_grouping_key and specimen_id.
     Enforces uniqueness constraint: one specimen per (organism_key, specimen_id).
     """
-    require_role(current_user, ["curator", "admin"])
-
     # Load the ENA-ATOL mapping file
     ena_atol_map_path = os.path.join(
         os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(__file__)))),
@@ -463,6 +456,7 @@ def bulk_import_specimen_samples(
 
 
 @router.post("/bulk-import-derived", response_model=BulkImportResponse)
+@policy("samples:bulk_import")
 def bulk_import_derived_samples(
     *,
     db: Session = Depends(get_db),
@@ -479,8 +473,6 @@ def bulk_import_derived_samples(
 
     The parent specimen is looked up by (tax_id, specimen_id) or (organism_key, specimen_id).
     """
-    require_role(current_user, ["curator", "admin"])
-
     # Load the ENA-ATOL mapping file
     ena_atol_map_path = os.path.join(
         os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(__file__)))),
@@ -586,6 +578,7 @@ def bulk_import_derived_samples(
 
 
 @router.get("/{sample_id}/prepared-payload", response_model=SubmissionJsonResponse)
+@policy("samples:read_sensitive")
 def get_sample_prepared_payload(
     *,
     db: Session = Depends(get_db),
@@ -595,8 +588,6 @@ def get_sample_prepared_payload(
     """
     Get prepared_payload for a specific sample.
     """
-    # Admin, curator, broker and genome_launcher can get submission data
-    require_role(current_user, ["admin", "curator", "broker", "genome_launcher"])
     sample_submission = (
         db.query(SampleSubmission).filter(SampleSubmission.sample_id == sample_id).first()
     )
@@ -626,6 +617,7 @@ def read_sample(
 
 
 @router.put("/{sample_id}", response_model=SampleSchema)
+@policy("samples:update")
 def update_sample(
     *,
     db: Session = Depends(get_db),
@@ -636,9 +628,6 @@ def update_sample(
     """
     Update a sample.
     """
-    # Only users with 'curator' or 'admin' role can update samples
-    require_role(current_user, ["curator", "admin"])
-
     try:
         sample = db.query(Sample).filter(Sample.id == sample_id).first()
         if not sample:
@@ -749,17 +738,16 @@ def update_sample(
 
 
 @router.delete("/{sample_id}", response_model=SampleSchema)
+@policy("samples:delete")
 def delete_sample(
     *,
     db: Session = Depends(get_db),
     sample_id: UUID,
-    current_user: User = Depends(get_current_superuser),
+    current_user: User = Depends(get_current_active_user),
 ) -> Any:
     """
     Delete a sample.
     """
-    # Only superusers can delete samples
-    require_role(current_user, ["superuser", "admin"])
     sample = db.query(Sample).filter(Sample.id == sample_id).first()
     if not sample:
         raise HTTPException(status_code=404, detail="Sample not found")
@@ -773,6 +761,7 @@ def delete_sample(
 
 
 @router.post("/bulk-import", response_model=BulkImportResponse)
+@policy("samples:bulk_import")
 def bulk_import_samples(
     *,
     db: Session = Depends(get_db),
@@ -787,9 +776,6 @@ def bulk_import_samples(
     The request body should directly match the format of the JSON file in data/unique_samples.json,
     which is a dictionary keyed by bpa_sample_id without a wrapping 'samples' key.
     """
-    # Only users with 'curator' or 'admin' role can import samples
-    require_role(current_user, ["curator", "admin"])
-
     # Load the ENA-ATOL mapping file
     ena_atol_map_path = os.path.join(
         os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(__file__)))),

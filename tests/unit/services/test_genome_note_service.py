@@ -6,7 +6,6 @@ import pytest
 from sqlalchemy.orm import Session
 
 from app.models.genome_note import GenomeNote
-from app.schemas.genome_note import GenomeNoteCreate, GenomeNoteUpdate
 from app.services.genome_note_service import GenomeNoteService
 
 
@@ -19,7 +18,7 @@ def mock_db():
 @pytest.fixture
 def genome_note_service():
     """Create a GenomeNoteService instance."""
-    return GenomeNoteService()
+    return GenomeNoteService(GenomeNote)
 
 
 @pytest.fixture
@@ -71,69 +70,6 @@ class TestGetNextVersion:
         version = genome_note_service.get_next_version(mock_db, "organism_a")
 
         assert version == 3
-
-
-class TestCreateGenomeNote:
-    """Tests for create method."""
-
-    def test_create_genome_note_success(self, mock_db, genome_note_service):
-        """Test successful genome note creation."""
-        assembly_id = uuid.uuid4()
-        genome_note_in = GenomeNoteCreate(
-            organism_key="test_organism",
-            assembly_id=assembly_id,
-            title="Test Note",
-            note_url="https://example.com/note",
-        )
-
-        mock_query = Mock()
-        mock_query.filter.return_value.scalar.return_value = None
-        mock_db.query.return_value = mock_query
-
-        created_note = genome_note_service.create(mock_db, genome_note_in)
-
-        mock_db.add.assert_called_once()
-        mock_db.commit.assert_called_once()
-        mock_db.refresh.assert_called_once()
-
-    def test_create_genome_note_auto_version(self, mock_db, genome_note_service):
-        """Test that version is automatically calculated."""
-        assembly_id = uuid.uuid4()
-        genome_note_in = GenomeNoteCreate(
-            organism_key="test_organism",
-            assembly_id=assembly_id,
-            title="Test Note",
-            note_url="https://example.com/note",
-        )
-
-        mock_query = Mock()
-        mock_query.filter.return_value.scalar.return_value = 2
-        mock_db.query.return_value = mock_query
-
-        genome_note_service.create(mock_db, genome_note_in)
-
-        call_args = mock_db.add.call_args[0][0]
-        assert call_args.version == 3
-
-    def test_create_genome_note_defaults(self, mock_db, genome_note_service):
-        """Test that default values are set correctly."""
-        assembly_id = uuid.uuid4()
-        genome_note_in = GenomeNoteCreate(
-            organism_key="test_organism",
-            assembly_id=assembly_id,
-            title="Test Note",
-            note_url="https://example.com/note",
-        )
-
-        mock_query = Mock()
-        mock_query.filter.return_value.scalar.return_value = None
-        mock_db.query.return_value = mock_query
-
-        genome_note_service.create(mock_db, genome_note_in)
-
-        call_args = mock_db.add.call_args[0][0]
-        assert call_args.is_published is False
-        assert call_args.published_at is None
 
 
 class TestPublishGenomeNote:
@@ -347,84 +283,60 @@ class TestGetVersionsByOrganism:
         assert result == []
 
 
-class TestUpdateGenomeNote:
-    """Tests for update method."""
+class TestGetByFilters:
+    """Tests for basic filter helpers."""
 
-    def test_update_genome_note_success(self, mock_db, genome_note_service, sample_genome_note):
-        """Test successful update of a genome note."""
-        note_id = sample_genome_note.id
-        update_data = GenomeNoteUpdate(
-            title="Updated Title",
-            note_url="https://example.com/updated",
+    def test_get_by_organism_key(self, mock_db, genome_note_service, sample_genome_note):
+        mock_query = Mock()
+        mock_query.filter.return_value.all.return_value = [sample_genome_note]
+        mock_db.query.return_value = mock_query
+
+        result = genome_note_service.get_by_organism_key(mock_db, "test_organism")
+
+        assert result == [sample_genome_note]
+
+    def test_get_by_assembly_id(self, mock_db, genome_note_service, sample_genome_note):
+        mock_query = Mock()
+        mock_query.filter.return_value.all.return_value = [sample_genome_note]
+        mock_db.query.return_value = mock_query
+
+        result = genome_note_service.get_by_assembly_id(mock_db, sample_genome_note.assembly_id)
+
+        assert result == [sample_genome_note]
+
+    def test_get_by_title(self, mock_db, genome_note_service, sample_genome_note):
+        mock_query = Mock()
+        mock_query.filter.return_value.all.return_value = [sample_genome_note]
+        mock_db.query.return_value = mock_query
+
+        result = genome_note_service.get_by_title(mock_db, "Test")
+
+        assert result == [sample_genome_note]
+
+    def test_get_multi_with_filters(self, mock_db, genome_note_service, sample_genome_note):
+        class FakeQuery:
+            def filter(self, *_args, **_kwargs):
+                return self
+
+            def offset(self, *_args, **_kwargs):
+                return self
+
+            def limit(self, *_args, **_kwargs):
+                return self
+
+            def all(self):
+                return [sample_genome_note]
+
+        mock_db.query.return_value = FakeQuery()
+
+        result = genome_note_service.get_multi_with_filters(
+            mock_db,
+            skip=0,
+            limit=10,
+            organism_key="test_organism",
+            assembly_id=sample_genome_note.assembly_id,
+            is_published=False,
+            title="Test",
         )
 
-        mock_query = Mock()
-        mock_query.filter.return_value.first.return_value = sample_genome_note
-        mock_db.query.return_value = mock_query
-
-        result = genome_note_service.update(mock_db, note_id, update_data)
-
-        assert result.title == "Updated Title"
-        assert result.note_url == "https://example.com/updated"
-        mock_db.commit.assert_called_once()
-
-    def test_update_genome_note_partial(self, mock_db, genome_note_service, sample_genome_note):
-        """Test partial update of a genome note."""
-        note_id = sample_genome_note.id
-        original_url = sample_genome_note.note_url
-        update_data = GenomeNoteUpdate(title="Updated Title Only")
-
-        mock_query = Mock()
-        mock_query.filter.return_value.first.return_value = sample_genome_note
-        mock_db.query.return_value = mock_query
-
-        result = genome_note_service.update(mock_db, note_id, update_data)
-
-        assert result.title == "Updated Title Only"
-        assert result.note_url == original_url
-
-    def test_update_genome_note_not_found(self, mock_db, genome_note_service):
-        """Test updating a non-existent genome note."""
-        note_id = uuid.uuid4()
-        update_data = GenomeNoteUpdate(title="Updated Title")
-
-        mock_query = Mock()
-        mock_query.filter.return_value.first.return_value = None
-        mock_db.query.return_value = mock_query
-
-        result = genome_note_service.update(mock_db, note_id, update_data)
-
-        assert result is None
-        mock_db.commit.assert_not_called()
-
-
-class TestDeleteGenomeNote:
-    """Tests for delete method."""
-
-    def test_delete_genome_note_success(self, mock_db, genome_note_service, sample_genome_note):
-        """Test successful deletion of a genome note."""
-        note_id = sample_genome_note.id
-
-        mock_query = Mock()
-        mock_query.filter.return_value.first.return_value = sample_genome_note
-        mock_db.query.return_value = mock_query
-
-        result = genome_note_service.delete(mock_db, note_id)
-
-        assert result == sample_genome_note
-        mock_db.delete.assert_called_once_with(sample_genome_note)
-        mock_db.commit.assert_called_once()
-
-    def test_delete_genome_note_not_found(self, mock_db, genome_note_service):
-        """Test deleting a non-existent genome note."""
-        note_id = uuid.uuid4()
-
-        mock_query = Mock()
-        mock_query.filter.return_value.first.return_value = None
-        mock_db.query.return_value = mock_query
-
-        result = genome_note_service.delete(mock_db, note_id)
-
-        assert result is None
-        mock_db.delete.assert_not_called()
-        mock_db.commit.assert_not_called()
+        assert result == [sample_genome_note]

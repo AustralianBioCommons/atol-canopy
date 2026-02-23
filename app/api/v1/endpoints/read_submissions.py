@@ -8,12 +8,9 @@ from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy.orm import Session
 from sqlalchemy.orm.attributes import flag_modified
 
-from app.core.dependencies import (
-    get_current_active_user,
-    get_current_superuser,
-    get_db,
-    require_role,
-)
+from app.core.dependencies import get_current_active_user, get_db
+from app.core.pagination import Pagination, apply_pagination, pagination_params
+from app.core.policy import policy
 from app.models.read import Read, ReadSubmission
 from app.models.user import User
 from app.schemas.common import SubmissionJsonResponse, SubmissionStatus
@@ -34,28 +31,26 @@ router = APIRouter()
 
 
 @router.get("/", response_model=List[ReadSubmissionSchema])
+@policy("read_submissions:read")
 def read_read_submissions(
     db: Session = Depends(get_db),
-    skip: int = 0,
-    limit: int = 100,
+    pagination: Pagination = Depends(pagination_params),
     status: Optional[SubmissionStatus] = Query(None, description="Filter by submission status"),
     current_user: User = Depends(get_current_active_user),
 ) -> Any:
     """
     Retrieve read submissions.
     """
-    # Admin, curator, broker and genome_launcher can get submission data
-    require_role(current_user, ["admin", "curator", "broker", "genome_launcher"])
-
     query = db.query(ReadSubmission)
     if status:
         query = query.filter(ReadSubmission.status == status)
 
-    submissions = query.offset(skip).limit(limit).all()
+    submissions = apply_pagination(query, pagination).all()
     return submissions
 
 
 @router.get("/{submission_id}", response_model=ReadSubmissionSchema)
+@policy("read_submissions:read")
 def read_read_submissions(
     submission_id: UUID,
     db: Session = Depends(get_db),
@@ -64,9 +59,6 @@ def read_read_submissions(
     """
     Retrieve read submissions.
     """
-    # Admin, curator, broker and genome_launcher can get submission data
-    require_role(current_user, ["admin", "curator", "broker", "genome_launcher"])
-
     submission = db.query(ReadSubmission).filter(ReadSubmission.id == submission_id).first()
     if not submission:
         raise HTTPException(
@@ -76,6 +68,7 @@ def read_read_submissions(
 
 
 @router.post("/", response_model=ReadSubmissionSchema)
+@policy("read_submissions:write")
 def create_read_submission(
     *,
     db: Session = Depends(get_db),
@@ -85,9 +78,6 @@ def create_read_submission(
     """
     Create new sample submission.
     """
-    # Only users with 'curator' or 'admin' role can create sample submissions
-    require_role(current_user, ["curator", "admin"])
-
     submission = ReadSubmission(
         read_id=submission_in.read_id,
         experiment_id=submission_in.experiment_id,

@@ -3,12 +3,9 @@ from typing import Any, List
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 
-from app.core.dependencies import (
-    get_current_active_user,
-    get_current_superuser,
-    get_db,
-    require_role,
-)
+from app.core.dependencies import get_current_active_user, get_db
+from app.core.pagination import Pagination, apply_pagination, pagination_params
+from app.core.policy import policy
 from app.models.bpa_initiative import BPAInitiative
 from app.models.user import User
 from app.schemas.bpa_initiative import (
@@ -25,19 +22,19 @@ router = APIRouter()
 @router.get("/", response_model=List[BPAInitiativeSchema])
 def read_bpa_initiatives(
     db: Session = Depends(get_db),
-    skip: int = 0,
-    limit: int = 100,
+    pagination: Pagination = Depends(pagination_params),
     current_user: User = Depends(get_current_active_user),
 ) -> Any:
     """
     Retrieve BPA initiatives.
     """
     # All users can read BPA initiatives
-    initiatives = db.query(BPAInitiative).offset(skip).limit(limit).all()
+    initiatives = apply_pagination(db.query(BPAInitiative), pagination).all()
     return initiatives
 
 
 @router.post("/", response_model=BPAInitiativeSchema)
+@policy("bpa_initiatives:write")
 def create_bpa_initiative(
     *,
     db: Session = Depends(get_db),
@@ -47,9 +44,6 @@ def create_bpa_initiative(
     """
     Create new BPA initiative.
     """
-    # Only users with 'curator' or 'admin' role can create BPA initiatives
-    require_role(current_user, ["curator", "admin"])
-
     initiative = BPAInitiative(
         project_code=getattr(initiative_in, "project_code", None),
         title=getattr(initiative_in, "title", None),
@@ -79,6 +73,7 @@ def read_bpa_initiative(
 
 
 @router.put("/{initiative_id}", response_model=BPAInitiativeSchema)
+@policy("bpa_initiatives:write")
 def update_bpa_initiative(
     *,
     db: Session = Depends(get_db),
@@ -89,9 +84,6 @@ def update_bpa_initiative(
     """
     Update a BPA initiative.
     """
-    # Only users with 'curator' or 'admin' role can update BPA initiatives
-    require_role(current_user, ["curator", "admin"])
-
     initiative = db.query(BPAInitiative).filter(BPAInitiative.project_code == initiative_id).first()
     if not initiative:
         raise HTTPException(status_code=404, detail="BPA initiative not found")
@@ -107,16 +99,16 @@ def update_bpa_initiative(
 
 
 @router.delete("/{initiative_id}", response_model=BPAInitiativeSchema)
+@policy("bpa_initiatives:write")
 def delete_bpa_initiative(
     *,
     db: Session = Depends(get_db),
     initiative_id: str,
-    current_user: User = Depends(get_current_superuser),
+    current_user: User = Depends(get_current_active_user),
 ) -> Any:
     """
     Delete a BPA initiative.
     """
-    # Only superusers can delete BPA initiatives
     initiative = db.query(BPAInitiative).filter(BPAInitiative.project_code == initiative_id).first()
     if not initiative:
         raise HTTPException(status_code=404, detail="BPA initiative not found")

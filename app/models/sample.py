@@ -1,7 +1,16 @@
 import uuid
-from datetime import datetime, timezone
 
-from sqlalchemy import Column, DateTime, Float, ForeignKey, ForeignKeyConstraint, String, Text, text
+from sqlalchemy import (
+    CheckConstraint,
+    Column,
+    DateTime,
+    Float,
+    ForeignKey,
+    ForeignKeyConstraint,
+    Text,
+    func,
+    text,
+)
 from sqlalchemy import Enum as SQLAlchemyEnum
 from sqlalchemy.dialects.postgresql import JSONB, UUID
 from sqlalchemy.orm import backref, relationship
@@ -65,12 +74,12 @@ class Sample(Base):
     extensions = Column(JSONB, nullable=True)
 
     # bpa_json = Column(JSONB, nullable=False)
-    created_at = Column(DateTime, nullable=False, default=datetime.now(timezone.utc))
+    created_at = Column(DateTime(timezone=True), nullable=False, server_default=func.now())
     updated_at = Column(
-        DateTime,
+        DateTime(timezone=True),
         nullable=False,
-        default=datetime.now(timezone.utc),
-        onupdate=datetime.now(timezone.utc),
+        server_default=func.now(),
+        onupdate=func.now(),
     )
 
     # Relationships
@@ -119,20 +128,20 @@ class SampleSubmission(Base):
     accession = Column(Text, nullable=True)
     biosample_accession = Column(Text, nullable=True)
     entity_type_const = Column(Text, nullable=False, default="sample", server_default="sample")
-    submitted_at = Column(DateTime, nullable=True)
-    created_at = Column(DateTime, nullable=False, default=datetime.now(timezone.utc))
+    submitted_at = Column(DateTime(timezone=True), nullable=True)
+    created_at = Column(DateTime(timezone=True), nullable=False, server_default=func.now())
     updated_at = Column(
-        DateTime,
+        DateTime(timezone=True),
         nullable=False,
-        default=datetime.now(timezone.utc),
-        onupdate=datetime.now(timezone.utc),
+        server_default=func.now(),
+        onupdate=func.now(),
     )
 
     # Broker lease/claim fields
     attempt_id = Column(UUID(as_uuid=True), nullable=True)
     finalised_attempt_id = Column(UUID(as_uuid=True), nullable=True)
-    lock_acquired_at = Column(DateTime, nullable=True)
-    lock_expires_at = Column(DateTime, nullable=True)
+    lock_acquired_at = Column(DateTime(timezone=True), nullable=True)
+    lock_expires_at = Column(DateTime(timezone=True), nullable=True)
 
     # Relationships
     sample = relationship(
@@ -141,6 +150,12 @@ class SampleSubmission(Base):
 
     # Table constraints
     __table_args__ = (
+        CheckConstraint(
+            "latitude IS NULL OR latitude BETWEEN -90 AND 90", name="chk_sample_latitude"
+        ),
+        CheckConstraint(
+            "longitude IS NULL OR longitude BETWEEN -180 AND 180", name="chk_sample_longitude"
+        ),
         # Foreign key constraint for accession registry
         ForeignKeyConstraint(
             ["accession", "authority", "entity_type_const", "sample_id"],

@@ -4,12 +4,9 @@ from uuid import UUID
 from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.orm import Session
 
-from app.core.dependencies import (
-    get_current_active_user,
-    get_current_superuser,
-    get_db,
-    require_role,
-)
+from app.core.dependencies import get_current_active_user, get_db
+from app.core.pagination import Pagination, pagination_params
+from app.core.policy import policy
 from app.models.genome_note import GenomeNote
 from app.models.user import User
 from app.schemas.genome_note import (
@@ -27,8 +24,7 @@ router = APIRouter()
 @router.get("/", response_model=List[GenomeNoteSchema])
 def read_genome_notes(
     db: Session = Depends(get_db),
-    skip: int = 0,
-    limit: int = 100,
+    pagination: Pagination = Depends(pagination_params),
     organism_key: Optional[str] = Query(None, description="Filter by organism key"),
     assembly_id: Optional[UUID] = Query(None, description="Filter by assembly ID"),
     is_published: Optional[bool] = Query(None, description="Filter by publication status"),
@@ -40,8 +36,8 @@ def read_genome_notes(
     """
     genome_notes = genome_note_service.get_multi_with_filters(
         db,
-        skip=skip,
-        limit=limit,
+        skip=pagination.offset,
+        limit=pagination.limit,
         organism_key=organism_key,
         assembly_id=assembly_id,
         is_published=is_published,
@@ -51,6 +47,7 @@ def read_genome_notes(
 
 
 @router.post("/", response_model=GenomeNoteSchema)
+@policy("genome_notes:write")
 def create_genome_note(
     *,
     db: Session = Depends(get_db),
@@ -63,8 +60,6 @@ def create_genome_note(
     The version number is automatically calculated based on existing versions
     for the organism. The note is created in draft status (is_published=False).
     """
-    require_role(current_user, ["curator", "admin"])
-
     # Auto-calculate next version for this organism
     next_version = genome_note_service.get_next_version(db, genome_note_in.organism_key)
 
@@ -99,6 +94,7 @@ def read_genome_note(
 
 
 @router.put("/{genome_note_id}", response_model=GenomeNoteSchema)
+@policy("genome_notes:write")
 def update_genome_note(
     *,
     db: Session = Depends(get_db),
@@ -112,8 +108,6 @@ def update_genome_note(
     Only title and note_url can be updated. Version and publication status
     cannot be changed through this endpoint.
     """
-    require_role(current_user, ["curator", "admin"])
-
     genome_note = db.query(GenomeNote).filter(GenomeNote.id == genome_note_id).first()
     if not genome_note:
         raise HTTPException(status_code=404, detail="Genome note not found")
@@ -129,16 +123,16 @@ def update_genome_note(
 
 
 @router.delete("/{genome_note_id}", response_model=GenomeNoteSchema)
+@policy("genome_notes:write")
 def delete_genome_note(
     *,
     db: Session = Depends(get_db),
     genome_note_id: UUID,
-    current_user: User = Depends(get_current_superuser),
+    current_user: User = Depends(get_current_active_user),
 ) -> Any:
     """
     Delete a genome note.
 
-    Only superusers can delete genome notes.
     """
     genome_note = db.query(GenomeNote).filter(GenomeNote.id == genome_note_id).first()
     if not genome_note:
@@ -150,6 +144,7 @@ def delete_genome_note(
 
 
 @router.post("/{genome_note_id}/publish", response_model=GenomeNoteSchema)
+@policy("genome_notes:write")
 def publish_genome_note(
     *,
     db: Session = Depends(get_db),
@@ -163,8 +158,6 @@ def publish_genome_note(
     Use the unpublish endpoint first to unpublish the existing note.
     Only one genome note can be published per organism at a time.
     """
-    require_role(current_user, ["curator", "admin"])
-
     try:
         genome_note = genome_note_service.publish_genome_note(db, genome_note_id)
         return genome_note
@@ -178,6 +171,7 @@ def publish_genome_note(
 
 
 @router.post("/{genome_note_id}/unpublish", response_model=GenomeNoteSchema)
+@policy("genome_notes:write")
 def unpublish_genome_note(
     *,
     db: Session = Depends(get_db),
@@ -189,8 +183,6 @@ def unpublish_genome_note(
 
     Sets the genome note back to draft status.
     """
-    require_role(current_user, ["curator", "admin"])
-
     try:
         genome_note = genome_note_service.unpublish_genome_note(db, genome_note_id)
         return genome_note
