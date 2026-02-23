@@ -1,6 +1,8 @@
 """Tests for assembly helper functions."""
-import pytest
+
 from unittest.mock import Mock
+
+import pytest
 
 from app.models.experiment import Experiment
 from app.models.organism import Organism

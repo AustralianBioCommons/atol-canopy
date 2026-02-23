@@ -13,10 +13,7 @@ from app.core.settings import settings
 # Configure logging based on environment
 # Default to INFO if ENVIRONMENT not set, DEBUG only if explicitly "dev"
 log_level = logging.DEBUG if settings.ENVIRONMENT == "dev" else logging.INFO
-logging.basicConfig(
-    level=log_level,
-    format="%(levelname)s:%(name)s:%(message)s"
-)
+logging.basicConfig(level=log_level, format="%(levelname)s:%(name)s:%(message)s")
 
 # Create FastAPI app
 app = FastAPI(
@@ -91,6 +88,7 @@ def validation_exception_handler(_, exc: RequestValidationError):
             }
         },
     )
+
 
 @app.get("/")
 def root():

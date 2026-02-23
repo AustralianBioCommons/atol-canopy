@@ -19,12 +19,14 @@ from app.schemas.assembly import (
 from app.schemas.assembly import (
     AssemblyCreate,
     AssemblyCreateFromExperiments,
-    AssemblyFile as AssemblyFileSchema,
     AssemblyFileCreate,
     AssemblyFileUpdate,
     AssemblySubmissionCreate,
     AssemblySubmissionUpdate,
     AssemblyUpdate,
+)
+from app.schemas.assembly import (
+    AssemblyFile as AssemblyFileSchema,
 )
 from app.schemas.assembly import (
     AssemblySubmission as AssemblySubmissionSchema,
@@ -203,7 +205,6 @@ def get_pipeline_inputs_by_tax_id(
     return result
 
 
-
 @router.get("/manifest/{tax_id}")
 def get_assembly_manifest(
     *,
@@ -235,7 +236,7 @@ def get_assembly_manifest(
     if not samples:
         raise HTTPException(
             status_code=404,
-            detail=f"No samples found for organism {organism.grouping_key} (tax_id: {tax_id})"
+            detail=f"No samples found for organism {organism.grouping_key} (tax_id: {tax_id})",
         )
 
     # Get all experiments for these samples
@@ -245,7 +246,7 @@ def get_assembly_manifest(
     if not experiments:
         raise HTTPException(
             status_code=404,
-            detail=f"No experiments found for organism {organism.grouping_key} (tax_id: {tax_id})"
+            detail=f"No experiments found for organism {organism.grouping_key} (tax_id: {tax_id})",
         )
 
     # Get all reads for these experiments
@@ -255,7 +256,7 @@ def get_assembly_manifest(
     if not reads:
         raise HTTPException(
             status_code=404,
-            detail=f"No reads found for organism {organism.grouping_key} (tax_id: {tax_id})"
+            detail=f"No reads found for organism {organism.grouping_key} (tax_id: {tax_id})",
         )
 
     # Generate YAML manifest
@@ -426,6 +427,7 @@ def update_assembly_submission(
 # Assembly File endpoints
 # ==========================================
 
+
 @router.get("/{assembly_id}/files", response_model=List[AssemblyFileSchema])
 def read_assembly_files(
     *,
@@ -440,7 +442,9 @@ def read_assembly_files(
         raise HTTPException(status_code=404, detail="Assembly not found")
 
     if file_type:
-        files = assembly_file_service.get_by_assembly_and_type(db, assembly_id=assembly_id, file_type=file_type)
+        files = assembly_file_service.get_by_assembly_and_type(
+            db, assembly_id=assembly_id, file_type=file_type
+        )
     else:
         files = assembly_file_service.get_by_assembly_id(db, assembly_id=assembly_id)
 

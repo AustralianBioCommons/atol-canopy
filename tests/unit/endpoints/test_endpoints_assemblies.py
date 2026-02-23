@@ -81,9 +81,10 @@ def test_assemblies_pipeline_inputs_not_found(monkeypatch):
 
 def test_create_assembly_from_experiments_success(monkeypatch):
     """Test successful assembly creation from experiments."""
-    from app.models.assembly import Assembly
-    from uuid import uuid4
     from datetime import datetime, timezone
+    from uuid import uuid4
+
+    from app.models.assembly import Assembly
 
     client = TestClient(app)
 

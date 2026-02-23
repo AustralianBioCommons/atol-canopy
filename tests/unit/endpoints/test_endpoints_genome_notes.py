@@ -166,7 +166,9 @@ class TestCreateGenomeNote:
         now = datetime.now(timezone.utc)
 
         monkeypatch.setattr(
-            genome_notes, "genome_note_service", SimpleNamespace(get_next_version=lambda db, organism_key: 1)
+            genome_notes,
+            "genome_note_service",
+            SimpleNamespace(get_next_version=lambda db, organism_key: 1),
         )
 
         payload = {
@@ -191,7 +193,9 @@ class TestCreateGenomeNote:
         now = datetime.now(timezone.utc)
 
         monkeypatch.setattr(
-            genome_notes, "genome_note_service", SimpleNamespace(get_next_version=lambda db, organism_key: 3)
+            genome_notes,
+            "genome_note_service",
+            SimpleNamespace(get_next_version=lambda db, organism_key: 3),
         )
 
         payload = {

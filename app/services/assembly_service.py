@@ -115,7 +115,9 @@ class AssemblyService(BaseService[Assembly, AssemblyCreate, AssemblyUpdate]):
         # 2. Get all samples for this organism
         samples = db.query(Sample).filter(Sample.organism_key == organism.grouping_key).all()
         if not samples:
-            raise ValueError(f"No samples found for organism {organism.grouping_key} (tax_id: {tax_id})")
+            raise ValueError(
+                f"No samples found for organism {organism.grouping_key} (tax_id: {tax_id})"
+            )
 
         # 3. Get all experiments for these samples
         sample_ids = [sample.id for sample in samples]

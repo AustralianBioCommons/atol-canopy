@@ -9,9 +9,9 @@ from sqlalchemy import (
     Integer,
     PrimaryKeyConstraint,
     Text,
+    func,
 )
 from sqlalchemy import Enum as SQLAlchemyEnum
-from sqlalchemy import func
 from sqlalchemy.dialects.postgresql import JSONB, UUID
 from sqlalchemy.orm import backref, relationship
 
@@ -172,9 +172,7 @@ class AssemblyFile(Base):
     )
 
     # Relationships
-    assembly = relationship(
-        "Assembly", backref=backref("files", cascade="all, delete-orphan")
-    )
+    assembly = relationship("Assembly", backref=backref("files", cascade="all, delete-orphan"))
 
 
 class AssemblyRead(Base):

@@ -73,7 +73,9 @@ def test_organisms_list_and_not_found(monkeypatch):
 
     app.dependency_overrides[organisms.get_db] = _override_db(_FakeSession([base_org]))
     monkeypatch.setattr(
-        organisms, "organism_service", SimpleNamespace(get_by_grouping_key=lambda db, grouping_key: None)
+        organisms,
+        "organism_service",
+        SimpleNamespace(get_by_grouping_key=lambda db, grouping_key: None),
     )
 
     resp = client.get("/api/v1/organisms")

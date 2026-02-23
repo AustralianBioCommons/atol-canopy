@@ -8,9 +8,9 @@ from sqlalchemy import (
     ForeignKey,
     ForeignKeyConstraint,
     Text,
+    func,
     text,
 )
-from sqlalchemy import func
 from sqlalchemy import Enum as SQLAlchemyEnum
 from sqlalchemy.dialects.postgresql import JSONB, UUID
 from sqlalchemy.orm import backref, relationship

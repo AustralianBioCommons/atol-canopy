@@ -10,6 +10,7 @@ from app.schemas.common import SubmissionStatus
 
 class AssemblyDataTypes(str, Enum):
     """Enum for assembly data types (sequencing platforms)."""
+
     PACBIO_SMRT = "PACBIO_SMRT"
     PACBIO_SMRT_HIC = "PACBIO_SMRT_HIC"
     OXFORD_NANOPORE = "OXFORD_NANOPORE"
@@ -20,6 +21,7 @@ class AssemblyDataTypes(str, Enum):
 
 class AssemblyFileType(str, Enum):
     """Enum for assembly file types."""
+
     FASTA = "FASTA"
     QC_REPORT = "QC_REPORT"
     STATISTICS = "STATISTICS"
@@ -171,6 +173,7 @@ class AssemblySubmission(AssemblySubmissionInDBBase):
 # AssemblyFile schemas
 # ==========================================
 
+
 # Base AssemblyFile schema
 class AssemblyFileBase(BaseModel):
     """Base AssemblyFile schema with common attributes."""
@@ -189,6 +192,7 @@ class AssemblyFileBase(BaseModel):
 # Schema for creating a new assembly file
 class AssemblyFileCreate(AssemblyFileBase):
     """Schema for creating a new assembly file."""
+
     pass
 
 
@@ -221,4 +225,5 @@ class AssemblyFileInDBBase(AssemblyFileBase):
 # Schema for returning assembly file information
 class AssemblyFile(AssemblyFileInDBBase):
     """Schema for returning assembly file information."""
+
     pass

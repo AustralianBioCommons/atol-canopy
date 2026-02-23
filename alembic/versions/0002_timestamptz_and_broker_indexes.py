@@ -102,9 +102,7 @@ def upgrade() -> None:
     op.execute(
         "CREATE INDEX IF NOT EXISTS idx_experiment_submission_lock_expires_at ON experiment_submission (lock_expires_at)"
     )
-    op.execute(
-        "CREATE INDEX IF NOT EXISTS idx_read_submission_status ON read_submission (status)"
-    )
+    op.execute("CREATE INDEX IF NOT EXISTS idx_read_submission_status ON read_submission (status)")
     op.execute(
         "CREATE INDEX IF NOT EXISTS idx_read_submission_lock_expires_at ON read_submission (lock_expires_at)"
     )

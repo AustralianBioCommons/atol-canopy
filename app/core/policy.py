@@ -95,6 +95,7 @@ def _check_policy_from_kwargs(action: str, kwargs: Dict[str, Any]) -> None:
 def policy(action: str) -> Callable:
     def decorator(func: Callable) -> Callable:
         if iscoroutinefunction(func):
+
             @wraps(func)
             async def async_wrapper(*args, **kwargs):
                 _check_policy_from_kwargs(action, kwargs)

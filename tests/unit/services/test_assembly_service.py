@@ -1,4 +1,5 @@
 """Tests for assembly service."""
+
 import uuid
 from unittest.mock import MagicMock, Mock, patch
 
@@ -226,7 +227,9 @@ class TestCreateFromExperiments:
         )
 
         with pytest.raises(ValueError, match="No samples found"):
-            assembly_service.create_from_experiments(mock_db, tax_id=tax_id, assembly_in=assembly_in)
+            assembly_service.create_from_experiments(
+                mock_db, tax_id=tax_id, assembly_in=assembly_in
+            )
 
     def test_create_from_experiments_no_experiments(self, mock_db, assembly_service):
         """Test error when no experiments found."""
@@ -255,7 +258,9 @@ class TestCreateFromExperiments:
         )
 
         with pytest.raises(ValueError, match="No experiments found"):
-            assembly_service.create_from_experiments(mock_db, tax_id=tax_id, assembly_in=assembly_in)
+            assembly_service.create_from_experiments(
+                mock_db, tax_id=tax_id, assembly_in=assembly_in
+            )
 
     def test_create_from_experiments_overrides_data_types(self, mock_db, assembly_service):
         """Test that data_types is overridden based on experiments."""

@@ -3,6 +3,7 @@ from typing import List
 
 from sqlalchemy import ARRAY, Boolean, Column, DateTime, Text, func
 from sqlalchemy.dialects.postgresql import UUID
+
 from app.db.session import Base
 
 
