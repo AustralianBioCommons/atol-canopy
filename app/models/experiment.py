@@ -1,7 +1,6 @@
 import uuid
-from datetime import datetime, timezone
 
-from sqlalchemy import Column, DateTime, ForeignKey, ForeignKeyConstraint, String, Text
+from sqlalchemy import Column, DateTime, ForeignKey, ForeignKeyConstraint, Text, func
 from sqlalchemy import Enum as SQLAlchemyEnum
 from sqlalchemy.dialects.postgresql import JSONB, UUID
 from sqlalchemy.orm import backref, relationship
@@ -48,12 +47,12 @@ class Experiment(Base):
     gal = Column(Text, nullable=True)
     raw_data_release_date = Column(Text, nullable=True)
     # bpa_json = Column(JSONB, nullable=False)
-    created_at = Column(DateTime, nullable=False, default=datetime.now(timezone.utc))
+    created_at = Column(DateTime(timezone=True), nullable=False, server_default=func.now())
     updated_at = Column(
-        DateTime,
+        DateTime(timezone=True),
         nullable=False,
-        default=datetime.now(timezone.utc),
-        onupdate=datetime.now(timezone.utc),
+        server_default=func.now(),
+        onupdate=func.now(),
     )
 
     # Relationships
@@ -110,20 +109,20 @@ class ExperimentSubmission(Base):
     entity_type_const = Column(
         Text, nullable=False, default="experiment", server_default="experiment"
     )
-    submitted_at = Column(DateTime, nullable=True)
-    created_at = Column(DateTime, nullable=False, default=datetime.now(timezone.utc))
+    submitted_at = Column(DateTime(timezone=True), nullable=True)
+    created_at = Column(DateTime(timezone=True), nullable=False, server_default=func.now())
     updated_at = Column(
-        DateTime,
+        DateTime(timezone=True),
         nullable=False,
-        default=datetime.now(timezone.utc),
-        onupdate=datetime.now(timezone.utc),
+        server_default=func.now(),
+        onupdate=func.now(),
     )
 
     # Broker lease/claim fields
     attempt_id = Column(UUID(as_uuid=True), nullable=True)
     finalised_attempt_id = Column(UUID(as_uuid=True), nullable=True)
-    lock_acquired_at = Column(DateTime, nullable=True)
-    lock_expires_at = Column(DateTime, nullable=True)
+    lock_acquired_at = Column(DateTime(timezone=True), nullable=True)
+    lock_expires_at = Column(DateTime(timezone=True), nullable=True)
 
     # Relationships
     experiment = relationship(

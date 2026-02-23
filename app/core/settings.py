@@ -31,7 +31,7 @@ class Settings(BaseSettings):
     DATABASE_URI: Optional[str] = None
 
     # CORS
-    BACKEND_CORS_ORIGINS: List[str] = ["*"]
+    BACKEND_CORS_ORIGINS: List[str] = []
 
     # Environment
     ENVIRONMENT: Optional[str] = None  # Options: "dev", "prod"
@@ -58,6 +58,18 @@ class Settings(BaseSettings):
                 f"postgresql://{self.POSTGRES_USER}:{self.POSTGRES_PASSWORD}"
                 f"@{self.POSTGRES_SERVER}:{self.POSTGRES_PORT}/{self.POSTGRES_DB}"
             )
+
+        # Default permissive CORS for non-prod only when unset
+        if not self.BACKEND_CORS_ORIGINS and self.ENVIRONMENT != "prod":
+            self.BACKEND_CORS_ORIGINS = ["*"]
+
+        # Fail fast on missing critical settings
+        if not self.JWT_SECRET_KEY or not self.JWT_ALGORITHM:
+            raise ValueError("JWT_SECRET_KEY and JWT_ALGORITHM must be set")
+        if not self.DATABASE_URI:
+            raise ValueError("DATABASE_URI must be set (or derived from POSTGRES_* settings)")
+        if self.ENVIRONMENT == "prod" and self.BACKEND_CORS_ORIGINS == ["*"]:
+            raise ValueError("BACKEND_CORS_ORIGINS cannot be ['*'] in production")
 
 
 settings = Settings()

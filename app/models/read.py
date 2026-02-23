@@ -1,5 +1,4 @@
 import uuid
-from datetime import datetime, timezone
 
 from sqlalchemy import (
     BigInteger,
@@ -8,10 +7,10 @@ from sqlalchemy import (
     DateTime,
     ForeignKey,
     ForeignKeyConstraint,
-    String,
     Text,
 )
 from sqlalchemy import Enum as SQLAlchemyEnum
+from sqlalchemy import func
 from sqlalchemy.dialects.postgresql import JSONB, UUID
 from sqlalchemy.orm import backref, relationship
 
@@ -41,12 +40,12 @@ class Read(Base):
     read_number = Column(Text, nullable=True)
     lane_number = Column(Text, nullable=True)
     # bpa_json = Column(JSONB, nullable=False)
-    created_at = Column(DateTime, nullable=False, default=datetime.now(timezone.utc))
+    created_at = Column(DateTime(timezone=True), nullable=False, server_default=func.now())
     updated_at = Column(
-        DateTime,
+        DateTime(timezone=True),
         nullable=False,
-        default=datetime.now(timezone.utc),
-        onupdate=datetime.now(timezone.utc),
+        server_default=func.now(),
+        onupdate=func.now(),
     )
 
     # Relationships
@@ -115,12 +114,12 @@ class ReadSubmission(Base):
     # Constant to help the composite FK
     entity_type_const = Column(Text, nullable=False, default="read", server_default="read")
 
-    created_at = Column(DateTime, nullable=False, default=datetime.now(timezone.utc))
+    created_at = Column(DateTime(timezone=True), nullable=False, server_default=func.now())
     updated_at = Column(
-        DateTime,
+        DateTime(timezone=True),
         nullable=False,
-        default=datetime.now(timezone.utc),
-        onupdate=datetime.now(timezone.utc),
+        server_default=func.now(),
+        onupdate=func.now(),
     )
 
     # Relationships
@@ -137,8 +136,8 @@ class ReadSubmission(Base):
     # Broker lease/claim fields
     attempt_id = Column(UUID(as_uuid=True), nullable=True)
     finalised_attempt_id = Column(UUID(as_uuid=True), nullable=True)
-    lock_acquired_at = Column(DateTime, nullable=True)
-    lock_expires_at = Column(DateTime, nullable=True)
+    lock_acquired_at = Column(DateTime(timezone=True), nullable=True)
+    lock_expires_at = Column(DateTime(timezone=True), nullable=True)
 
     # Table constraints
     __table_args__ = (
