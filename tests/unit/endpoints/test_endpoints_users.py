@@ -18,6 +18,15 @@ def _jwt_settings(monkeypatch):
     monkeypatch.setattr(settings, "JWT_ACCESS_TOKEN_EXPIRE_MINUTES", 30)
 
 
+@pytest.fixture(autouse=True)
+def _admin_user_override():
+    app.dependency_overrides[users.get_current_active_user] = lambda: SimpleNamespace(
+        is_superuser=False, roles=["admin"], is_active=True
+    )
+    yield
+    app.dependency_overrides.pop(users.get_current_active_user, None)
+
+
 class _FakeCreateSession:
     """Fake session for create_user that returns successive results for first() calls."""
 

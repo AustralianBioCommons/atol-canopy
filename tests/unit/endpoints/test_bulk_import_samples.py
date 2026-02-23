@@ -128,7 +128,6 @@ def test_bulk_import_specimens_success(monkeypatch):
         return sample, submission
 
     monkeypatch.setattr(samples, "_create_sample_with_submission", mock_create_sample)
-    monkeypatch.setattr(samples, "require_role", lambda current_user, roles: None)
 
     # Mock file reading
     with patch("builtins.open", create=True) as mock_open:
@@ -232,7 +231,6 @@ def test_bulk_import_specimens_duplicate_specimen(monkeypatch):
 
     app.dependency_overrides[samples.get_current_active_user] = _override_user(["admin"])
     app.dependency_overrides[samples.get_db] = _override_db(fake_session)
-    monkeypatch.setattr(samples, "require_role", lambda current_user, roles: None)
 
     with patch("builtins.open", create=True):
         with patch("json.load", return_value={"sample": {}}):
@@ -315,7 +313,6 @@ def test_bulk_import_specimens_bpa_sample_id_optional(monkeypatch):
         return sample, submission
 
     monkeypatch.setattr(samples, "_create_sample_with_submission", mock_create_sample)
-    monkeypatch.setattr(samples, "require_role", lambda current_user, roles: None)
 
     with patch("builtins.open", create=True):
         with patch("json.load", return_value={"sample": {}}):
@@ -404,7 +401,6 @@ def test_bulk_import_derived_success(monkeypatch):
         return sample, submission
 
     monkeypatch.setattr(samples, "_create_sample_with_submission", mock_create_sample)
-    monkeypatch.setattr(samples, "require_role", lambda current_user, roles: None)
 
     with patch("builtins.open", create=True):
         with patch("json.load", return_value={"sample": {}}):
@@ -550,7 +546,6 @@ def test_bulk_import_derived_lookup_by_tax_id(monkeypatch):
         return sample, submission
 
     monkeypatch.setattr(samples, "_create_sample_with_submission", mock_create_sample)
-    monkeypatch.setattr(samples, "require_role", lambda current_user, roles: None)
 
     with patch("builtins.open", create=True):
         with patch("json.load", return_value={"sample": {}}):
@@ -687,7 +682,6 @@ def test_bulk_import_specimens_multiple_samples(monkeypatch):
         return sample, submission
 
     monkeypatch.setattr(samples, "_create_sample_with_submission", mock_create_sample)
-    monkeypatch.setattr(samples, "require_role", lambda current_user, roles: None)
 
     with patch("builtins.open", create=True):
         with patch("json.load", return_value={"sample": {}}):

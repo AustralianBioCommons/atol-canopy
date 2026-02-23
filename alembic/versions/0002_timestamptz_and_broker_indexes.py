@@ -3,7 +3,7 @@
 from alembic import op
 
 # revision identifiers, used by Alembic.
-revision = "0002_timestamptz_and_broker_indexes"
+revision = "0002_timestamptz_broker_idx"
 down_revision = "0001_initial_schema"
 branch_labels = None
 depends_on = None
@@ -57,12 +57,30 @@ def upgrade() -> None:
                 f"ALTER TABLE {table} ALTER COLUMN {col} TYPE TIMESTAMPTZ USING {col} AT TIME ZONE 'UTC'"
             )
 
-    # Sample latitude/longitude checks
+    # Sample latitude/longitude checks (skip if already exists from schema.sql)
     op.execute(
-        "ALTER TABLE sample ADD CONSTRAINT chk_sample_latitude CHECK (latitude IS NULL OR latitude BETWEEN -90 AND 90)"
+        """
+        DO $$ BEGIN
+            IF NOT EXISTS (
+                SELECT 1 FROM pg_constraint WHERE conname = 'chk_sample_latitude'
+            ) THEN
+                ALTER TABLE sample ADD CONSTRAINT chk_sample_latitude
+                CHECK (latitude IS NULL OR latitude BETWEEN -90 AND 90);
+            END IF;
+        END $$;
+        """
     )
     op.execute(
-        "ALTER TABLE sample ADD CONSTRAINT chk_sample_longitude CHECK (longitude IS NULL OR longitude BETWEEN -180 AND 180)"
+        """
+        DO $$ BEGIN
+            IF NOT EXISTS (
+                SELECT 1 FROM pg_constraint WHERE conname = 'chk_sample_longitude'
+            ) THEN
+                ALTER TABLE sample ADD CONSTRAINT chk_sample_longitude
+                CHECK (longitude IS NULL OR longitude BETWEEN -180 AND 180);
+            END IF;
+        END $$;
+        """
     )
 
     # Broker and status indexes

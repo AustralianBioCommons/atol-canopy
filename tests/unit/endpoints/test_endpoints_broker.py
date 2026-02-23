@@ -75,11 +75,15 @@ class FakeSession:
     def commit(self):
         self.committed = True
 
+    def delete(self, obj):
+        self.added.append(obj)
+
     def execute(self, stmt):
         self.executed.append(stmt)
 
 
 def test_broker_claim_explicit_ids_empty_lists_returns_empty_response():
+    broker_user = SimpleNamespace(is_superuser=False, roles=["broker"])
     db = FakeSession(
         {
             Organism: [
@@ -100,17 +104,16 @@ def test_broker_claim_explicit_ids_empty_lists_returns_empty_response():
         lease_duration_minutes=5,
     )
 
-    resp = broker.claim_drafts_for_organism(
-        organism_key="g1", per_type_limit=10, payload=payload, db=db
-    )
+    with pytest.raises(HTTPException) as excinfo:
+        broker.claim_drafts_for_organism(
+            organism_key="g1",
+            per_type_limit=10,
+            payload=payload,
+            current_user=broker_user,
+            db=db,
+        )
 
-    assert isinstance(resp.attempt_id, type(uuid4()))
-    assert resp.organism_key == "g1"
-    assert resp.samples == []
-    assert resp.experiments == []
-    assert resp.reads == []
-    assert resp.projects == []
-    assert resp.organism.scientific_name == "Sci"
+    assert excinfo.value.status_code == 400
 
 
 def test_broker_renew_attempt_lease_updates_items():

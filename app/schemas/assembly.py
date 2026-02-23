@@ -51,6 +51,22 @@ class AssemblyCreate(AssemblyBase):
     pass
 
 
+# Schema for creating assembly from experiments (organism_key derived from tax_id)
+class AssemblyCreateFromExperiments(BaseModel):
+    """Schema for creating assembly from experiments - organism_key is auto-filled from tax_id."""
+
+    sample_id: UUID
+    project_id: Optional[UUID] = None
+    assembly_name: str
+    assembly_type: str = "clone or isolate"
+    data_types: Optional[AssemblyDataTypes] = None  # Auto-detected, can be overridden
+    coverage: float
+    program: str
+    mingaplength: Optional[float] = None
+    moleculetype: str = "genomic DNA"
+    description: Optional[str] = None
+
+
 # Schema for updating an existing assembly
 class AssemblyUpdate(BaseModel):
     """Schema for updating an existing assembly."""

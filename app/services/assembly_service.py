@@ -44,7 +44,7 @@ class AssemblyService(BaseService[Assembly, AssemblyCreate, AssemblyUpdate]):
         next_version = (max_version or 0) + 1
 
         # Create assembly with auto-incremented version
-        obj_in_data = obj_in.dict()
+        obj_in_data = obj_in.model_dump()
         obj_in_data["version"] = next_version
 
         db_obj = Assembly(**obj_in_data)
@@ -89,7 +89,7 @@ class AssemblyService(BaseService[Assembly, AssemblyCreate, AssemblyUpdate]):
         db: Session,
         *,
         tax_id: int,
-        assembly_in: AssemblyCreate,
+        assembly_in,  # AssemblyCreateFromExperiments
     ) -> tuple[Assembly, dict]:
         """Create assembly based on experiments for a given tax_id.
 
@@ -99,7 +99,7 @@ class AssemblyService(BaseService[Assembly, AssemblyCreate, AssemblyUpdate]):
         Args:
             db: Database session
             tax_id: Taxonomy ID of the organism
-            assembly_in: Assembly creation data (data_types will be auto-determined)
+            assembly_in: Assembly creation data (organism_key and data_types auto-determined)
 
         Returns:
             Tuple of (created Assembly, platform detection info)
@@ -126,13 +126,15 @@ class AssemblyService(BaseService[Assembly, AssemblyCreate, AssemblyUpdate]):
                 f"No experiments found for organism {organism.grouping_key} (tax_id: {tax_id})"
             )
 
-        # 4. Determine data_types from experiments
-        data_types = determine_assembly_data_types(experiments)
+        # 4. Determine data_types from experiments (unless explicitly provided)
         platform_info = get_detected_platforms(experiments)
+        obj_in_data = assembly_in.model_dump()
 
-        # 5. Override data_types in assembly_in
-        obj_in_data = assembly_in.dict()
-        obj_in_data["data_types"] = data_types
+        if obj_in_data.get("data_types") is None:
+            data_types = determine_assembly_data_types(experiments)
+            obj_in_data["data_types"] = data_types
+
+        # 5. Add organism_key from tax_id lookup
         obj_in_data["organism_key"] = organism.grouping_key
 
         # 6. Create assembly using standard create method (handles versioning)

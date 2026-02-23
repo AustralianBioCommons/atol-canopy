@@ -8,6 +8,8 @@ def test_settings_builds_database_uri_from_env(monkeypatch):
     monkeypatch.setenv("POSTGRES_PORT", "5432")
     monkeypatch.setenv("POSTGRES_DB", "testdb")
     monkeypatch.setenv("DATABASE_URI", "postgresql://testuser:testpass@localhost:5432/testdb")
+    monkeypatch.setenv("JWT_SECRET_KEY", "test-secret")
+    monkeypatch.setenv("JWT_ALGORITHM", "HS256")
 
     settings = Settings()
 

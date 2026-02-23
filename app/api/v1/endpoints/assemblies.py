@@ -18,6 +18,7 @@ from app.schemas.assembly import (
 )
 from app.schemas.assembly import (
     AssemblyCreate,
+    AssemblyCreateFromExperiments,
     AssemblyFile as AssemblyFileSchema,
     AssemblyFileCreate,
     AssemblyFileUpdate,
@@ -264,13 +265,13 @@ def get_assembly_manifest(
     return Response(content=yaml_content, media_type="application/x-yaml")
 
 
-@router.post("/from-experiments/{tax_id}", response_model=Dict[str, Any])
+@router.post("/from-experiments/{tax_id}", response_model=AssemblySchema)
 @policy("assemblies:write")
 def create_assembly_from_experiments(
     *,
     db: Session = Depends(get_db),
     tax_id: int,
-    assembly_in: AssemblyCreate,
+    assembly_in: AssemblyCreateFromExperiments,
     current_user: User = Depends(get_current_active_user),
 ) -> Any:
     """
@@ -281,18 +282,14 @@ def create_assembly_from_experiments(
     - OXFORD_NANOPORE: platform == "OXFORD_NANOPORE"
     - Hi-C: platform == "ILLUMINA" AND library_strategy == "Hi-C"
 
-    The data_types field in assembly_in will be ignored and auto-determined.
+    The organism_key is automatically determined from tax_id.
+    The data_types field is auto-detected but can be overridden.
     """
     try:
         assembly, platform_info = assembly_service.create_from_experiments(
             db, tax_id=tax_id, assembly_in=assembly_in
         )
-
-        return {
-            "assembly": assembly,
-            "platform_detection": platform_info,
-            "message": f"Assembly created with auto-detected data_types: {assembly.data_types}"
-        }
+        return assembly
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
 

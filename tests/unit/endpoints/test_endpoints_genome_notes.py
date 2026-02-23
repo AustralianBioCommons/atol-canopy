@@ -9,6 +9,12 @@ from app.main import app
 
 
 class _FakeSession:
+    def __init__(self, note=None):
+        self._note = note
+        self.added = []
+        self.committed = False
+        self.deleted = []
+
     def query(self, *_):
         return self
 
@@ -16,7 +22,25 @@ class _FakeSession:
         return self
 
     def first(self):
-        return None
+        return self._note
+
+    def add(self, obj):
+        if getattr(obj, "id", None) is None:
+            obj.id = uuid.uuid4()
+        if getattr(obj, "created_at", None) is None:
+            obj.created_at = datetime.now(timezone.utc)
+        if getattr(obj, "updated_at", None) is None:
+            obj.updated_at = obj.created_at
+        self.added.append(obj)
+
+    def commit(self):
+        self.committed = True
+
+    def refresh(self, _obj):
+        pass
+
+    def delete(self, obj):
+        self.deleted.append(obj)
 
 
 def _override_db(fake):
@@ -48,27 +72,24 @@ class TestGetGenomeNote:
     def test_genome_note_found(self, monkeypatch):
         client = TestClient(app)
         app.dependency_overrides[genome_notes.get_current_active_user] = _override_user
-        app.dependency_overrides[genome_notes.get_db] = _override_db(_FakeSession())
 
         note_id = uuid.uuid4()
         assembly_id = uuid.uuid4()
         now = datetime.now(timezone.utc)
 
-        fake_note = {
-            "id": str(note_id),
-            "organism_key": "test_organism",
-            "assembly_id": str(assembly_id),
-            "version": 1,
-            "title": "Test Note",
-            "note_url": "https://example.com/note",
-            "is_published": False,
-            "published_at": None,
-            "created_at": now.isoformat(),
-            "updated_at": now.isoformat(),
-        }
-
-        fake_service = SimpleNamespace(get=lambda db, note_id: fake_note)
-        monkeypatch.setattr(genome_notes, "genome_note_service", fake_service)
+        fake_note = SimpleNamespace(
+            id=note_id,
+            organism_key="test_organism",
+            assembly_id=assembly_id,
+            version=1,
+            title="Test Note",
+            note_url="https://example.com/note",
+            is_published=False,
+            published_at=None,
+            created_at=now,
+            updated_at=now,
+        )
+        app.dependency_overrides[genome_notes.get_db] = _override_db(_FakeSession(fake_note))
 
         resp = client.get(f"/api/v1/genome-notes/{note_id}")
         assert resp.status_code == 200
@@ -84,7 +105,7 @@ class TestListGenomeNotes:
         app.dependency_overrides[genome_notes.get_current_active_user] = _override_user
         app.dependency_overrides[genome_notes.get_db] = _override_db(_FakeSession())
 
-        fake_service = SimpleNamespace(list_genome_notes=lambda db, skip=0, limit=100: [])
+        fake_service = SimpleNamespace(get_multi_with_filters=lambda db, **_: [])
         monkeypatch.setattr(genome_notes, "genome_note_service", fake_service)
 
         resp = client.get("/api/v1/genome-notes/")
@@ -124,7 +145,7 @@ class TestListGenomeNotes:
             },
         ]
 
-        fake_service = SimpleNamespace(list_genome_notes=lambda db, skip=0, limit=100: fake_notes)
+        fake_service = SimpleNamespace(get_multi_with_filters=lambda db, **_: fake_notes)
         monkeypatch.setattr(genome_notes, "genome_note_service", fake_service)
 
         resp = client.get("/api/v1/genome-notes/")
@@ -144,23 +165,9 @@ class TestCreateGenomeNote:
         assembly_id = uuid.uuid4()
         now = datetime.now(timezone.utc)
 
-        def fake_create(db, genome_note_in):
-            return {
-                "id": str(note_id),
-                "organism_key": genome_note_in.organism_key,
-                "assembly_id": str(genome_note_in.assembly_id),
-                "version": 1,
-                "title": genome_note_in.title,
-                "note_url": genome_note_in.note_url,
-                "is_published": False,
-                "published_at": None,
-                "created_at": now.isoformat(),
-                "updated_at": now.isoformat(),
-            }
-
-        fake_service = SimpleNamespace(create=fake_create)
-        monkeypatch.setattr(genome_notes, "genome_note_service", fake_service)
-        monkeypatch.setattr(genome_notes, "require_role", lambda current_user, roles: None)
+        monkeypatch.setattr(
+            genome_notes, "genome_note_service", SimpleNamespace(get_next_version=lambda db, organism_key: 1)
+        )
 
         payload = {
             "organism_key": "test_organism",
@@ -183,23 +190,9 @@ class TestCreateGenomeNote:
         assembly_id = uuid.uuid4()
         now = datetime.now(timezone.utc)
 
-        def fake_create(db, genome_note_in):
-            return {
-                "id": str(uuid.uuid4()),
-                "organism_key": genome_note_in.organism_key,
-                "assembly_id": str(genome_note_in.assembly_id),
-                "version": 3,
-                "title": genome_note_in.title,
-                "note_url": genome_note_in.note_url,
-                "is_published": False,
-                "published_at": None,
-                "created_at": now.isoformat(),
-                "updated_at": now.isoformat(),
-            }
-
-        fake_service = SimpleNamespace(create=fake_create)
-        monkeypatch.setattr(genome_notes, "genome_note_service", fake_service)
-        monkeypatch.setattr(genome_notes, "require_role", lambda current_user, roles: None)
+        monkeypatch.setattr(
+            genome_notes, "genome_note_service", SimpleNamespace(get_next_version=lambda db, organism_key: 3)
+        )
 
         payload = {
             "organism_key": "existing_organism",
@@ -219,28 +212,21 @@ class TestUpdateGenomeNote:
     def test_update_genome_note_success(self, monkeypatch):
         client = TestClient(app)
         app.dependency_overrides[genome_notes.get_current_active_user] = _override_user
-        app.dependency_overrides[genome_notes.get_db] = _override_db(_FakeSession())
-
         note_id = uuid.uuid4()
         now = datetime.now(timezone.utc)
-
-        def fake_update(db, note_id, genome_note_in):
-            return {
-                "id": str(note_id),
-                "organism_key": "test_organism",
-                "assembly_id": str(uuid.uuid4()),
-                "version": 1,
-                "title": genome_note_in.title or "Original Title",
-                "note_url": genome_note_in.note_url or "https://example.com/original",
-                "is_published": False,
-                "published_at": None,
-                "created_at": now.isoformat(),
-                "updated_at": now.isoformat(),
-            }
-
-        fake_service = SimpleNamespace(update=fake_update)
-        monkeypatch.setattr(genome_notes, "genome_note_service", fake_service)
-        monkeypatch.setattr(genome_notes, "require_role", lambda current_user, roles: None)
+        fake_note = SimpleNamespace(
+            id=note_id,
+            organism_key="test_organism",
+            assembly_id=uuid.uuid4(),
+            version=1,
+            title="Original Title",
+            note_url="https://example.com/original",
+            is_published=False,
+            published_at=None,
+            created_at=now,
+            updated_at=now,
+        )
+        app.dependency_overrides[genome_notes.get_db] = _override_db(_FakeSession(fake_note))
 
         payload = {"title": "Updated Title"}
 
@@ -255,10 +241,6 @@ class TestUpdateGenomeNote:
 
         note_id = uuid.uuid4()
 
-        fake_service = SimpleNamespace(update=lambda db, note_id, genome_note_in: None)
-        monkeypatch.setattr(genome_notes, "genome_note_service", fake_service)
-        monkeypatch.setattr(genome_notes, "require_role", lambda current_user, roles: None)
-
         payload = {"title": "Updated Title"}
 
         resp = client.put(f"/api/v1/genome-notes/{note_id}", json=payload)
@@ -271,13 +253,21 @@ class TestDeleteGenomeNote:
     def test_delete_genome_note_success(self, monkeypatch):
         client = TestClient(app)
         app.dependency_overrides[genome_notes.get_current_active_user] = _override_admin_user
-        app.dependency_overrides[genome_notes.get_db] = _override_db(_FakeSession())
-
         note_id = uuid.uuid4()
-
-        fake_service = SimpleNamespace(delete=lambda db, note_id: {"id": str(note_id)})
-        monkeypatch.setattr(genome_notes, "genome_note_service", fake_service)
-        monkeypatch.setattr(genome_notes, "require_role", lambda current_user, roles: None)
+        now = datetime.now(timezone.utc)
+        fake_note = SimpleNamespace(
+            id=note_id,
+            organism_key="test_organism",
+            assembly_id=uuid.uuid4(),
+            version=1,
+            title="Original Title",
+            note_url="https://example.com/original",
+            is_published=False,
+            published_at=None,
+            created_at=now,
+            updated_at=now,
+        )
+        app.dependency_overrides[genome_notes.get_db] = _override_db(_FakeSession(fake_note))
 
         resp = client.delete(f"/api/v1/genome-notes/{note_id}")
         assert resp.status_code == 200
@@ -288,10 +278,6 @@ class TestDeleteGenomeNote:
         app.dependency_overrides[genome_notes.get_db] = _override_db(_FakeSession())
 
         note_id = uuid.uuid4()
-
-        fake_service = SimpleNamespace(delete=lambda db, note_id: None)
-        monkeypatch.setattr(genome_notes, "genome_note_service", fake_service)
-        monkeypatch.setattr(genome_notes, "require_role", lambda current_user, roles: None)
 
         resp = client.delete(f"/api/v1/genome-notes/{note_id}")
         assert resp.status_code == 404
@@ -324,7 +310,6 @@ class TestPublishGenomeNote:
 
         fake_service = SimpleNamespace(publish_genome_note=fake_publish)
         monkeypatch.setattr(genome_notes, "genome_note_service", fake_service)
-        monkeypatch.setattr(genome_notes, "require_role", lambda current_user, roles: None)
 
         resp = client.post(f"/api/v1/genome-notes/{note_id}/publish")
         assert resp.status_code == 200
@@ -346,11 +331,10 @@ class TestPublishGenomeNote:
 
         fake_service = SimpleNamespace(publish_genome_note=fake_publish)
         monkeypatch.setattr(genome_notes, "genome_note_service", fake_service)
-        monkeypatch.setattr(genome_notes, "require_role", lambda current_user, roles: None)
 
         resp = client.post(f"/api/v1/genome-notes/{note_id}/publish")
         assert resp.status_code == 409
-        assert "already has a published genome note" in resp.json()["detail"]
+        assert "already has a published genome note" in resp.json()["error"]["message"]
 
     def test_publish_genome_note_not_found(self, monkeypatch):
         client = TestClient(app)
@@ -364,7 +348,6 @@ class TestPublishGenomeNote:
 
         fake_service = SimpleNamespace(publish_genome_note=fake_publish)
         monkeypatch.setattr(genome_notes, "genome_note_service", fake_service)
-        monkeypatch.setattr(genome_notes, "require_role", lambda current_user, roles: None)
 
         resp = client.post(f"/api/v1/genome-notes/{note_id}/publish")
         assert resp.status_code == 404
@@ -397,7 +380,6 @@ class TestUnpublishGenomeNote:
 
         fake_service = SimpleNamespace(unpublish_genome_note=fake_unpublish)
         monkeypatch.setattr(genome_notes, "genome_note_service", fake_service)
-        monkeypatch.setattr(genome_notes, "require_role", lambda current_user, roles: None)
 
         resp = client.post(f"/api/v1/genome-notes/{note_id}/unpublish")
         assert resp.status_code == 200
@@ -416,7 +398,6 @@ class TestUnpublishGenomeNote:
 
         fake_service = SimpleNamespace(unpublish_genome_note=fake_unpublish)
         monkeypatch.setattr(genome_notes, "genome_note_service", fake_service)
-        monkeypatch.setattr(genome_notes, "require_role", lambda current_user, roles: None)
 
         resp = client.post(f"/api/v1/genome-notes/{note_id}/unpublish")
         assert resp.status_code == 404

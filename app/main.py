@@ -70,13 +70,24 @@ def http_exception_handler(_, exc: StarletteHTTPException):
 
 @app.exception_handler(RequestValidationError)
 def validation_exception_handler(_, exc: RequestValidationError):
+    errors = exc.errors()
+    # Ensure errors are JSON-serializable (e.g., ValueError in ctx)
+    for err in errors:
+        ctx = err.get("ctx")
+        if ctx and "error" in ctx:
+            try:
+                import json  # local import to keep module load light
+
+                json.dumps(ctx["error"])
+            except Exception:
+                ctx["error"] = str(ctx["error"])
     return JSONResponse(
         status_code=422,
         content={
             "error": {
                 "code": "validation_error",
                 "message": "Request validation failed",
-                "details": {"errors": exc.errors()},
+                "details": {"errors": errors},
             }
         },
     )
