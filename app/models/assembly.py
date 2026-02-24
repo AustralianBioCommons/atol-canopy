@@ -35,6 +35,7 @@ class Assembly(Base):
     # Assembly metadata fields
     assembly_name = Column(Text, nullable=False)
     assembly_type = Column(Text, nullable=False, default="clone or isolate")
+    tol_id = Column(Text, nullable=True)
     data_types = Column(
         SQLAlchemyEnum(
             "PACBIO_SMRT",

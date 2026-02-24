@@ -95,6 +95,7 @@ def test_create_assembly_from_experiments_success(monkeypatch):
         sample_id=uuid4(),
         assembly_name="Test Assembly",
         assembly_type="clone or isolate",
+        tol_id="tol-123",
         data_types="PACBIO_SMRT",
         coverage=50.0,
         program="hifiasm",
@@ -126,6 +127,7 @@ def test_create_assembly_from_experiments_success(monkeypatch):
             "sample_id": "550e8400-e29b-41d4-a716-446655440000",
             "assembly_name": "Test Assembly",
             "assembly_type": "clone or isolate",
+            "tol_id": "tol-123",
             "coverage": 50.0,
             "program": "hifiasm",
             "moleculetype": "genomic DNA",
@@ -165,6 +167,7 @@ def test_create_assembly_from_experiments_not_found(monkeypatch):
             "sample_id": "550e8400-e29b-41d4-a716-446655440000",
             "assembly_name": "Test Assembly",
             "assembly_type": "clone or isolate",
+            "tol_id": "tol-123",
             "coverage": 50.0,
             "program": "hifiasm",
             "moleculetype": "genomic DNA",
@@ -204,12 +207,21 @@ def test_get_assembly_manifest_success(monkeypatch):
         read_number=None,
         lane_number=None,
     )
+    assembly = SimpleNamespace(
+        id="assembly-1",
+        organism_key="test_organism",
+        tol_id="tol-123",
+        version=1,
+    )
 
     class MockQuery:
         def __init__(self, return_value):
             self.return_value = return_value
 
         def filter(self, *args, **kwargs):
+            return self
+
+        def order_by(self, *args, **kwargs):
             return self
 
         def first(self):
@@ -232,6 +244,8 @@ def test_get_assembly_manifest_success(monkeypatch):
                 return MockQuery([experiment])
             elif self.call_count == 4:  # reads query
                 return MockQuery([read])
+            elif self.call_count == 5:  # latest assembly query
+                return MockQuery(assembly)
             return MockQuery([])
 
     app.dependency_overrides[assemblies.get_current_active_user] = lambda: SimpleNamespace(

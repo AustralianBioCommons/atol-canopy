@@ -548,6 +548,7 @@ CREATE TABLE assembly (
     -- Assembly metadata
     assembly_name TEXT NOT NULL,
     assembly_type TEXT NOT NULL DEFAULT 'clone or isolate',
+    tol_id TEXT,
     data_types assembly_data_types NOT NULL,
     coverage FLOAT NOT NULL,
     program TEXT NOT NULL,

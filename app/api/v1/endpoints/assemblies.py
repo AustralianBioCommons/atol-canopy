@@ -205,6 +205,49 @@ def get_pipeline_inputs_by_tax_id(
     return result
 
 
+def _get_manifest_inputs_by_tax_id(db: Session, tax_id: int):
+    organism = db.query(Organism).filter(Organism.tax_id == tax_id).first()
+    if not organism:
+        raise HTTPException(status_code=404, detail=f"Organism with tax_id {tax_id} not found")
+
+    samples = db.query(Sample).filter(Sample.organism_key == organism.grouping_key).all()
+    if not samples:
+        raise HTTPException(
+            status_code=404,
+            detail=f"No samples found for organism {organism.grouping_key} (tax_id: {tax_id})",
+        )
+
+    sample_ids = [sample.id for sample in samples]
+    experiments = db.query(Experiment).filter(Experiment.sample_id.in_(sample_ids)).all()
+    if not experiments:
+        raise HTTPException(
+            status_code=404,
+            detail=f"No experiments found for organism {organism.grouping_key} (tax_id: {tax_id})",
+        )
+
+    experiment_ids = [exp.id for exp in experiments]
+    reads = db.query(Read).filter(Read.experiment_id.in_(experiment_ids)).all()
+    if not reads:
+        raise HTTPException(
+            status_code=404,
+            detail=f"No reads found for organism {organism.grouping_key} (tax_id: {tax_id})",
+        )
+
+    assembly = (
+        db.query(Assembly)
+        .filter(Assembly.organism_key == organism.grouping_key)
+        .order_by(Assembly.created_at.desc())
+        .first()
+    )
+    if not assembly:
+        raise HTTPException(
+            status_code=404,
+            detail=f"No assemblies found for organism {organism.grouping_key} (tax_id: {tax_id})",
+        )
+
+    return organism, reads, experiments, assembly
+
+
 @router.get("/manifest/{tax_id}")
 def get_assembly_manifest(
     *,
@@ -213,7 +256,7 @@ def get_assembly_manifest(
     current_user: User = Depends(get_current_active_user),
 ) -> Any:
     """
-    Generate assembly manifest YAML for an organism by tax_id.
+    Retrieve the latest assembly manifest YAML for an organism by tax_id.
 
     Returns YAML manifest with:
     - scientific_name and taxon_id from organism
@@ -226,43 +269,33 @@ def get_assembly_manifest(
     """
     from fastapi.responses import Response
 
-    # Get organism by tax_id
-    organism = db.query(Organism).filter(Organism.tax_id == tax_id).first()
-    if not organism:
-        raise HTTPException(status_code=404, detail=f"Organism with tax_id {tax_id} not found")
-
-    # Get all samples for this organism
-    samples = db.query(Sample).filter(Sample.organism_key == organism.grouping_key).all()
-    if not samples:
-        raise HTTPException(
-            status_code=404,
-            detail=f"No samples found for organism {organism.grouping_key} (tax_id: {tax_id})",
-        )
-
-    # Get all experiments for these samples
-    sample_ids = [sample.id for sample in samples]
-    experiments = db.query(Experiment).filter(Experiment.sample_id.in_(sample_ids)).all()
-
-    if not experiments:
-        raise HTTPException(
-            status_code=404,
-            detail=f"No experiments found for organism {organism.grouping_key} (tax_id: {tax_id})",
-        )
-
-    # Get all reads for these experiments
-    experiment_ids = [exp.id for exp in experiments]
-    reads = db.query(Read).filter(Read.experiment_id.in_(experiment_ids)).all()
-
-    if not reads:
-        raise HTTPException(
-            status_code=404,
-            detail=f"No reads found for organism {organism.grouping_key} (tax_id: {tax_id})",
-        )
-
-    # Generate YAML manifest
-    yaml_content = generate_assembly_manifest(organism, reads, experiments)
+    organism, reads, experiments, assembly = _get_manifest_inputs_by_tax_id(db, tax_id)
+    yaml_content = generate_assembly_manifest(organism, reads, experiments, assembly)
 
     # Return as YAML response
+    return Response(content=yaml_content, media_type="application/x-yaml")
+
+
+@router.post("/manifest/{tax_id}")
+def create_assembly_manifest(
+    *,
+    db: Session = Depends(get_db),
+    tax_id: int,
+    current_user: User = Depends(get_current_active_user),
+) -> Any:
+    """
+    Generate assembly manifest YAML for an organism by tax_id.
+
+    Returns YAML manifest with:
+    - scientific_name, taxon_id, tolid, version
+    - reads grouped by platform (PACBIO_SMRT, Hi-C)
+    - PACBIO_SMRT: Only files ending in .ccs.bam or hifi_reads.bam
+    - Hi-C: Includes read_number and lane_number
+    """
+    from fastapi.responses import Response
+
+    organism, reads, experiments, assembly = _get_manifest_inputs_by_tax_id(db, tax_id)
+    yaml_content = generate_assembly_manifest(organism, reads, experiments, assembly)
     return Response(content=yaml_content, media_type="application/x-yaml")
 
 

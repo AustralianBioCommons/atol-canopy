@@ -197,7 +197,8 @@ class TestGenerateAssemblyManifest:
             ),
         ]
 
-        result = generate_assembly_manifest(organism, reads, experiments)
+        assembly = Mock(tol_id="tol1", version=1)
+        result = generate_assembly_manifest(organism, reads, experiments, assembly)
 
         assert "PACBIO_SMRT:" in result
         assert "sample.ccs.bam" in result
@@ -220,7 +221,8 @@ class TestGenerateAssemblyManifest:
             ),
         ]
 
-        result = generate_assembly_manifest(organism, reads, experiments)
+        assembly = Mock(tol_id="tol1", version=1)
+        result = generate_assembly_manifest(organism, reads, experiments, assembly)
 
         assert "Hi-C:" in result
         assert "hic_R1.fastq.gz" in result
@@ -243,7 +245,8 @@ class TestGenerateAssemblyManifest:
             ),
         ]
 
-        result = generate_assembly_manifest(organism, reads, experiments)
+        assembly = Mock(tol_id="tol1", version=1)
+        result = generate_assembly_manifest(organism, reads, experiments, assembly)
 
         assert "Hi-C:" in result
         assert "sample_R1.fastq.gz" in result
@@ -254,7 +257,8 @@ class TestGenerateAssemblyManifest:
         experiments = [Mock(id="exp1", platform="UNKNOWN", library_strategy="WGS")]
         reads = []
 
-        result = generate_assembly_manifest(organism, reads, experiments)
+        assembly = Mock(tol_id="tol1", version=1)
+        result = generate_assembly_manifest(organism, reads, experiments, assembly)
 
         assert "reads: {}" in result
 
@@ -264,10 +268,13 @@ class TestGenerateAssemblyManifest:
         experiments = []
         reads = []
 
-        result = generate_assembly_manifest(organism, reads, experiments)
+        assembly = Mock(tol_id="tol123", version=2)
+        result = generate_assembly_manifest(organism, reads, experiments, assembly)
 
         assert "scientific_name: Saiphos equalis" in result
         assert "taxon_id: 172942" in result
+        assert "tolid: tol123" in result
+        assert "version: 2" in result
 
     def test_reads_without_experiment_id_skipped(self):
         """Test that reads without experiment_id are skipped."""
@@ -285,7 +292,8 @@ class TestGenerateAssemblyManifest:
             ),
         ]
 
-        result = generate_assembly_manifest(organism, reads, experiments)
+        assembly = Mock(tol_id="tol1", version=1)
+        result = generate_assembly_manifest(organism, reads, experiments, assembly)
 
         assert "sample.ccs.bam" not in result
         assert "reads: {}" in result
@@ -318,7 +326,8 @@ class TestGenerateAssemblyManifest:
             ),
         ]
 
-        result = generate_assembly_manifest(organism, reads, experiments)
+        assembly = Mock(tol_id="tol1", version=1)
+        result = generate_assembly_manifest(organism, reads, experiments, assembly)
 
         assert "PACBIO_SMRT:" in result
         assert "Hi-C:" in result
