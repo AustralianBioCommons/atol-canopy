@@ -39,15 +39,15 @@ def determine_assembly_data_types(experiments: List[Experiment]) -> AssemblyData
         library_strategy = exp.library_strategy.upper() if exp.library_strategy else ""
 
         # Check for PacBio
-        if platform == "PACBIO_SMRT":
+        if platform == "PACBIO_SMRT" and library_strategy in ("WGS", "WGA"):
             has_pacbio = True
 
         # Check for Oxford Nanopore
-        if platform == "OXFORD_NANOPORE":
+        if platform == "OXFORD_NANOPORE" and library_strategy in ("WGS", "WGA"):
             has_nanopore = True
 
         # Check for Hi-C (Illumina + Hi-C or WGS library strategy)
-        if platform == "ILLUMINA" and library_strategy in ("HI-C", "WGS"):
+        if platform == "ILLUMINA" and library_strategy in ("HI-C"):
             has_hic = True
 
     # Determine the appropriate enum value based on combinations
