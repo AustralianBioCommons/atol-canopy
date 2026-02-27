@@ -1,17 +1,17 @@
 """Add tol_id to assembly.
 
 Revision ID: 0003_add_tol_id_to_assembly
-Revises: 0002_timestamptz_and_broker_indexes
+Revises: 0002_timestamptz_broker_idx
 Create Date: 2026-02-24 00:00:00.000000
 """
 
-from alembic import op
 import sqlalchemy as sa
 
+from alembic import op
 
 # revision identifiers, used by Alembic.
 revision = "0003_add_tol_id_to_assembly"
-down_revision = "0002_timestamptz_and_broker_indexes"
+down_revision = "0002_timestamptz_broker_idx"
 branch_labels = None
 depends_on = None
 
