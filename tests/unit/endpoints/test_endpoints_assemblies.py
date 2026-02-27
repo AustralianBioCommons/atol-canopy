@@ -191,10 +191,12 @@ def test_get_assembly_manifest_success(monkeypatch):
         scientific_name="Test Species",
         tax_id=172942,
     )
-    sample = SimpleNamespace(id="sample-1", organism_key="test_organism")
+    sample = SimpleNamespace(
+        id="550e8400-e29b-41d4-a716-446655440000", organism_key="test_organism"
+    )
     experiment = SimpleNamespace(
         id="exp-1",
-        sample_id="sample-1",
+        sample_id="550e8400-e29b-41d4-a716-446655440000",
         platform="PACBIO_SMRT",
         library_strategy="WGS",
     )
@@ -207,9 +209,10 @@ def test_get_assembly_manifest_success(monkeypatch):
         read_number=None,
         lane_number=None,
     )
-    assembly = SimpleNamespace(
-        id="assembly-1",
+    assembly_run = SimpleNamespace(
+        id="run-1",
         organism_key="test_organism",
+        sample_id="sample-1",
         tol_id="tol-123",
         version=1,
     )
@@ -238,14 +241,14 @@ def test_get_assembly_manifest_success(monkeypatch):
             self.call_count += 1
             if self.call_count == 1:  # organism query
                 return MockQuery(organism)
-            elif self.call_count == 2:  # samples query
-                return MockQuery([sample])
+            elif self.call_count == 2:  # sample query
+                return MockQuery(sample)
             elif self.call_count == 3:  # experiments query
                 return MockQuery([experiment])
             elif self.call_count == 4:  # reads query
                 return MockQuery([read])
-            elif self.call_count == 5:  # latest assembly query
-                return MockQuery(assembly)
+            elif self.call_count == 5:  # latest assembly_run query
+                return MockQuery(assembly_run)
             return MockQuery([])
 
     app.dependency_overrides[assemblies.get_current_active_user] = lambda: SimpleNamespace(
@@ -253,7 +256,9 @@ def test_get_assembly_manifest_success(monkeypatch):
     )
     app.dependency_overrides[assemblies.get_db] = lambda: MockDB()
 
-    resp = client.get("/api/v1/assemblies/manifest/172942")
+    resp = client.get(
+        "/api/v1/assemblies/manifest/172942?sample_id=550e8400-e29b-41d4-a716-446655440000"
+    )
 
     assert resp.status_code == 200
     assert resp.headers["content-type"] == "application/x-yaml"
@@ -281,7 +286,9 @@ def test_get_assembly_manifest_organism_not_found():
     )
     app.dependency_overrides[assemblies.get_db] = lambda: MockDB()
 
-    resp = client.get("/api/v1/assemblies/manifest/999999")
+    resp = client.get(
+        "/api/v1/assemblies/manifest/999999?sample_id=550e8400-e29b-41d4-a716-446655440000"
+    )
 
     assert resp.status_code == 404
     response_data = resp.json()

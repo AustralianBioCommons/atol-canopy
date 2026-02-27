@@ -197,8 +197,7 @@ class TestGenerateAssemblyManifest:
             ),
         ]
 
-        assembly = Mock(tol_id="tol1", version=1)
-        result = generate_assembly_manifest(organism, reads, experiments, assembly)
+        result = generate_assembly_manifest(organism, reads, experiments, "tol1", 1)
 
         assert "PACBIO_SMRT:" in result
         assert "sample.ccs.bam" in result
@@ -221,8 +220,7 @@ class TestGenerateAssemblyManifest:
             ),
         ]
 
-        assembly = Mock(tol_id="tol1", version=1)
-        result = generate_assembly_manifest(organism, reads, experiments, assembly)
+        result = generate_assembly_manifest(organism, reads, experiments, "tol1", 1)
 
         assert "Hi-C:" in result
         assert "hic_R1.fastq.gz" in result
@@ -245,8 +243,7 @@ class TestGenerateAssemblyManifest:
             ),
         ]
 
-        assembly = Mock(tol_id="tol1", version=1)
-        result = generate_assembly_manifest(organism, reads, experiments, assembly)
+        result = generate_assembly_manifest(organism, reads, experiments, "tol1", 1)
 
         assert "Hi-C:" in result
         assert "sample_R1.fastq.gz" in result
@@ -257,8 +254,7 @@ class TestGenerateAssemblyManifest:
         experiments = [Mock(id="exp1", platform="UNKNOWN", library_strategy="WGS")]
         reads = []
 
-        assembly = Mock(tol_id="tol1", version=1)
-        result = generate_assembly_manifest(organism, reads, experiments, assembly)
+        result = generate_assembly_manifest(organism, reads, experiments, "tol1", 1)
 
         assert "reads: {}" in result
 
@@ -268,8 +264,7 @@ class TestGenerateAssemblyManifest:
         experiments = []
         reads = []
 
-        assembly = Mock(tol_id="tol123", version=2)
-        result = generate_assembly_manifest(organism, reads, experiments, assembly)
+        result = generate_assembly_manifest(organism, reads, experiments, "tol123", 2)
 
         assert "scientific_name: Saiphos equalis" in result
         assert "taxon_id: 172942" in result
@@ -292,8 +287,7 @@ class TestGenerateAssemblyManifest:
             ),
         ]
 
-        assembly = Mock(tol_id="tol1", version=1)
-        result = generate_assembly_manifest(organism, reads, experiments, assembly)
+        result = generate_assembly_manifest(organism, reads, experiments, "tol1", 1)
 
         assert "sample.ccs.bam" not in result
         assert "reads: {}" in result
@@ -326,8 +320,7 @@ class TestGenerateAssemblyManifest:
             ),
         ]
 
-        assembly = Mock(tol_id="tol1", version=1)
-        result = generate_assembly_manifest(organism, reads, experiments, assembly)
+        result = generate_assembly_manifest(organism, reads, experiments, "tol1", 1)
 
         assert "PACBIO_SMRT:" in result
         assert "Hi-C:" in result
