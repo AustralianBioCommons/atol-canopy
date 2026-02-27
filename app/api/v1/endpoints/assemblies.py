@@ -5,6 +5,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.orm import Session
 
 from app.core.dependencies import get_current_active_user, get_db
+from app.core.errors import AppError
 from app.core.pagination import Pagination, apply_pagination, pagination_params
 from app.core.policy import policy
 from app.models.assembly import Assembly, AssemblyFile, AssemblyRun, AssemblySubmission
@@ -303,7 +304,19 @@ def create_assembly_intent(
     from fastapi.responses import Response
 
     organism, reads, experiments = _get_manifest_inputs_by_tax_id(db, tax_id, intent_in.sample_id)
-    data_types = determine_assembly_data_types(experiments)
+    try:
+        data_types = determine_assembly_data_types(experiments)
+    except ValueError as exc:
+        raise AppError(
+            status_code=400,
+            code="assembly_intent_invalid_data_types",
+            message=str(exc),
+            details={
+                "tax_id": tax_id,
+                "sample_id": str(intent_in.sample_id),
+            },
+        ) from exc
+
     next_version = assembly_service.get_next_version(
         db,
         organism_key=organism.grouping_key,

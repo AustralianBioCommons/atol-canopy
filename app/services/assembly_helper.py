@@ -47,7 +47,7 @@ def determine_assembly_data_types(experiments: List[Experiment]) -> AssemblyData
             has_nanopore = True
 
         # Check for Hi-C (Illumina + Hi-C or WGS library strategy)
-        if platform == "ILLUMINA" and library_strategy in ("HI-C"):
+        if platform == "ILLUMINA" and library_strategy in ("HI-C", "WGS"):
             has_hic = True
 
     # Determine the appropriate enum value based on combinations

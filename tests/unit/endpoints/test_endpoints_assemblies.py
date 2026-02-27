@@ -295,3 +295,35 @@ def test_get_assembly_manifest_organism_not_found():
     # Error format may be either {"detail": ...} or {"error": {"message": ...}}
     error_msg = response_data.get("detail") or response_data.get("error", {}).get("message", "")
     assert "not found" in error_msg
+
+
+def test_create_assembly_intent_invalid_data_types_returns_app_error(monkeypatch):
+    client = TestClient(app)
+
+    organism = SimpleNamespace(grouping_key="test_organism")
+    reads = [SimpleNamespace(id="r1", experiment_id="e1")]
+    experiments = [SimpleNamespace(id="e1", platform="UNKNOWN", library_strategy="UNKNOWN")]
+
+    monkeypatch.setattr(
+        assemblies,
+        "_get_manifest_inputs_by_tax_id",
+        lambda db, tax_id, sample_id: (organism, reads, experiments),
+    )
+
+    app.dependency_overrides[assemblies.get_current_active_user] = lambda: SimpleNamespace(
+        is_active=True, roles=["curator"], is_superuser=False
+    )
+    app.dependency_overrides[assemblies.get_db] = _override_db(_FakeSession())
+
+    resp = client.post(
+        "/api/v1/assemblies/intent/172942",
+        json={
+            "sample_id": "550e8400-e29b-41d4-a716-446655440000",
+            "tol_id": "tol-123",
+        },
+    )
+
+    assert resp.status_code == 400
+    body = resp.json()
+    assert body["error"]["code"] == "assembly_intent_invalid_data_types"
+    assert "No valid sequencing platforms detected" in body["error"]["message"]
