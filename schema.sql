@@ -563,6 +563,18 @@ CREATE TABLE assembly (
     updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
+CREATE TABLE assembly_run (
+    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    organism_key TEXT REFERENCES organism(grouping_key) NOT NULL,
+    sample_id UUID REFERENCES sample(id) NOT NULL,
+    data_types assembly_data_types NOT NULL,
+    version INTEGER NOT NULL,
+    tol_id TEXT,
+    status TEXT NOT NULL DEFAULT 'reserved',
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
 CREATE TABLE assembly_file (
     id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
     assembly_id UUID REFERENCES assembly(id) ON DELETE CASCADE NOT NULL,

@@ -7,7 +7,7 @@ from sqlalchemy.orm import Session
 from app.core.dependencies import get_current_active_user, get_db
 from app.core.pagination import Pagination, apply_pagination, pagination_params
 from app.core.policy import policy
-from app.models.assembly import Assembly, AssemblyFile, AssemblySubmission
+from app.models.assembly import Assembly, AssemblyFile, AssemblyRun, AssemblySubmission
 from app.models.experiment import Experiment
 from app.models.organism import Organism
 from app.models.read import Read
@@ -21,6 +21,7 @@ from app.schemas.assembly import (
     AssemblyCreateFromExperiments,
     AssemblyFileCreate,
     AssemblyFileUpdate,
+    AssemblyIntent,
     AssemblySubmissionCreate,
     AssemblySubmissionUpdate,
     AssemblyUpdate,
@@ -32,7 +33,7 @@ from app.schemas.assembly import (
     AssemblySubmission as AssemblySubmissionSchema,
 )
 from app.schemas.common import SubmissionStatus
-from app.services.assembly_helper import generate_assembly_manifest
+from app.services.assembly_helper import determine_assembly_data_types, generate_assembly_manifest
 from app.services.assembly_service import (
     assembly_file_service,
     assembly_service,
@@ -205,24 +206,21 @@ def get_pipeline_inputs_by_tax_id(
     return result
 
 
-def _get_manifest_inputs_by_tax_id(db: Session, tax_id: int):
+def _get_manifest_inputs_by_tax_id(db: Session, tax_id: int, sample_id: UUID):
     organism = db.query(Organism).filter(Organism.tax_id == tax_id).first()
     if not organism:
         raise HTTPException(status_code=404, detail=f"Organism with tax_id {tax_id} not found")
 
-    samples = db.query(Sample).filter(Sample.organism_key == organism.grouping_key).all()
-    if not samples:
-        raise HTTPException(
-            status_code=404,
-            detail=f"No samples found for organism {organism.grouping_key} (tax_id: {tax_id})",
-        )
+    sample = db.query(Sample).filter(Sample.id == sample_id).first()
+    # if not sample or sample.organism_key != organism.grouping_key:
+    if not sample:
+        raise HTTPException(status_code=404, detail="Sample not found for this organism")
 
-    sample_ids = [sample.id for sample in samples]
-    experiments = db.query(Experiment).filter(Experiment.sample_id.in_(sample_ids)).all()
+    experiments = db.query(Experiment).filter(Experiment.sample_id == sample_id).all()
     if not experiments:
         raise HTTPException(
             status_code=404,
-            detail=f"No experiments found for organism {organism.grouping_key} (tax_id: {tax_id})",
+            detail=f"No experiments found for organism {organism.grouping_key} and sample {sample_id} (tax_id: {tax_id})",
         )
 
     experiment_ids = [exp.id for exp in experiments]
@@ -233,19 +231,14 @@ def _get_manifest_inputs_by_tax_id(db: Session, tax_id: int):
             detail=f"No reads found for organism {organism.grouping_key} (tax_id: {tax_id})",
         )
 
-    assembly = (
-        db.query(Assembly)
-        .filter(Assembly.organism_key == organism.grouping_key)
-        .order_by(Assembly.created_at.desc())
-        .first()
-    )
-    if not assembly:
-        raise HTTPException(
-            status_code=404,
-            detail=f"No assemblies found for organism {organism.grouping_key} (tax_id: {tax_id})",
-        )
+    return organism, reads, experiments
 
-    return organism, reads, experiments, assembly
+
+def _get_optimal_sample_id_for_tax_id(db: Session, tax_id: int) -> UUID | None:
+    # TODO: Implement specimen/long-read selection logic.
+    # Placeholder for now; return None to indicate no automatic selection.
+    _ = db, tax_id
+    return None
 
 
 @router.get("/manifest/{tax_id}")
@@ -253,10 +246,12 @@ def get_assembly_manifest(
     *,
     db: Session = Depends(get_db),
     tax_id: int,
+    sample_id: UUID = Query(..., description="Sample ID for the manifest"),
+    version: Optional[int] = Query(None, description="Reserved manifest version to retrieve"),
     current_user: User = Depends(get_current_active_user),
 ) -> Any:
     """
-    Retrieve the latest assembly manifest YAML for an organism by tax_id.
+    Retrieve the latest reserved assembly manifest YAML for an organism by tax_id.
 
     Returns YAML manifest with:
     - scientific_name and taxon_id from organism
@@ -269,34 +264,78 @@ def get_assembly_manifest(
     """
     from fastapi.responses import Response
 
-    organism, reads, experiments, assembly = _get_manifest_inputs_by_tax_id(db, tax_id)
-    yaml_content = generate_assembly_manifest(organism, reads, experiments, assembly)
+    organism, reads, experiments = _get_manifest_inputs_by_tax_id(db, tax_id, sample_id)
+
+    run_query = (
+        db.query(AssemblyRun)
+        .filter(
+            AssemblyRun.organism_key == organism.grouping_key,
+            AssemblyRun.sample_id == sample_id,
+        )
+        .order_by(AssemblyRun.created_at.desc())
+    )
+    if version is not None:
+        run_query = run_query.filter(AssemblyRun.version == version)
+    assembly_run = run_query.first()
+    if not assembly_run:
+        raise HTTPException(status_code=404, detail="No reserved assembly manifest found")
+
+    yaml_content = generate_assembly_manifest(
+        organism, reads, experiments, assembly_run.tol_id, assembly_run.version
+    )
 
     # Return as YAML response
     return Response(content=yaml_content, media_type="application/x-yaml")
 
 
-@router.post("/manifest/{tax_id}")
-def create_assembly_manifest(
+@router.post("/intent/{tax_id}")
+@policy("assemblies:write")
+def create_assembly_intent(
+    *,
+    db: Session = Depends(get_db),
+    tax_id: int,
+    intent_in: AssemblyIntent,
+    current_user: User = Depends(get_current_active_user),
+) -> Any:
+    """
+    Reserve the next assembly version and return a manifest.
+    """
+    from fastapi.responses import Response
+
+    organism, reads, experiments = _get_manifest_inputs_by_tax_id(db, tax_id, intent_in.sample_id)
+    data_types = determine_assembly_data_types(experiments)
+    next_version = assembly_service.get_next_version(
+        db,
+        organism_key=organism.grouping_key,
+        sample_id=intent_in.sample_id,
+        data_types=data_types,
+    )
+
+    run = AssemblyRun(
+        organism_key=organism.grouping_key,
+        sample_id=intent_in.sample_id,
+        data_types=data_types,
+        version=next_version,
+        tol_id=intent_in.tol_id,
+        status="reserved",
+    )
+    db.add(run)
+    db.commit()
+    db.refresh(run)
+
+    yaml_content = generate_assembly_manifest(organism, reads, experiments, run.tol_id, run.version)
+    return Response(content=yaml_content, media_type="application/x-yaml")
+
+
+@router.get("/optimal-sample/{tax_id}")
+def get_optimal_sample_id(
     *,
     db: Session = Depends(get_db),
     tax_id: int,
     current_user: User = Depends(get_current_active_user),
 ) -> Any:
-    """
-    Generate assembly manifest YAML for an organism by tax_id.
-
-    Returns YAML manifest with:
-    - scientific_name, taxon_id, tolid, version
-    - reads grouped by platform (PACBIO_SMRT, Hi-C)
-    - PACBIO_SMRT: Only files ending in .ccs.bam or hifi_reads.bam
-    - Hi-C: Includes read_number and lane_number
-    """
-    from fastapi.responses import Response
-
-    organism, reads, experiments, assembly = _get_manifest_inputs_by_tax_id(db, tax_id)
-    yaml_content = generate_assembly_manifest(organism, reads, experiments, assembly)
-    return Response(content=yaml_content, media_type="application/x-yaml")
+    sample_id = _get_optimal_sample_id_for_tax_id(db, tax_id)
+    return {"sample_id": str(sample_id) if sample_id else None}
 
 
 @router.post("/from-experiments/{tax_id}", response_model=AssemblySchema)

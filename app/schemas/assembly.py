@@ -71,6 +71,13 @@ class AssemblyCreateFromExperiments(BaseModel):
     description: Optional[str] = None
 
 
+class AssemblyIntent(BaseModel):
+    """Schema for reserving an assembly version and generating a manifest."""
+
+    sample_id: UUID
+    tol_id: Optional[str] = None
+
+
 # Schema for updating an existing assembly
 class AssemblyUpdate(BaseModel):
     """Schema for updating an existing assembly."""

@@ -73,6 +73,46 @@ class Assembly(Base):
     project = relationship("Project", backref="assemblies")
 
 
+class AssemblyRun(Base):
+    """
+    AssemblyRun model for reserving versions and tracking assembly intents.
+
+    This model corresponds to the 'assembly_run' table in the database.
+    """
+
+    __tablename__ = "assembly_run"
+
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    organism_key = Column("organism_key", ForeignKey("organism.grouping_key"), nullable=False)
+    sample_id = Column(UUID(as_uuid=True), ForeignKey("sample.id"), nullable=False)
+    data_types = Column(
+        SQLAlchemyEnum(
+            "PACBIO_SMRT",
+            "PACBIO_SMRT_HIC",
+            "OXFORD_NANOPORE",
+            "OXFORD_NANOPORE_HIC",
+            "PACBIO_SMRT_OXFORD_NANOPORE",
+            "PACBIO_SMRT_OXFORD_NANOPORE_HIC",
+            name="assembly_data_types",
+        ),
+        nullable=False,
+    )
+    version = Column(Integer, nullable=False)
+    tol_id = Column(Text, nullable=True)
+    status = Column(Text, nullable=False, default="reserved")
+
+    created_at = Column(DateTime(timezone=True), nullable=False, server_default=func.now())
+    updated_at = Column(
+        DateTime(timezone=True),
+        nullable=False,
+        server_default=func.now(),
+        onupdate=func.now(),
+    )
+
+    organism = relationship("Organism", backref="assembly_runs")
+    sample = relationship("Sample", backref="assembly_runs")
+
+
 class AssemblySubmission(Base):
     """
     AssemblySubmission model for storing assembly submission data to ENA.
