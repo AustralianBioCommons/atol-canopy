@@ -159,6 +159,8 @@ def claim_by_entity_ids(
     claimed_reads: List[ClaimedEntity] = []
     claimed_projects: List[ClaimedEntity] = []
     organism_keys_set: set[str] = set()
+    sample_rows: List[SampleSubmission] = []
+    exp_rows: List[ExperimentSubmission] = []
 
     # Claim samples by entity IDs
     if payload.sample_ids:
@@ -291,7 +293,7 @@ def claim_by_entity_ids(
 
         # Map of claimed sample submissions in this attempt
         claimed_sample_by_sample_id: Dict[UUID, SampleSubmission] = {
-            r.sample_id: r for r in sample_rows if sample_rows
+            r.sample_id: r for r in sample_rows
         }
 
         # For experiments whose samples weren't claimed, fall back to latest accepted sample submission
@@ -397,7 +399,7 @@ def claim_by_entity_ids(
 
         # Map of claimed experiment submissions
         claimed_exp_by_experiment_id: Dict[UUID, ExperimentSubmission] = {
-            r.experiment_id: r for r in exp_rows if exp_rows
+            r.experiment_id: r for r in exp_rows
         }
 
         # For reads whose experiments weren't claimed, fall back to latest accepted experiment submission
