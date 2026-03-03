@@ -95,6 +95,7 @@ def test_create_assembly_from_experiments_success(monkeypatch):
         sample_id=uuid4(),
         assembly_name="Test Assembly",
         assembly_type="clone or isolate",
+        tol_id="tol-123",
         data_types="PACBIO_SMRT",
         coverage=50.0,
         program="hifiasm",
@@ -126,6 +127,7 @@ def test_create_assembly_from_experiments_success(monkeypatch):
             "sample_id": "550e8400-e29b-41d4-a716-446655440000",
             "assembly_name": "Test Assembly",
             "assembly_type": "clone or isolate",
+            "tol_id": "tol-123",
             "coverage": 50.0,
             "program": "hifiasm",
             "moleculetype": "genomic DNA",
@@ -165,6 +167,7 @@ def test_create_assembly_from_experiments_not_found(monkeypatch):
             "sample_id": "550e8400-e29b-41d4-a716-446655440000",
             "assembly_name": "Test Assembly",
             "assembly_type": "clone or isolate",
+            "tol_id": "tol-123",
             "coverage": 50.0,
             "program": "hifiasm",
             "moleculetype": "genomic DNA",
@@ -188,10 +191,12 @@ def test_get_assembly_manifest_success(monkeypatch):
         scientific_name="Test Species",
         tax_id=172942,
     )
-    sample = SimpleNamespace(id="sample-1", organism_key="test_organism")
+    sample = SimpleNamespace(
+        id="550e8400-e29b-41d4-a716-446655440000", organism_key="test_organism"
+    )
     experiment = SimpleNamespace(
         id="exp-1",
-        sample_id="sample-1",
+        sample_id="550e8400-e29b-41d4-a716-446655440000",
         platform="PACBIO_SMRT",
         library_strategy="WGS",
     )
@@ -204,12 +209,22 @@ def test_get_assembly_manifest_success(monkeypatch):
         read_number=None,
         lane_number=None,
     )
+    assembly_run = SimpleNamespace(
+        id="run-1",
+        organism_key="test_organism",
+        sample_id="sample-1",
+        tol_id="tol-123",
+        version=1,
+    )
 
     class MockQuery:
         def __init__(self, return_value):
             self.return_value = return_value
 
         def filter(self, *args, **kwargs):
+            return self
+
+        def order_by(self, *args, **kwargs):
             return self
 
         def first(self):
@@ -226,12 +241,14 @@ def test_get_assembly_manifest_success(monkeypatch):
             self.call_count += 1
             if self.call_count == 1:  # organism query
                 return MockQuery(organism)
-            elif self.call_count == 2:  # samples query
-                return MockQuery([sample])
+            elif self.call_count == 2:  # sample query
+                return MockQuery(sample)
             elif self.call_count == 3:  # experiments query
                 return MockQuery([experiment])
             elif self.call_count == 4:  # reads query
                 return MockQuery([read])
+            elif self.call_count == 5:  # latest assembly_run query
+                return MockQuery(assembly_run)
             return MockQuery([])
 
     app.dependency_overrides[assemblies.get_current_active_user] = lambda: SimpleNamespace(
@@ -239,7 +256,9 @@ def test_get_assembly_manifest_success(monkeypatch):
     )
     app.dependency_overrides[assemblies.get_db] = lambda: MockDB()
 
-    resp = client.get("/api/v1/assemblies/manifest/172942")
+    resp = client.get(
+        "/api/v1/assemblies/manifest/172942?sample_id=550e8400-e29b-41d4-a716-446655440000"
+    )
 
     assert resp.status_code == 200
     assert resp.headers["content-type"] == "application/x-yaml"
@@ -267,10 +286,44 @@ def test_get_assembly_manifest_organism_not_found():
     )
     app.dependency_overrides[assemblies.get_db] = lambda: MockDB()
 
-    resp = client.get("/api/v1/assemblies/manifest/999999")
+    resp = client.get(
+        "/api/v1/assemblies/manifest/999999?sample_id=550e8400-e29b-41d4-a716-446655440000"
+    )
 
     assert resp.status_code == 404
     response_data = resp.json()
     # Error format may be either {"detail": ...} or {"error": {"message": ...}}
     error_msg = response_data.get("detail") or response_data.get("error", {}).get("message", "")
     assert "not found" in error_msg
+
+
+def test_create_assembly_intent_invalid_data_types_returns_app_error(monkeypatch):
+    client = TestClient(app)
+
+    organism = SimpleNamespace(grouping_key="test_organism")
+    reads = [SimpleNamespace(id="r1", experiment_id="e1")]
+    experiments = [SimpleNamespace(id="e1", platform="UNKNOWN", library_strategy="UNKNOWN")]
+
+    monkeypatch.setattr(
+        assemblies,
+        "_get_manifest_inputs_by_tax_id",
+        lambda db, tax_id, sample_id: (organism, reads, experiments),
+    )
+
+    app.dependency_overrides[assemblies.get_current_active_user] = lambda: SimpleNamespace(
+        is_active=True, roles=["curator"], is_superuser=False
+    )
+    app.dependency_overrides[assemblies.get_db] = _override_db(_FakeSession())
+
+    resp = client.post(
+        "/api/v1/assemblies/intent/172942",
+        json={
+            "sample_id": "550e8400-e29b-41d4-a716-446655440000",
+            "tol_id": "tol-123",
+        },
+    )
+
+    assert resp.status_code == 400
+    body = resp.json()
+    assert body["error"]["code"] == "assembly_intent_invalid_data_types"
+    assert "No valid sequencing platforms detected" in body["error"]["message"]

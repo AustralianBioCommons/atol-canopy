@@ -4,7 +4,13 @@ from uuid import UUID
 from sqlalchemy import func
 from sqlalchemy.orm import Session
 
-from app.models.assembly import Assembly, AssemblyFile, AssemblyRead, AssemblySubmission
+from app.models.assembly import (
+    Assembly,
+    AssemblyFile,
+    AssemblyRead,
+    AssemblyRun,
+    AssemblySubmission,
+)
 from app.models.experiment import Experiment
 from app.models.organism import Organism
 from app.models.sample import Sample
@@ -144,6 +150,34 @@ class AssemblyService(BaseService[Assembly, AssemblyCreate, AssemblyUpdate]):
         assembly = self.create(db, obj_in=assembly_create)
 
         return assembly, platform_info
+
+    def get_next_version(
+        self,
+        db: Session,
+        *,
+        organism_key: str,
+        sample_id: UUID,
+        data_types: str,
+    ) -> int:
+        max_assembly = (
+            db.query(func.max(Assembly.version))
+            .filter(
+                Assembly.data_types == data_types,
+                Assembly.organism_key == organism_key,
+                Assembly.sample_id == sample_id,
+            )
+            .scalar()
+        )
+        max_run = (
+            db.query(func.max(AssemblyRun.version))
+            .filter(
+                AssemblyRun.data_types == data_types,
+                AssemblyRun.organism_key == organism_key,
+                AssemblyRun.sample_id == sample_id,
+            )
+            .scalar()
+        )
+        return max(max_assembly or 0, max_run or 0) + 1
 
 
 class AssemblySubmissionService(

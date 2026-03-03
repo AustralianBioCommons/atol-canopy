@@ -37,6 +37,7 @@ class AssemblyBase(BaseModel):
     project_id: Optional[UUID] = None
     assembly_name: str
     assembly_type: str = "clone or isolate"
+    tol_id: str
     data_types: AssemblyDataTypes
     coverage: float
     program: str
@@ -61,12 +62,20 @@ class AssemblyCreateFromExperiments(BaseModel):
     project_id: Optional[UUID] = None
     assembly_name: str
     assembly_type: str = "clone or isolate"
+    tol_id: str
     data_types: Optional[AssemblyDataTypes] = None  # Auto-detected, can be overridden
     coverage: float
     program: str
     mingaplength: Optional[float] = None
     moleculetype: str = "genomic DNA"
     description: Optional[str] = None
+
+
+class AssemblyIntent(BaseModel):
+    """Schema for reserving an assembly version and generating a manifest."""
+
+    sample_id: UUID
+    tol_id: Optional[str] = None
 
 
 # Schema for updating an existing assembly
@@ -78,6 +87,7 @@ class AssemblyUpdate(BaseModel):
     project_id: Optional[UUID] = None
     assembly_name: Optional[str] = None
     assembly_type: Optional[str] = None
+    tol_id: Optional[str] = None
     coverage: Optional[float] = None
     program: Optional[str] = None
     mingaplength: Optional[float] = None

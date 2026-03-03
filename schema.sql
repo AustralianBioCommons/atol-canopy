@@ -548,6 +548,7 @@ CREATE TABLE assembly (
     -- Assembly metadata
     assembly_name TEXT NOT NULL,
     assembly_type TEXT NOT NULL DEFAULT 'clone or isolate',
+    tol_id TEXT,
     data_types assembly_data_types NOT NULL,
     coverage FLOAT NOT NULL,
     program TEXT NOT NULL,
@@ -558,6 +559,18 @@ CREATE TABLE assembly (
     -- Auto-incremented version per (data_types, organism_key, sample_id)
     version INTEGER NOT NULL DEFAULT 1,
 
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+CREATE TABLE assembly_run (
+    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    organism_key TEXT REFERENCES organism(grouping_key) NOT NULL,
+    sample_id UUID REFERENCES sample(id) NOT NULL,
+    data_types assembly_data_types NOT NULL,
+    version INTEGER NOT NULL,
+    tol_id TEXT,
+    status TEXT NOT NULL DEFAULT 'reserved',
     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );

@@ -39,11 +39,11 @@ def determine_assembly_data_types(experiments: List[Experiment]) -> AssemblyData
         library_strategy = exp.library_strategy.upper() if exp.library_strategy else ""
 
         # Check for PacBio
-        if platform == "PACBIO_SMRT":
+        if platform == "PACBIO_SMRT" and library_strategy in ("WGS", "WGA"):
             has_pacbio = True
 
         # Check for Oxford Nanopore
-        if platform == "OXFORD_NANOPORE":
+        if platform == "OXFORD_NANOPORE" and library_strategy in ("WGS", "WGA"):
             has_nanopore = True
 
         # Check for Hi-C (Illumina + Hi-C or WGS library strategy)
@@ -96,7 +96,11 @@ def get_detected_platforms(experiments: List[Experiment]) -> dict:
 
 
 def generate_assembly_manifest(
-    organism: Organism, reads: List[Read], experiments: List[Experiment]
+    organism: Organism,
+    reads: List[Read],
+    experiments: List[Experiment],
+    tol_id: str | None,
+    version: int,
 ) -> str:
     """Generate assembly manifest YAML from organism and reads data.
 
@@ -110,6 +114,8 @@ def generate_assembly_manifest(
         organism: Organism object
         reads: List of Read objects
         experiments: List of Experiment objects (to determine platform)
+        tol_id: ToL ID for the assembly (optional)
+        version: Assembly version number
 
     Returns:
         YAML string formatted as assembly manifest
@@ -185,6 +191,8 @@ def generate_assembly_manifest(
     manifest = {
         "scientific_name": organism.scientific_name,
         "taxon_id": organism.tax_id,
+        "tolid": tol_id,
+        "version": version,
         "reads": {},
     }
 
