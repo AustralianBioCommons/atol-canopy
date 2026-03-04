@@ -212,16 +212,19 @@ def _get_manifest_inputs_by_tax_id(db: Session, tax_id: int):
     if not organism:
         raise HTTPException(status_code=404, detail=f"Organism with tax_id {tax_id} not found")
 
-    selected_sample = (
-        db.query(Sample)
-        .filter(Sample.organism_key == organism.grouping_key, Sample.kind == "specimen")
-        .order_by(Sample.created_at.asc())
-        .first()
+    selected_sample_id = _get_optimal_sample_id_for_tax_id(
+        db, tax_id, organism_key=organism.grouping_key
     )
-    if not selected_sample:
+    if not selected_sample_id:
         raise HTTPException(
             status_code=404,
             detail=f"No specimen sample found for organism {organism.grouping_key} (tax_id: {tax_id})",
+        )
+    selected_sample = db.query(Sample).filter(Sample.id == selected_sample_id).first()
+    if not selected_sample:
+        raise HTTPException(
+            status_code=404,
+            detail=f"Selected specimen sample not found for organism {organism.grouping_key} (tax_id: {tax_id})",
         )
 
     sample_ids = [
@@ -252,15 +255,19 @@ def _get_manifest_inputs_by_tax_id(db: Session, tax_id: int):
     return organism, selected_sample, reads, experiments
 
 
-def _get_optimal_sample_id_for_tax_id(db: Session, tax_id: int) -> UUID | None:
+def _get_optimal_sample_id_for_tax_id(
+    db: Session, tax_id: int, organism_key: Optional[str] = None
+) -> UUID | None:
     # TODO: Replace with long-read aware sample selection.
-    organism = db.query(Organism).filter(Organism.tax_id == tax_id).first()
-    if not organism:
-        return None
+    if organism_key is None:
+        organism = db.query(Organism).filter(Organism.tax_id == tax_id).first()
+        if not organism:
+            return None
+        organism_key = organism.grouping_key
 
     sample = (
         db.query(Sample)
-        .filter(Sample.organism_key == organism.grouping_key, Sample.kind == "specimen")
+        .filter(Sample.organism_key == organism_key, Sample.kind == "specimen")
         .order_by(Sample.created_at.asc())
         .first()
     )
