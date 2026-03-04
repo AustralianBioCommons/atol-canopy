@@ -387,3 +387,113 @@ def test_create_assembly_intent_allows_empty_body(monkeypatch):
 
     assert resp.status_code == 200
     assert resp.headers["content-type"] == "application/x-yaml"
+
+
+def test_cancel_assembly_intent_success(monkeypatch):
+    client = TestClient(app)
+
+    organism = SimpleNamespace(grouping_key="test_organism", tax_id=172942)
+    selected_sample_id = "550e8400-e29b-41d4-a716-446655440000"
+    run = SimpleNamespace(
+        id="run-1",
+        organism_key="test_organism",
+        sample_id=selected_sample_id,
+        version=2,
+        status="reserved",
+    )
+
+    monkeypatch.setattr(
+        assemblies,
+        "_get_optimal_sample_id_for_tax_id",
+        lambda db, tax_id, organism_key=None: selected_sample_id,
+    )
+
+    class _Q:
+        def __init__(self, value):
+            self.value = value
+
+        def filter(self, *_a, **_k):
+            return self
+
+        def order_by(self, *_a, **_k):
+            return self
+
+        def first(self):
+            return self.value
+
+    class _DB:
+        def __init__(self):
+            self.calls = 0
+
+        def query(self, _model):
+            self.calls += 1
+            if self.calls == 1:
+                return _Q(organism)
+            return _Q(run)
+
+        def add(self, _obj):
+            return None
+
+        def commit(self):
+            return None
+
+        def refresh(self, _obj):
+            return None
+
+    app.dependency_overrides[assemblies.get_current_active_user] = lambda: SimpleNamespace(
+        is_active=True, roles=["curator"], is_superuser=False
+    )
+    app.dependency_overrides[assemblies.get_db] = _override_db(_DB())
+
+    resp = client.post("/api/v1/assemblies/intent/172942/cancel")
+
+    assert resp.status_code == 200
+    body = resp.json()
+    assert body["status"] == "cancelled"
+    assert body["version"] == 2
+
+
+def test_cancel_assembly_intent_not_found(monkeypatch):
+    client = TestClient(app)
+
+    organism = SimpleNamespace(grouping_key="test_organism", tax_id=172942)
+    selected_sample_id = "550e8400-e29b-41d4-a716-446655440000"
+
+    monkeypatch.setattr(
+        assemblies,
+        "_get_optimal_sample_id_for_tax_id",
+        lambda db, tax_id, organism_key=None: selected_sample_id,
+    )
+
+    class _Q:
+        def __init__(self, value):
+            self.value = value
+
+        def filter(self, *_a, **_k):
+            return self
+
+        def order_by(self, *_a, **_k):
+            return self
+
+        def first(self):
+            return self.value
+
+    class _DB:
+        def __init__(self):
+            self.calls = 0
+
+        def query(self, _model):
+            self.calls += 1
+            if self.calls == 1:
+                return _Q(organism)
+            return _Q(None)
+
+    app.dependency_overrides[assemblies.get_current_active_user] = lambda: SimpleNamespace(
+        is_active=True, roles=["curator"], is_superuser=False
+    )
+    app.dependency_overrides[assemblies.get_db] = _override_db(_DB())
+
+    resp = client.post("/api/v1/assemblies/intent/172942/cancel")
+
+    assert resp.status_code == 404
+    assert "No reserved assembly intent found" in resp.json()["error"]["message"]

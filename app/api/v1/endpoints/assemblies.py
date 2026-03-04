@@ -371,6 +371,57 @@ def create_assembly_intent(
     return Response(content=yaml_content, media_type="application/x-yaml")
 
 
+@router.post("/intent/{tax_id}/cancel")
+@policy("assemblies:write")
+def cancel_assembly_intent(
+    *,
+    db: Session = Depends(get_db),
+    tax_id: int,
+    version: Optional[int] = Query(None, description="Reserved version to cancel"),
+    current_user: User = Depends(get_current_active_user),
+) -> Any:
+    """Cancel the latest reserved assembly intent for the organism/sample."""
+    organism = db.query(Organism).filter(Organism.tax_id == tax_id).first()
+    if not organism:
+        raise HTTPException(status_code=404, detail=f"Organism with tax_id {tax_id} not found")
+
+    selected_sample_id = _get_optimal_sample_id_for_tax_id(
+        db, tax_id, organism_key=organism.grouping_key
+    )
+    if not selected_sample_id:
+        raise HTTPException(
+            status_code=404,
+            detail=f"No specimen sample found for organism {organism.grouping_key} (tax_id: {tax_id})",
+        )
+
+    run_query = (
+        db.query(AssemblyRun)
+        .filter(
+            AssemblyRun.organism_key == organism.grouping_key,
+            AssemblyRun.sample_id == selected_sample_id,
+            AssemblyRun.status == "reserved",
+        )
+        .order_by(AssemblyRun.created_at.desc())
+    )
+    if version is not None:
+        run_query = run_query.filter(AssemblyRun.version == version)
+    run = run_query.first()
+    if not run:
+        raise HTTPException(status_code=404, detail="No reserved assembly intent found to cancel")
+
+    run.status = "cancelled"
+    db.add(run)
+    db.commit()
+    db.refresh(run)
+    return {
+        "id": str(run.id),
+        "organism_key": run.organism_key,
+        "sample_id": str(run.sample_id),
+        "version": run.version,
+        "status": run.status,
+    }
+
+
 @router.get("/optimal-sample/{tax_id}")
 def get_optimal_sample_id(
     *,
