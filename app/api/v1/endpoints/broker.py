@@ -24,7 +24,10 @@ router = APIRouter()
 
 # ---------- Pydantic models for request/response ----------
 class ClaimedEntity(BaseModel):
+    # Canonical entity identifier (sample.id / experiment.id / read.id / project.id)
     id: UUID
+    # Submission identifier (sample_submission.id / experiment_submission.id / ...)
+    submission_id: UUID
     status: Optional[str] = None
     prepared_payload: Optional[Dict[str, Any]] = None
     accession: Optional[str] = None
@@ -89,7 +92,10 @@ class ClaimByEntityResponse(BaseModel):
 
 
 class ReportItem(BaseModel):
+    # Canonical entity identifier (sample.id / experiment.id / read.id / project.id)
     id: UUID
+    # Submission identifier. If omitted, `id` is treated as submission ID for backward compatibility.
+    submission_id: Optional[UUID] = None
     status: str
     response_payload: Optional[Dict[str, Any]] = None
     accession: Optional[str] = None
@@ -222,7 +228,8 @@ def claim_by_entity_ids(
         for row in sample_rows:
             claimed_samples.append(
                 ClaimedEntity(
-                    id=row.id,
+                    id=row.sample_id,
+                    submission_id=row.id,
                     status=row.status,
                     prepared_payload=row.prepared_payload,
                     accession=row.accession,
@@ -335,7 +342,8 @@ def claim_by_entity_ids(
             }
             claimed_experiments.append(
                 ClaimedEntity(
-                    id=row.id,
+                    id=row.experiment_id,
+                    submission_id=row.id,
                     status=row.status,
                     prepared_payload=row.prepared_payload,
                     accession=row.accession,
@@ -435,7 +443,8 @@ def claim_by_entity_ids(
             }
             claimed_reads.append(
                 ClaimedEntity(
-                    id=row.id,
+                    id=row.read_id,
+                    submission_id=row.id,
                     status=row.status,
                     prepared_payload=row.prepared_payload,
                     accession=row.accession,
@@ -514,7 +523,8 @@ def claim_by_entity_ids(
             }
             claimed_projects.append(
                 ClaimedEntity(
-                    id=row.id,
+                    id=row.project_id,
+                    submission_id=row.id,
                     status=row.status,
                     prepared_payload=row.prepared_payload,
                     accession=row.accession,
@@ -631,7 +641,8 @@ def claim_drafts_for_organism(
     for row in sample_rows:
         claimed_samples.append(
             ClaimedEntity(
-                id=row.id,
+                id=row.sample_id,
+                submission_id=row.id,
                 status=row.status,
                 prepared_payload=row.prepared_payload,
                 accession=row.accession,
@@ -740,7 +751,8 @@ def claim_drafts_for_organism(
         }
         claimed_experiments.append(
             ClaimedEntity(
-                id=row.id,
+                id=row.experiment_id,
+                submission_id=row.id,
                 status=row.status,
                 prepared_payload=row.prepared_payload,
                 accession=row.accession,
@@ -835,7 +847,8 @@ def claim_drafts_for_organism(
         }
         claimed_reads.append(
             ClaimedEntity(
-                id=row.id,
+                id=row.read_id,
+                submission_id=row.id,
                 status=row.status,
                 prepared_payload=row.prepared_payload,
                 accession=row.accession,
@@ -912,7 +925,8 @@ def claim_drafts_for_organism(
         }
         claimed_projects.append(
             ClaimedEntity(
-                id=row.id,
+                id=row.project_id,
+                submission_id=row.id,
                 status=row.status,
                 prepared_payload=row.prepared_payload,
                 accession=row.accession,
@@ -1152,19 +1166,28 @@ def report_results(
 
     # Process SampleSubmission updates
     for item in payload.samples:
-        sub = db.query(SampleSubmission).filter(SampleSubmission.id == item.id).first()
+        submission_id = item.submission_id or item.id
+        sub = db.query(SampleSubmission).filter(SampleSubmission.id == submission_id).first()
         if not sub:
-            raise HTTPException(status_code=404, detail=f"SampleSubmission {item.id} not found")
+            raise HTTPException(status_code=404, detail=f"SampleSubmission {submission_id} not found")
+        if item.submission_id and sub.sample_id != item.id:
+            raise HTTPException(
+                status_code=409,
+                detail=(
+                    f"SampleSubmission {submission_id} does not match sample entity id {item.id}"
+                ),
+            )
 
         # Only allow updating from 'submitting' lease state
         if sub.status != "submitting":
             raise HTTPException(
-                status_code=409, detail=f"SampleSubmission {item.id} not in 'submitting' state"
+                status_code=409, detail=f"SampleSubmission {submission_id} not in 'submitting' state"
             )
         # If batch tracking is active, enforce match
         if sub.attempt_id != provided_attempt_id:
             raise HTTPException(
-                status_code=409, detail=f"SampleSubmission {item.id} belongs to different attempt"
+                status_code=409,
+                detail=f"SampleSubmission {submission_id} belongs to different attempt",
             )
 
         # Apply updates
@@ -1219,18 +1242,29 @@ def report_results(
 
     # Process ExperimentSubmission updates
     for item in payload.experiments:
-        sub = db.query(ExperimentSubmission).filter(ExperimentSubmission.id == item.id).first()
+        submission_id = item.submission_id or item.id
+        sub = db.query(ExperimentSubmission).filter(ExperimentSubmission.id == submission_id).first()
         if not sub:
-            raise HTTPException(status_code=404, detail=f"ExperimentSubmission {item.id} not found")
+            raise HTTPException(
+                status_code=404, detail=f"ExperimentSubmission {submission_id} not found"
+            )
+        if item.submission_id and sub.experiment_id != item.id:
+            raise HTTPException(
+                status_code=409,
+                detail=(
+                    f"ExperimentSubmission {submission_id} does not match experiment entity id {item.id}"
+                ),
+            )
 
         if sub.status != "submitting":
             raise HTTPException(
-                status_code=409, detail=f"ExperimentSubmission {item.id} not in 'submitting' state"
+                status_code=409,
+                detail=f"ExperimentSubmission {submission_id} not in 'submitting' state",
             )
         if sub.attempt_id != provided_attempt_id:
             raise HTTPException(
                 status_code=409,
-                detail=f"ExperimentSubmission {item.id} belongs to different attempt",
+                detail=f"ExperimentSubmission {submission_id} belongs to different attempt",
             )
 
         sub.status = item.status
@@ -1292,17 +1326,23 @@ def report_results(
 
     # Process ReadSubmission updates
     for item in payload.reads:
-        sub = db.query(ReadSubmission).filter(ReadSubmission.id == item.id).first()
+        submission_id = item.submission_id or item.id
+        sub = db.query(ReadSubmission).filter(ReadSubmission.id == submission_id).first()
         if not sub:
-            raise HTTPException(status_code=404, detail=f"ReadSubmission {item.id} not found")
+            raise HTTPException(status_code=404, detail=f"ReadSubmission {submission_id} not found")
+        if item.submission_id and sub.read_id != item.id:
+            raise HTTPException(
+                status_code=409,
+                detail=f"ReadSubmission {submission_id} does not match read entity id {item.id}",
+            )
 
         if sub.status != "submitting":
             raise HTTPException(
-                status_code=409, detail=f"ReadSubmission {item.id} not in 'submitting' state"
+                status_code=409, detail=f"ReadSubmission {submission_id} not in 'submitting' state"
             )
         if sub.attempt_id != provided_attempt_id:
             raise HTTPException(
-                status_code=409, detail=f"ReadSubmission {item.id} belongs to different attempt"
+                status_code=409, detail=f"ReadSubmission {submission_id} belongs to different attempt"
             )
 
         sub.status = item.status
@@ -1360,17 +1400,27 @@ def report_results(
 
     # Process ProjectSubmission updates
     for item in payload.projects:
-        sub = db.query(ProjectSubmission).filter(ProjectSubmission.id == item.id).first()
+        submission_id = item.submission_id or item.id
+        sub = db.query(ProjectSubmission).filter(ProjectSubmission.id == submission_id).first()
         if not sub:
-            raise HTTPException(status_code=404, detail=f"ProjectSubmission {item.id} not found")
+            raise HTTPException(
+                status_code=404, detail=f"ProjectSubmission {submission_id} not found"
+            )
+        if item.submission_id and sub.project_id != item.id:
+            raise HTTPException(
+                status_code=409,
+                detail=f"ProjectSubmission {submission_id} does not match project entity id {item.id}",
+            )
 
         if sub.status != "submitting":
             raise HTTPException(
-                status_code=409, detail=f"ProjectSubmission {item.id} not in 'submitting' state"
+                status_code=409,
+                detail=f"ProjectSubmission {submission_id} not in 'submitting' state",
             )
         if sub.attempt_id != provided_attempt_id:
             raise HTTPException(
-                status_code=409, detail=f"ProjectSubmission {item.id} belongs to different attempt"
+                status_code=409,
+                detail=f"ProjectSubmission {submission_id} belongs to different attempt",
             )
 
         sub.status = item.status
@@ -1755,7 +1805,8 @@ def _get_attempt_items_with_relationships(
     # Build Sample entities (no parent relationships for samples)
     out_samples: List[ClaimedEntity] = [
         ClaimedEntity(
-            id=row.id,
+            id=row.sample_id,
+            submission_id=row.id,
             status=row.status,
             prepared_payload=row.prepared_payload,
             accession=row.accession,
@@ -1806,7 +1857,8 @@ def _get_attempt_items_with_relationships(
             }
             exp_entity_list.append(
                 ClaimedEntity(
-                    id=row.id,
+                    id=row.experiment_id,
+                    submission_id=row.id,
                     status=row.status,
                     prepared_payload=row.prepared_payload,
                     accession=row.accession,
@@ -1851,7 +1903,8 @@ def _get_attempt_items_with_relationships(
             }
             read_entity_list.append(
                 ClaimedEntity(
-                    id=row.id,
+                    id=row.read_id,
+                    submission_id=row.id,
                     status=row.status,
                     prepared_payload=row.prepared_payload,
                     accession=row.accession,
@@ -1879,7 +1932,8 @@ def _get_attempt_items_with_relationships(
             }
             proj_entity_list.append(
                 ClaimedEntity(
-                    id=row.id,
+                    id=row.project_id,
+                    submission_id=row.id,
                     status=row.status,
                     prepared_payload=row.prepared_payload,
                     accession=row.accession,
