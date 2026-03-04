@@ -302,7 +302,11 @@ def test_get_assembly_manifest_organism_not_found():
 def test_create_assembly_intent_invalid_data_types_returns_app_error(monkeypatch):
     client = TestClient(app)
 
-    organism = SimpleNamespace(grouping_key="test_organism")
+    organism = SimpleNamespace(
+        grouping_key="test_organism",
+        scientific_name="Test Species",
+        tax_id=172942,
+    )
     reads = [SimpleNamespace(id="r1", experiment_id="e1")]
     experiments = [SimpleNamespace(id="e1", platform="UNKNOWN", library_strategy="UNKNOWN")]
 
@@ -333,3 +337,53 @@ def test_create_assembly_intent_invalid_data_types_returns_app_error(monkeypatch
     body = resp.json()
     assert body["error"]["code"] == "assembly_intent_invalid_data_types"
     assert "No valid sequencing platforms detected" in body["error"]["message"]
+
+
+def test_create_assembly_intent_allows_empty_body(monkeypatch):
+    client = TestClient(app)
+
+    organism = SimpleNamespace(
+        grouping_key="test_organism",
+        scientific_name="Test Species",
+        tax_id=172942,
+    )
+    selected_sample = SimpleNamespace(id="550e8400-e29b-41d4-a716-446655440000")
+    reads = [
+        SimpleNamespace(
+            id="r1",
+            experiment_id="e1",
+            file_name="sample.ccs.bam",
+            file_checksum="abc123",
+            bioplatforms_url="https://example.com/1",
+            read_number=None,
+            lane_number=None,
+        )
+    ]
+    experiments = [SimpleNamespace(id="e1", platform="PACBIO_SMRT", library_strategy="WGS")]
+
+    monkeypatch.setattr(
+        assemblies,
+        "_get_manifest_inputs_by_tax_id",
+        lambda db, tax_id: (organism, selected_sample, reads, experiments),
+    )
+    monkeypatch.setattr(assemblies.assembly_service, "get_next_version", lambda *_, **__: 1)
+
+    class _FakeIntentDB:
+        def add(self, _obj):
+            return None
+
+        def commit(self):
+            return None
+
+        def refresh(self, _obj):
+            return None
+
+    app.dependency_overrides[assemblies.get_current_active_user] = lambda: SimpleNamespace(
+        is_active=True, roles=["curator"], is_superuser=False
+    )
+    app.dependency_overrides[assemblies.get_db] = _override_db(_FakeIntentDB())
+
+    resp = client.post("/api/v1/assemblies/intent/172942")
+
+    assert resp.status_code == 200
+    assert resp.headers["content-type"] == "application/x-yaml"

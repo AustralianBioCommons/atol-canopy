@@ -1,7 +1,7 @@
 from typing import Any, Dict, List, Optional
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, Body, Depends, HTTPException, Query
 from sqlalchemy.orm import Session
 
 from app.core.dependencies import get_current_active_user, get_db
@@ -326,7 +326,7 @@ def create_assembly_intent(
     *,
     db: Session = Depends(get_db),
     tax_id: int,
-    intent_in: AssemblyIntent,
+    intent_in: Optional[AssemblyIntent] = Body(default=None),
     current_user: User = Depends(get_current_active_user),
 ) -> Any:
     """
@@ -360,7 +360,7 @@ def create_assembly_intent(
         sample_id=selected_sample.id,
         data_types=data_types,
         version=next_version,
-        tol_id=intent_in.tol_id,
+        tol_id=intent_in.tol_id if intent_in else None,
         status="reserved",
     )
     db.add(run)
