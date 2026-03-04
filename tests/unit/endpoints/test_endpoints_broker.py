@@ -269,7 +269,7 @@ def test_broker_get_attempt_include_items(monkeypatch):
     )
     monkeypatch.setattr(broker, "_derive_attempt_status", lambda counts, lock: "idle")
     items = {
-        "samples": [broker.ClaimedEntity(id=uuid4())],
+        "samples": [broker.ClaimedEntity(id=uuid4(), submission_id=uuid4())],
         "experiments": [],
         "reads": [],
         "projects": [],
@@ -295,7 +295,7 @@ def test_broker_get_attempt_items_serialised(monkeypatch):
     att_id = uuid4()
     db = FakeSession({})
     items = {
-        "samples": [broker.ClaimedEntity(id=uuid4())],
+        "samples": [broker.ClaimedEntity(id=uuid4(), submission_id=uuid4())],
         "experiments": [],
         "reads": [],
         "projects": [],

@@ -192,7 +192,9 @@ def test_get_assembly_manifest_success(monkeypatch):
         tax_id=172942,
     )
     sample = SimpleNamespace(
-        id="550e8400-e29b-41d4-a716-446655440000", organism_key="test_organism"
+        id="550e8400-e29b-41d4-a716-446655440000",
+        organism_key="test_organism",
+        kind="specimen",
     )
     experiment = SimpleNamespace(
         id="exp-1",
@@ -241,13 +243,15 @@ def test_get_assembly_manifest_success(monkeypatch):
             self.call_count += 1
             if self.call_count == 1:  # organism query
                 return MockQuery(organism)
-            elif self.call_count == 2:  # sample query
+            elif self.call_count == 2:  # selected specimen sample query
                 return MockQuery(sample)
-            elif self.call_count == 3:  # experiments query
+            elif self.call_count == 3:  # all sample IDs query
+                return MockQuery([(sample.id,)])
+            elif self.call_count == 4:  # experiments query
                 return MockQuery([experiment])
-            elif self.call_count == 4:  # reads query
+            elif self.call_count == 5:  # reads query
                 return MockQuery([read])
-            elif self.call_count == 5:  # latest assembly_run query
+            elif self.call_count == 6:  # latest assembly_run query
                 return MockQuery(assembly_run)
             return MockQuery([])
 
@@ -256,9 +260,7 @@ def test_get_assembly_manifest_success(monkeypatch):
     )
     app.dependency_overrides[assemblies.get_db] = lambda: MockDB()
 
-    resp = client.get(
-        "/api/v1/assemblies/manifest/172942?sample_id=550e8400-e29b-41d4-a716-446655440000"
-    )
+    resp = client.get("/api/v1/assemblies/manifest/172942")
 
     assert resp.status_code == 200
     assert resp.headers["content-type"] == "application/x-yaml"
@@ -286,9 +288,7 @@ def test_get_assembly_manifest_organism_not_found():
     )
     app.dependency_overrides[assemblies.get_db] = lambda: MockDB()
 
-    resp = client.get(
-        "/api/v1/assemblies/manifest/999999?sample_id=550e8400-e29b-41d4-a716-446655440000"
-    )
+    resp = client.get("/api/v1/assemblies/manifest/999999")
 
     assert resp.status_code == 404
     response_data = resp.json()
@@ -307,7 +307,12 @@ def test_create_assembly_intent_invalid_data_types_returns_app_error(monkeypatch
     monkeypatch.setattr(
         assemblies,
         "_get_manifest_inputs_by_tax_id",
-        lambda db, tax_id, sample_id: (organism, reads, experiments),
+        lambda db, tax_id: (
+            organism,
+            SimpleNamespace(id="550e8400-e29b-41d4-a716-446655440000"),
+            reads,
+            experiments,
+        ),
     )
 
     app.dependency_overrides[assemblies.get_current_active_user] = lambda: SimpleNamespace(
@@ -318,7 +323,6 @@ def test_create_assembly_intent_invalid_data_types_returns_app_error(monkeypatch
     resp = client.post(
         "/api/v1/assemblies/intent/172942",
         json={
-            "sample_id": "550e8400-e29b-41d4-a716-446655440000",
             "tol_id": "tol-123",
         },
     )
