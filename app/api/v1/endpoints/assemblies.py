@@ -207,21 +207,38 @@ def get_pipeline_inputs_by_tax_id(
     return result
 
 
-def _get_manifest_inputs_by_tax_id(db: Session, tax_id: int, sample_id: UUID):
+def _get_manifest_inputs_by_tax_id(db: Session, tax_id: int):
     organism = db.query(Organism).filter(Organism.tax_id == tax_id).first()
     if not organism:
         raise HTTPException(status_code=404, detail=f"Organism with tax_id {tax_id} not found")
 
-    sample = db.query(Sample).filter(Sample.id == sample_id).first()
-    # if not sample or sample.organism_key != organism.grouping_key:
+    sample = (
+        db.query(Sample)
+        .filter(Sample.organism_key == organism.grouping_key, Sample.kind == "specimen")
+        .order_by(Sample.created_at.asc())
+        .first()
+    )
     if not sample:
-        raise HTTPException(status_code=404, detail="Sample not found for this organism")
+        raise HTTPException(
+            status_code=404,
+            detail=f"No specimen sample found for organism {organism.grouping_key} (tax_id: {tax_id})",
+        )
 
-    experiments = db.query(Experiment).filter(Experiment.sample_id == sample_id).all()
+    sample_ids = [
+        row[0]
+        for row in db.query(Sample.id).filter(Sample.organism_key == organism.grouping_key).all()
+    ]
+    if not sample_ids:
+        raise HTTPException(
+            status_code=404,
+            detail=f"No samples found for organism {organism.grouping_key} (tax_id: {tax_id})",
+        )
+
+    experiments = db.query(Experiment).filter(Experiment.sample_id.in_(sample_ids)).all()
     if not experiments:
         raise HTTPException(
             status_code=404,
-            detail=f"No experiments found for organism {organism.grouping_key} and sample {sample_id} (tax_id: {tax_id})",
+            detail=f"No experiments found for organism {organism.grouping_key} (tax_id: {tax_id})",
         )
 
     experiment_ids = [exp.id for exp in experiments]
@@ -232,14 +249,22 @@ def _get_manifest_inputs_by_tax_id(db: Session, tax_id: int, sample_id: UUID):
             detail=f"No reads found for organism {organism.grouping_key} (tax_id: {tax_id})",
         )
 
-    return organism, reads, experiments
+    return organism, sample, reads, experiments
 
 
 def _get_optimal_sample_id_for_tax_id(db: Session, tax_id: int) -> UUID | None:
-    # TODO: Implement specimen/long-read selection logic.
-    # Placeholder for now; return None to indicate no automatic selection.
-    _ = db, tax_id
-    return None
+    # TODO: Replace with long-read aware sample selection.
+    organism = db.query(Organism).filter(Organism.tax_id == tax_id).first()
+    if not organism:
+        return None
+
+    sample = (
+        db.query(Sample)
+        .filter(Sample.organism_key == organism.grouping_key, Sample.kind == "specimen")
+        .order_by(Sample.created_at.asc())
+        .first()
+    )
+    return sample.id if sample else None
 
 
 @router.get("/manifest/{tax_id}")
@@ -247,7 +272,6 @@ def get_assembly_manifest(
     *,
     db: Session = Depends(get_db),
     tax_id: int,
-    sample_id: UUID = Query(..., description="Sample ID for the manifest"),
     version: Optional[int] = Query(None, description="Reserved manifest version to retrieve"),
     current_user: User = Depends(get_current_active_user),
 ) -> Any:
@@ -265,13 +289,13 @@ def get_assembly_manifest(
     """
     from fastapi.responses import Response
 
-    organism, reads, experiments = _get_manifest_inputs_by_tax_id(db, tax_id, sample_id)
+    organism, selected_sample, reads, experiments = _get_manifest_inputs_by_tax_id(db, tax_id)
 
     run_query = (
         db.query(AssemblyRun)
         .filter(
             AssemblyRun.organism_key == organism.grouping_key,
-            AssemblyRun.sample_id == sample_id,
+            AssemblyRun.sample_id == selected_sample.id,
         )
         .order_by(AssemblyRun.created_at.desc())
     )
@@ -303,7 +327,7 @@ def create_assembly_intent(
     """
     from fastapi.responses import Response
 
-    organism, reads, experiments = _get_manifest_inputs_by_tax_id(db, tax_id, intent_in.sample_id)
+    organism, selected_sample, reads, experiments = _get_manifest_inputs_by_tax_id(db, tax_id)
     try:
         data_types = determine_assembly_data_types(experiments)
     except ValueError as exc:
@@ -313,20 +337,20 @@ def create_assembly_intent(
             message=str(exc),
             details={
                 "tax_id": tax_id,
-                "sample_id": str(intent_in.sample_id),
+                "sample_id": str(selected_sample.id),
             },
         ) from exc
 
     next_version = assembly_service.get_next_version(
         db,
         organism_key=organism.grouping_key,
-        sample_id=intent_in.sample_id,
+        sample_id=selected_sample.id,
         data_types=data_types,
     )
 
     run = AssemblyRun(
         organism_key=organism.grouping_key,
-        sample_id=intent_in.sample_id,
+        sample_id=selected_sample.id,
         data_types=data_types,
         version=next_version,
         tol_id=intent_in.tol_id,
