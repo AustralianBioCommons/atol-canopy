@@ -171,6 +171,7 @@ class OrganismService(BaseService[Organism, OrganismCreate, OrganismUpdate]):
 
     def create_organism(self, db: Session, *, organism_in: OrganismCreate) -> Organism:
         """Create a new organism and draft projects + submissions."""
+        organism_label = organism_in.scientific_name or organism_in.grouping_key
         organism = Organism(
             grouping_key=organism_in.grouping_key,
             tax_id=organism_in.tax_id,
@@ -198,10 +199,10 @@ class OrganismService(BaseService[Organism, OrganismCreate, OrganismUpdate]):
                 project_type="root",
                 study_type="Whole Genome Sequencing",
                 project_accession=None,
-                alias=f"{organism_in.scientific_name} genome assembly and related data",
-                title=f"{organism_in.scientific_name}",
+                alias=f"{organism_label} genome assembly and related data",
+                title=f"{organism_label}",
                 description=(
-                    f"Genome assemblies and related data for the organism {organism_in.scientific_name}, "
+                    f"Genome assemblies and related data for the organism {organism_label}, "
                     f"brokered on behalf of the Australian Tree of Life (AToL) project"
                 ),
                 centre_name="Australian Tree of Life (AToL)",
@@ -215,10 +216,10 @@ class OrganismService(BaseService[Organism, OrganismCreate, OrganismUpdate]):
                 project_type="genomic_data",
                 study_type="Whole Genome Sequencing",
                 project_accession=None,
-                alias=f"Genomic data for {organism_in.scientific_name}",
-                title=f"{organism_in.scientific_name} - genomic data",
+                alias=f"Genomic data for {organism_label}",
+                title=f"{organism_label} - genomic data",
                 description=(
-                    f"Genomic data for the organism {organism_in.scientific_name}, brokered on behalf of the "
+                    f"Genomic data for the organism {organism_label}, brokered on behalf of the "
                     f"Australian Tree of Life (AToL) project"
                 ),
                 centre_name="Australian Tree of Life (AToL)",
@@ -348,14 +349,8 @@ class OrganismService(BaseService[Organism, OrganismCreate, OrganismUpdate]):
                     skipped_count += 1
                     continue
 
-                # Validate minimal requirements
                 scientific_name = organism_data.get("scientific_name")
-                if not scientific_name:
-                    errors.append(
-                        f"{organism_grouping_key}: Missing required field 'scientific_name'"
-                    )
-                    skipped_count += 1
-                    continue
+                organism_label = scientific_name or organism_grouping_key
 
                 # Create organism and projects
                 organism = Organism(
@@ -380,10 +375,10 @@ class OrganismService(BaseService[Organism, OrganismCreate, OrganismUpdate]):
                     project_type="root",
                     study_type="Whole Genome Sequencing",
                     project_accession=None,
-                    alias=f"{organism.scientific_name} genome assembly and related data",
-                    title=f"{organism.scientific_name}",
+                    alias=f"{organism_label} genome assembly and related data",
+                    title=f"{organism_label}",
                     description=(
-                        f"Genome assemblies and related data for the organism {organism.scientific_name}, "
+                        f"Genome assemblies and related data for the organism {organism_label}, "
                         f"brokered on behalf of the Australian Tree of Life (AToL) project"
                     ),
                     centre_name="Australian Tree of Life (AToL)",
@@ -397,10 +392,10 @@ class OrganismService(BaseService[Organism, OrganismCreate, OrganismUpdate]):
                     project_type="genomic_data",
                     study_type="Whole Genome Sequencing",
                     project_accession=None,
-                    alias=f"Genomic data for {organism.scientific_name}",
-                    title=f"{organism.scientific_name} - genomic data",
+                    alias=f"Genomic data for {organism_label}",
+                    title=f"{organism_label} - genomic data",
                     description=(
-                        f"Genomic data for the organism {organism.scientific_name}, brokered on behalf of the Australian Tree of Life (AToL) project"
+                        f"Genomic data for the organism {organism_label}, brokered on behalf of the Australian Tree of Life (AToL) project"
                     ),
                     centre_name="Australian Tree of Life (AToL)",
                     study_attributes=None,

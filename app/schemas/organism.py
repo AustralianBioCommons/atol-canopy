@@ -15,7 +15,7 @@ class OrganismBase(BaseModel):
 
     grouping_key: str
     tax_id: int
-    scientific_name: str
+    scientific_name: Optional[str] = None
     common_name: Optional[str] = None
     common_name_source: Optional[str] = None
     genus: Optional[str] = None
