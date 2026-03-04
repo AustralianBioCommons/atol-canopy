@@ -214,7 +214,7 @@ def test_get_assembly_manifest_success(monkeypatch):
     assembly_run = SimpleNamespace(
         id="run-1",
         organism_key="test_organism",
-        sample_id="sample-1",
+        sample_id="550e8400-e29b-41d4-a716-446655440000",
         tol_id="tol-123",
         version=1,
     )
@@ -245,13 +245,15 @@ def test_get_assembly_manifest_success(monkeypatch):
                 return MockQuery(organism)
             elif self.call_count == 2:  # selected specimen sample query
                 return MockQuery(sample)
-            elif self.call_count == 3:  # all sample IDs query
+            elif self.call_count == 3:  # selected sample by ID query
+                return MockQuery(sample)
+            elif self.call_count == 4:  # all sample IDs query
                 return MockQuery([(sample.id,)])
-            elif self.call_count == 4:  # experiments query
+            elif self.call_count == 5:  # experiments query
                 return MockQuery([experiment])
-            elif self.call_count == 5:  # reads query
+            elif self.call_count == 6:  # reads query
                 return MockQuery([read])
-            elif self.call_count == 6:  # latest assembly_run query
+            elif self.call_count == 7:  # latest assembly_run query
                 return MockQuery(assembly_run)
             return MockQuery([])
 
