@@ -77,6 +77,22 @@ class AssemblyIntent(BaseModel):
     tol_id: Optional[str] = None
 
 
+class AssemblyIntentResponse(BaseModel):
+    """Response envelope for assembly intent creation."""
+
+    assembly_run_id: UUID
+    version: int
+    status: str
+    manifest_yaml: str
+
+
+class AssemblyIntentCancel(BaseModel):
+    """Schema for cancelling an existing assembly intent."""
+
+    assembly_run_id: UUID
+    version: Optional[int] = None
+
+
 # Schema for updating an existing assembly
 class AssemblyUpdate(BaseModel):
     """Schema for updating an existing assembly."""

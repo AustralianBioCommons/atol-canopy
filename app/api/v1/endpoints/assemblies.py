@@ -23,6 +23,8 @@ from app.schemas.assembly import (
     AssemblyFileCreate,
     AssemblyFileUpdate,
     AssemblyIntent,
+    AssemblyIntentCancel,
+    AssemblyIntentResponse,
     AssemblySubmissionCreate,
     AssemblySubmissionUpdate,
     AssemblyUpdate,
@@ -328,12 +330,10 @@ def create_assembly_intent(
     tax_id: int,
     intent_in: Optional[AssemblyIntent] = Body(default=None),
     current_user: User = Depends(get_current_active_user),
-) -> Any:
+) -> AssemblyIntentResponse:
     """
     Reserve the next assembly version and return a manifest.
     """
-    from fastapi.responses import Response
-
     organism, selected_sample, reads, experiments = _get_manifest_inputs_by_tax_id(db, tax_id)
     try:
         data_types = determine_assembly_data_types(experiments)
@@ -368,7 +368,12 @@ def create_assembly_intent(
     db.refresh(run)
 
     yaml_content = generate_assembly_manifest(organism, reads, experiments, run.tol_id, run.version)
-    return Response(content=yaml_content, media_type="application/x-yaml")
+    return AssemblyIntentResponse(
+        assembly_run_id=run.id,
+        version=run.version,
+        status=run.status,
+        manifest_yaml=yaml_content,
+    )
 
 
 @router.post("/intent/{tax_id}/cancel")
@@ -377,10 +382,10 @@ def cancel_assembly_intent(
     *,
     db: Session = Depends(get_db),
     tax_id: int,
-    version: Optional[int] = Query(None, description="Reserved version to cancel"),
+    cancel_in: AssemblyIntentCancel,
     current_user: User = Depends(get_current_active_user),
 ) -> Any:
-    """Cancel the latest reserved assembly intent for the organism/sample."""
+    """Cancel a reserved assembly intent by ID."""
     organism = db.query(Organism).filter(Organism.tax_id == tax_id).first()
     if not organism:
         raise HTTPException(status_code=404, detail=f"Organism with tax_id {tax_id} not found")
@@ -394,20 +399,29 @@ def cancel_assembly_intent(
             detail=f"No specimen sample found for organism {organism.grouping_key} (tax_id: {tax_id})",
         )
 
-    run_query = (
+    run = (
         db.query(AssemblyRun)
         .filter(
+            AssemblyRun.id == cancel_in.assembly_run_id,
             AssemblyRun.organism_key == organism.grouping_key,
             AssemblyRun.sample_id == selected_sample_id,
             AssemblyRun.status == "reserved",
         )
-        .order_by(AssemblyRun.created_at.desc())
+        .first()
     )
-    if version is not None:
-        run_query = run_query.filter(AssemblyRun.version == version)
-    run = run_query.first()
     if not run:
         raise HTTPException(status_code=404, detail="No reserved assembly intent found to cancel")
+    if cancel_in.version is not None and cancel_in.version != run.version:
+        raise AppError(
+            status_code=409,
+            code="assembly_intent_version_mismatch",
+            message="Requested version does not match the reserved assembly intent",
+            details={
+                "assembly_run_id": str(run.id),
+                "requested_version": cancel_in.version,
+                "actual_version": run.version,
+            },
+        )
 
     run.status = "cancelled"
     db.add(run)

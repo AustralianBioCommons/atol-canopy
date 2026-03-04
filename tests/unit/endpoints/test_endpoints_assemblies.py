@@ -1,4 +1,5 @@
 from types import SimpleNamespace
+from uuid import uuid4
 
 from fastapi.testclient import TestClient
 
@@ -348,6 +349,7 @@ def test_create_assembly_intent_allows_empty_body(monkeypatch):
         tax_id=172942,
     )
     selected_sample = SimpleNamespace(id="550e8400-e29b-41d4-a716-446655440000")
+    run_id = uuid4()
     reads = [
         SimpleNamespace(
             id="r1",
@@ -369,13 +371,18 @@ def test_create_assembly_intent_allows_empty_body(monkeypatch):
     monkeypatch.setattr(assemblies.assembly_service, "get_next_version", lambda *_, **__: 1)
 
     class _FakeIntentDB:
+        def __init__(self):
+            self.last_added = None
+
         def add(self, _obj):
+            self.last_added = _obj
             return None
 
         def commit(self):
             return None
 
-        def refresh(self, _obj):
+        def refresh(self, obj):
+            obj.id = run_id
             return None
 
     app.dependency_overrides[assemblies.get_current_active_user] = lambda: SimpleNamespace(
@@ -386,7 +393,11 @@ def test_create_assembly_intent_allows_empty_body(monkeypatch):
     resp = client.post("/api/v1/assemblies/intent/172942")
 
     assert resp.status_code == 200
-    assert resp.headers["content-type"] == "application/x-yaml"
+    body = resp.json()
+    assert body["assembly_run_id"] == str(run_id)
+    assert body["version"] == 1
+    assert body["status"] == "reserved"
+    assert "manifest_yaml" in body
 
 
 def test_cancel_assembly_intent_success(monkeypatch):
@@ -394,8 +405,9 @@ def test_cancel_assembly_intent_success(monkeypatch):
 
     organism = SimpleNamespace(grouping_key="test_organism", tax_id=172942)
     selected_sample_id = "550e8400-e29b-41d4-a716-446655440000"
+    run_id = uuid4()
     run = SimpleNamespace(
-        id="run-1",
+        id=run_id,
         organism_key="test_organism",
         sample_id=selected_sample_id,
         version=2,
@@ -445,7 +457,10 @@ def test_cancel_assembly_intent_success(monkeypatch):
     )
     app.dependency_overrides[assemblies.get_db] = _override_db(_DB())
 
-    resp = client.post("/api/v1/assemblies/intent/172942/cancel")
+    resp = client.post(
+        "/api/v1/assemblies/intent/172942/cancel",
+        json={"assembly_run_id": str(run_id)},
+    )
 
     assert resp.status_code == 200
     body = resp.json()
@@ -493,7 +508,10 @@ def test_cancel_assembly_intent_not_found(monkeypatch):
     )
     app.dependency_overrides[assemblies.get_db] = _override_db(_DB())
 
-    resp = client.post("/api/v1/assemblies/intent/172942/cancel")
+    resp = client.post(
+        "/api/v1/assemblies/intent/172942/cancel",
+        json={"assembly_run_id": str(uuid4())},
+    )
 
     assert resp.status_code == 404
     assert "No reserved assembly intent found" in resp.json()["error"]["message"]
