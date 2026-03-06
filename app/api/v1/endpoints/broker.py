@@ -1169,7 +1169,9 @@ def report_results(
         submission_id = item.submission_id or item.id
         sub = db.query(SampleSubmission).filter(SampleSubmission.id == submission_id).first()
         if not sub:
-            raise HTTPException(status_code=404, detail=f"SampleSubmission {submission_id} not found")
+            raise HTTPException(
+                status_code=404, detail=f"SampleSubmission {submission_id} not found"
+            )
         if item.submission_id and sub.sample_id != item.id:
             raise HTTPException(
                 status_code=409,
@@ -1181,7 +1183,8 @@ def report_results(
         # Only allow updating from 'submitting' lease state
         if sub.status != "submitting":
             raise HTTPException(
-                status_code=409, detail=f"SampleSubmission {submission_id} not in 'submitting' state"
+                status_code=409,
+                detail=f"SampleSubmission {submission_id} not in 'submitting' state",
             )
         # If batch tracking is active, enforce match
         if sub.attempt_id != provided_attempt_id:
@@ -1243,7 +1246,9 @@ def report_results(
     # Process ExperimentSubmission updates
     for item in payload.experiments:
         submission_id = item.submission_id or item.id
-        sub = db.query(ExperimentSubmission).filter(ExperimentSubmission.id == submission_id).first()
+        sub = (
+            db.query(ExperimentSubmission).filter(ExperimentSubmission.id == submission_id).first()
+        )
         if not sub:
             raise HTTPException(
                 status_code=404, detail=f"ExperimentSubmission {submission_id} not found"
@@ -1342,7 +1347,8 @@ def report_results(
             )
         if sub.attempt_id != provided_attempt_id:
             raise HTTPException(
-                status_code=409, detail=f"ReadSubmission {submission_id} belongs to different attempt"
+                status_code=409,
+                detail=f"ReadSubmission {submission_id} belongs to different attempt",
             )
 
         sub.status = item.status
