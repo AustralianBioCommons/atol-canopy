@@ -274,7 +274,14 @@ class TestGenerateAssemblyManifest:
     def test_sample_metadata_included_per_read(self):
         """Test that related sample metadata is included on each read entry."""
         organism = Mock(scientific_name="Saiphos equalis", tax_id=172942)
-        experiments = [Mock(id="exp1", sample_id="550e8400-e29b-41d4-a716-446655440000", platform="PACBIO_SMRT", library_strategy="WGS")]
+        experiments = [
+            Mock(
+                id="exp1",
+                sample_id="550e8400-e29b-41d4-a716-446655440000",
+                platform="PACBIO_SMRT",
+                library_strategy="WGS",
+            )
+        ]
         reads = [
             Mock(
                 id="r1",

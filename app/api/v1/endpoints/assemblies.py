@@ -277,7 +277,9 @@ def _get_optimal_sample_id_for_tax_id(
     return sample.id if sample else None
 
 
-def _build_sample_metadata_by_id(db: Session, experiments: List[Experiment]) -> Dict[str, Dict[str, Any]]:
+def _build_sample_metadata_by_id(
+    db: Session, experiments: List[Experiment]
+) -> Dict[str, Dict[str, Any]]:
     """Build sample metadata mapping used in per-read manifest entries."""
     sample_ids = {exp.sample_id for exp in experiments if getattr(exp, "sample_id", None)}
     if not sample_ids:

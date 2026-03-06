@@ -163,11 +163,7 @@ def generate_assembly_manifest(
                 # TODO remove logging
                 logger.info(f"Adding PacBio read: {read.file_name}")
                 sample_id = exp_sample_map.get(str(read.experiment_id))
-                sample_meta = (
-                    (sample_metadata_by_id or {}).get(sample_id, {})
-                    if sample_id
-                    else {}
-                )
+                sample_meta = (sample_metadata_by_id or {}).get(sample_id, {}) if sample_id else {}
                 pacbio_reads.append(
                     {
                         "file_name": read.file_name,
