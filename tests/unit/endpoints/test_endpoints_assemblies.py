@@ -196,6 +196,8 @@ def test_get_assembly_manifest_success(monkeypatch):
         id="550e8400-e29b-41d4-a716-446655440000",
         organism_key="test_organism",
         kind="specimen",
+        bpa_sample_id="102.100.100/9000",
+        specimen_id="SPEC-001",
     )
     experiment = SimpleNamespace(
         id="exp-1",
@@ -256,6 +258,8 @@ def test_get_assembly_manifest_success(monkeypatch):
                 return MockQuery([read])
             elif self.call_count == 7:  # latest assembly_run query
                 return MockQuery(assembly_run)
+            elif self.call_count == 8:  # sample metadata query for per-read manifest fields
+                return MockQuery([sample])
             return MockQuery([])
 
     app.dependency_overrides[assemblies.get_current_active_user] = lambda: SimpleNamespace(
@@ -269,6 +273,9 @@ def test_get_assembly_manifest_success(monkeypatch):
     assert resp.headers["content-type"] == "application/x-yaml"
     assert b"scientific_name: Test Species" in resp.content
     assert b"taxon_id: 172942" in resp.content
+    assert b"sample_id: 550e8400-e29b-41d4-a716-446655440000" in resp.content
+    assert b"bpa_sample_id: 102.100.100/9000" in resp.content
+    assert b"specimen_id: SPEC-001" in resp.content
     assert b"PACBIO_SMRT:" in resp.content
 
 
@@ -361,7 +368,14 @@ def test_create_assembly_intent_allows_empty_body(monkeypatch):
             lane_number=None,
         )
     ]
-    experiments = [SimpleNamespace(id="e1", platform="PACBIO_SMRT", library_strategy="WGS")]
+    experiments = [
+        SimpleNamespace(
+            id="e1",
+            sample_id=selected_sample.id,
+            platform="PACBIO_SMRT",
+            library_strategy="WGS",
+        )
+    ]
 
     monkeypatch.setattr(
         assemblies,
@@ -373,6 +387,22 @@ def test_create_assembly_intent_allows_empty_body(monkeypatch):
     class _FakeIntentDB:
         def __init__(self):
             self.last_added = None
+
+        def query(self, _model):
+            class _Q:
+                def filter(self, *_a, **_k):
+                    return self
+
+                def all(self):
+                    return [
+                        SimpleNamespace(
+                            id=selected_sample.id,
+                            bpa_sample_id="102.100.100/9000",
+                            specimen_id="SPEC-001",
+                        )
+                    ]
+
+            return _Q()
 
         def add(self, _obj):
             self.last_added = _obj

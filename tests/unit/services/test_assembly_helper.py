@@ -271,6 +271,36 @@ class TestGenerateAssemblyManifest:
         assert "tolid: tol123" in result
         assert "version: 2" in result
 
+    def test_sample_metadata_included_per_read(self):
+        """Test that related sample metadata is included on each read entry."""
+        organism = Mock(scientific_name="Saiphos equalis", tax_id=172942)
+        experiments = [Mock(id="exp1", sample_id="550e8400-e29b-41d4-a716-446655440000", platform="PACBIO_SMRT", library_strategy="WGS")]
+        reads = [
+            Mock(
+                id="r1",
+                experiment_id="exp1",
+                file_name="sample.ccs.bam",
+                file_checksum="abc123",
+                bioplatforms_url="https://example.com/1",
+                read_number=None,
+                lane_number=None,
+            )
+        ]
+        sample_metadata_by_id = {
+            "550e8400-e29b-41d4-a716-446655440000": {
+                "bpa_sample_id": "102.100.100/9000",
+                "specimen_id": "SPEC-001",
+            }
+        }
+
+        result = generate_assembly_manifest(
+            organism, reads, experiments, "tol123", 2, sample_metadata_by_id
+        )
+
+        assert "sample_id: 550e8400-e29b-41d4-a716-446655440000" in result
+        assert "bpa_sample_id: 102.100.100/9000" in result
+        assert "specimen_id: SPEC-001" in result
+
     def test_reads_without_experiment_id_skipped(self):
         """Test that reads without experiment_id are skipped."""
         organism = Mock(scientific_name="Test Species", tax_id=12345)

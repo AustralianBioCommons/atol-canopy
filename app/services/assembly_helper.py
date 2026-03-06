@@ -1,7 +1,7 @@
 """Helper functions for assembly operations."""
 
 import logging
-from typing import Dict, List, Set
+from typing import Any, Dict, List, Set
 
 import yaml
 
@@ -101,6 +101,7 @@ def generate_assembly_manifest(
     experiments: List[Experiment],
     tol_id: str | None,
     version: int,
+    sample_metadata_by_id: Dict[str, Dict[str, Any]] | None = None,
 ) -> str:
     """Generate assembly manifest YAML from organism and reads data.
 
@@ -116,6 +117,7 @@ def generate_assembly_manifest(
         experiments: List of Experiment objects (to determine platform)
         tol_id: ToL ID for the assembly (optional)
         version: Assembly version number
+        sample_metadata_by_id: Sample metadata keyed by sample.id as string (optional)
 
     Returns:
         YAML string formatted as assembly manifest
@@ -125,8 +127,9 @@ def generate_assembly_manifest(
     )
     logger.info(f"Total experiments: {len(experiments)}, Total reads: {len(reads)}")
 
-    # Create experiment_id to platform mapping
+    # Create experiment_id to platform/sample mapping
     exp_platform_map = {}
+    exp_sample_map = {}
     for exp in experiments:
         logger.info(
             f"Experiment {exp.id}: platform={exp.platform}, library_strategy={exp.library_strategy}"
@@ -135,6 +138,8 @@ def generate_assembly_manifest(
             exp_platform_map[exp.id] = exp.platform.upper()
         if exp.library_strategy:
             exp_platform_map[f"{exp.id}_strategy"] = exp.library_strategy.upper()
+        if getattr(exp, "sample_id", None):
+            exp_sample_map[str(exp.id)] = str(exp.sample_id)
 
     # Group reads by platform
     pacbio_reads = []
@@ -157,11 +162,20 @@ def generate_assembly_manifest(
             if read.file_name.endswith(".ccs.bam") or read.file_name.endswith("hifi_reads.bam"):
                 # TODO remove logging
                 logger.info(f"Adding PacBio read: {read.file_name}")
+                sample_id = exp_sample_map.get(str(read.experiment_id))
+                sample_meta = (
+                    (sample_metadata_by_id or {}).get(sample_id, {})
+                    if sample_id
+                    else {}
+                )
                 pacbio_reads.append(
                     {
                         "file_name": read.file_name,
                         "file_checksum": read.file_checksum,
                         "url": read.bioplatforms_url,
+                        "sample_id": sample_id,
+                        "bpa_sample_id": sample_meta.get("bpa_sample_id"),
+                        "specimen_id": sample_meta.get("specimen_id"),
                     }
                 )
             else:
@@ -173,6 +187,8 @@ def generate_assembly_manifest(
         elif platform == "ILLUMINA" and library_strategy in ("HI-C", "WGS"):
             # TODO remove logging
             logger.info(f"Adding Hi-C read: {read.file_name} (library_strategy={library_strategy})")
+            sample_id = exp_sample_map.get(str(read.experiment_id))
+            sample_meta = (sample_metadata_by_id or {}).get(sample_id, {}) if sample_id else {}
             hic_reads.append(
                 {
                     "file_name": read.file_name,
@@ -180,6 +196,9 @@ def generate_assembly_manifest(
                     "url": read.bioplatforms_url,
                     "read_number": read.read_number,
                     "lane_number": read.lane_number,
+                    "sample_id": sample_id,
+                    "bpa_sample_id": sample_meta.get("bpa_sample_id"),
+                    "specimen_id": sample_meta.get("specimen_id"),
                 }
             )
         else:

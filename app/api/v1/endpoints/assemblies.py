@@ -277,6 +277,22 @@ def _get_optimal_sample_id_for_tax_id(
     return sample.id if sample else None
 
 
+def _build_sample_metadata_by_id(db: Session, experiments: List[Experiment]) -> Dict[str, Dict[str, Any]]:
+    """Build sample metadata mapping used in per-read manifest entries."""
+    sample_ids = {exp.sample_id for exp in experiments if getattr(exp, "sample_id", None)}
+    if not sample_ids:
+        return {}
+
+    sample_rows = db.query(Sample).filter(Sample.id.in_(list(sample_ids))).all()
+    return {
+        str(sample.id): {
+            "bpa_sample_id": getattr(sample, "bpa_sample_id", None),
+            "specimen_id": getattr(sample, "specimen_id", None),
+        }
+        for sample in sample_rows
+    }
+
+
 @router.get("/manifest/{tax_id}")
 def get_assembly_manifest(
     *,
@@ -313,8 +329,14 @@ def get_assembly_manifest(
     if not assembly_run:
         raise HTTPException(status_code=404, detail="No reserved assembly manifest found")
 
+    sample_metadata_by_id = _build_sample_metadata_by_id(db, experiments)
     yaml_content = generate_assembly_manifest(
-        organism, reads, experiments, assembly_run.tol_id, assembly_run.version
+        organism,
+        reads,
+        experiments,
+        assembly_run.tol_id,
+        assembly_run.version,
+        sample_metadata_by_id,
     )
 
     # Return as YAML response
@@ -366,7 +388,10 @@ def create_assembly_intent(
     db.commit()
     db.refresh(run)
 
-    yaml_content = generate_assembly_manifest(organism, reads, experiments, run.tol_id, run.version)
+    sample_metadata_by_id = _build_sample_metadata_by_id(db, experiments)
+    yaml_content = generate_assembly_manifest(
+        organism, reads, experiments, run.tol_id, run.version, sample_metadata_by_id
+    )
     return AssemblyIntentResponse(
         assembly_run_id=run.id,
         version=run.version,
