@@ -2,6 +2,7 @@ from typing import Any, Dict, List, Optional
 from uuid import UUID
 
 from fastapi import APIRouter, Body, Depends, HTTPException, Query
+from fastapi.responses import Response
 from sqlalchemy.orm import Session
 
 from app.core.dependencies import get_current_active_user, get_db
@@ -296,8 +297,6 @@ def get_assembly_manifest(
     Returns:
         YAML string with manifest data
     """
-    from fastapi.responses import Response
-
     organism, selected_sample, reads, experiments = _get_manifest_inputs_by_tax_id(db, tax_id)
 
     run_query = (
