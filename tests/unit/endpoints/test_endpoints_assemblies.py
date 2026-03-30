@@ -1,4 +1,5 @@
 from types import SimpleNamespace
+from uuid import uuid4
 
 from fastapi.testclient import TestClient
 
@@ -195,6 +196,8 @@ def test_get_assembly_manifest_success(monkeypatch):
         id="550e8400-e29b-41d4-a716-446655440000",
         organism_key="test_organism",
         kind="specimen",
+        bpa_sample_id="102.100.100/9000",
+        specimen_id="SPEC-001",
     )
     experiment = SimpleNamespace(
         id="exp-1",
@@ -214,7 +217,7 @@ def test_get_assembly_manifest_success(monkeypatch):
     assembly_run = SimpleNamespace(
         id="run-1",
         organism_key="test_organism",
-        sample_id="sample-1",
+        sample_id="550e8400-e29b-41d4-a716-446655440000",
         tol_id="tol-123",
         version=1,
     )
@@ -245,14 +248,18 @@ def test_get_assembly_manifest_success(monkeypatch):
                 return MockQuery(organism)
             elif self.call_count == 2:  # selected specimen sample query
                 return MockQuery(sample)
-            elif self.call_count == 3:  # all sample IDs query
+            elif self.call_count == 3:  # selected sample by ID query
+                return MockQuery(sample)
+            elif self.call_count == 4:  # all sample IDs query
                 return MockQuery([(sample.id,)])
-            elif self.call_count == 4:  # experiments query
+            elif self.call_count == 5:  # experiments query
                 return MockQuery([experiment])
-            elif self.call_count == 5:  # reads query
+            elif self.call_count == 6:  # reads query
                 return MockQuery([read])
-            elif self.call_count == 6:  # latest assembly_run query
+            elif self.call_count == 7:  # latest assembly_run query
                 return MockQuery(assembly_run)
+            elif self.call_count == 8:  # sample metadata query for per-read manifest fields
+                return MockQuery([sample])
             return MockQuery([])
 
     app.dependency_overrides[assemblies.get_current_active_user] = lambda: SimpleNamespace(
@@ -266,6 +273,9 @@ def test_get_assembly_manifest_success(monkeypatch):
     assert resp.headers["content-type"] == "application/x-yaml"
     assert b"scientific_name: Test Species" in resp.content
     assert b"taxon_id: 172942" in resp.content
+    assert b"sample_id: 550e8400-e29b-41d4-a716-446655440000" in resp.content
+    assert b"bpa_sample_id: 102.100.100/9000" in resp.content
+    assert b"specimen_id: SPEC-001" in resp.content
     assert b"PACBIO_SMRT:" in resp.content
 
 
@@ -300,7 +310,11 @@ def test_get_assembly_manifest_organism_not_found():
 def test_create_assembly_intent_invalid_data_types_returns_app_error(monkeypatch):
     client = TestClient(app)
 
-    organism = SimpleNamespace(grouping_key="test_organism")
+    organism = SimpleNamespace(
+        grouping_key="test_organism",
+        scientific_name="Test Species",
+        tax_id=172942,
+    )
     reads = [SimpleNamespace(id="r1", experiment_id="e1")]
     experiments = [SimpleNamespace(id="e1", platform="UNKNOWN", library_strategy="UNKNOWN")]
 
@@ -331,3 +345,203 @@ def test_create_assembly_intent_invalid_data_types_returns_app_error(monkeypatch
     body = resp.json()
     assert body["error"]["code"] == "assembly_intent_invalid_data_types"
     assert "No valid sequencing platforms detected" in body["error"]["message"]
+
+
+def test_create_assembly_intent_allows_empty_body(monkeypatch):
+    client = TestClient(app)
+
+    organism = SimpleNamespace(
+        grouping_key="test_organism",
+        scientific_name="Test Species",
+        tax_id=172942,
+    )
+    selected_sample = SimpleNamespace(id="550e8400-e29b-41d4-a716-446655440000")
+    run_id = uuid4()
+    reads = [
+        SimpleNamespace(
+            id="r1",
+            experiment_id="e1",
+            file_name="sample.ccs.bam",
+            file_checksum="abc123",
+            bioplatforms_url="https://example.com/1",
+            read_number=None,
+            lane_number=None,
+        )
+    ]
+    experiments = [
+        SimpleNamespace(
+            id="e1",
+            sample_id=selected_sample.id,
+            platform="PACBIO_SMRT",
+            library_strategy="WGS",
+        )
+    ]
+
+    monkeypatch.setattr(
+        assemblies,
+        "_get_manifest_inputs_by_tax_id",
+        lambda db, tax_id: (organism, selected_sample, reads, experiments),
+    )
+    monkeypatch.setattr(assemblies.assembly_service, "get_next_version", lambda *_, **__: 1)
+
+    class _FakeIntentDB:
+        def __init__(self):
+            self.last_added = None
+
+        def query(self, _model):
+            class _Q:
+                def filter(self, *_a, **_k):
+                    return self
+
+                def all(self):
+                    return [
+                        SimpleNamespace(
+                            id=selected_sample.id,
+                            bpa_sample_id="102.100.100/9000",
+                            specimen_id="SPEC-001",
+                        )
+                    ]
+
+            return _Q()
+
+        def add(self, _obj):
+            self.last_added = _obj
+            return None
+
+        def commit(self):
+            return None
+
+        def refresh(self, obj):
+            obj.id = run_id
+            return None
+
+    app.dependency_overrides[assemblies.get_current_active_user] = lambda: SimpleNamespace(
+        is_active=True, roles=["curator"], is_superuser=False
+    )
+    app.dependency_overrides[assemblies.get_db] = _override_db(_FakeIntentDB())
+
+    resp = client.post("/api/v1/assemblies/intent/172942")
+
+    assert resp.status_code == 200
+    body = resp.json()
+    assert body["assembly_run_id"] == str(run_id)
+    assert body["version"] == 1
+    assert body["status"] == "reserved"
+    assert "manifest_yaml" in body
+
+
+def test_cancel_assembly_intent_success(monkeypatch):
+    client = TestClient(app)
+
+    organism = SimpleNamespace(grouping_key="test_organism", tax_id=172942)
+    selected_sample_id = "550e8400-e29b-41d4-a716-446655440000"
+    run_id = uuid4()
+    run = SimpleNamespace(
+        id=run_id,
+        organism_key="test_organism",
+        sample_id=selected_sample_id,
+        version=2,
+        status="reserved",
+    )
+
+    monkeypatch.setattr(
+        assemblies,
+        "_get_optimal_sample_id_for_tax_id",
+        lambda db, tax_id, organism_key=None: selected_sample_id,
+    )
+
+    class _Q:
+        def __init__(self, value):
+            self.value = value
+
+        def filter(self, *_a, **_k):
+            return self
+
+        def order_by(self, *_a, **_k):
+            return self
+
+        def first(self):
+            return self.value
+
+    class _DB:
+        def __init__(self):
+            self.calls = 0
+
+        def query(self, _model):
+            self.calls += 1
+            if self.calls == 1:
+                return _Q(organism)
+            return _Q(run)
+
+        def add(self, _obj):
+            return None
+
+        def commit(self):
+            return None
+
+        def refresh(self, _obj):
+            return None
+
+    app.dependency_overrides[assemblies.get_current_active_user] = lambda: SimpleNamespace(
+        is_active=True, roles=["curator"], is_superuser=False
+    )
+    app.dependency_overrides[assemblies.get_db] = _override_db(_DB())
+
+    resp = client.post(
+        "/api/v1/assemblies/intent/172942/cancel",
+        json={"assembly_run_id": str(run_id)},
+    )
+
+    assert resp.status_code == 200
+    body = resp.json()
+    assert body["status"] == "cancelled"
+    assert body["version"] == 2
+
+
+def test_cancel_assembly_intent_not_found(monkeypatch):
+    client = TestClient(app)
+
+    organism = SimpleNamespace(grouping_key="test_organism", tax_id=172942)
+    selected_sample_id = "550e8400-e29b-41d4-a716-446655440000"
+
+    monkeypatch.setattr(
+        assemblies,
+        "_get_optimal_sample_id_for_tax_id",
+        lambda db, tax_id, organism_key=None: selected_sample_id,
+    )
+
+    class _Q:
+        def __init__(self, value):
+            self.value = value
+
+        def filter(self, *_a, **_k):
+            return self
+
+        def order_by(self, *_a, **_k):
+            return self
+
+        def first(self):
+            return self.value
+
+    class _DB:
+        def __init__(self):
+            self.calls = 0
+
+        def query(self, _model):
+            self.calls += 1
+            if self.calls == 1:
+                return _Q(organism)
+            return _Q(None)
+
+    app.dependency_overrides[assemblies.get_current_active_user] = lambda: SimpleNamespace(
+        is_active=True, roles=["curator"], is_superuser=False
+    )
+    app.dependency_overrides[assemblies.get_db] = _override_db(_DB())
+
+    resp = client.post(
+        "/api/v1/assemblies/intent/172942/cancel",
+        json={"assembly_run_id": str(uuid4())},
+    )
+
+    assert resp.status_code == 404
+    assert "No reserved assembly intent found" in resp.json()["error"]["message"]

@@ -65,6 +65,7 @@ CREATE TABLE organism (
     grouping_key TEXT PRIMARY KEY,
     tax_id int UNIQUE NOT NULL,
     -- We need to check that the scientific name = the tax id level, because we have a bunch of tax_ids that are the same for organisms which should have a more granular taxid level
+    -- Optional: can be null when only grouping_key/tax_id are available
     scientific_name TEXT,
     genus TEXT,
     species TEXT,

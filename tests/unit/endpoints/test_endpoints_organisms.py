@@ -116,3 +116,35 @@ def test_create_organism(monkeypatch):
     assert resp.status_code == 200
     body = resp.json()
     assert body["grouping_key"] == "g1"
+
+
+def test_create_organism_without_scientific_name(monkeypatch):
+    client = TestClient(app)
+
+    app.dependency_overrides[organisms.get_current_active_user] = _override_user
+    app.dependency_overrides[organisms.get_db] = _override_db(_FakeSession())
+
+    now = datetime.now(timezone.utc)
+    fake_service = SimpleNamespace(
+        create_organism=lambda db, organism_in: {
+            **organism_in.model_dump(),
+            "grouping_key": "g1",
+            "common_name_source": None,
+            "bpa_json": None,
+            "taxonomy_lineage_json": None,
+            "created_at": now,
+            "updated_at": now,
+        }
+    )
+    monkeypatch.setattr(organisms, "organism_service", fake_service)
+    payload = {
+        "grouping_key": "g1",
+        "tax_id": 1,
+        "common_name": "Com",
+    }
+
+    resp = client.post("/api/v1/organisms", json=payload)
+    assert resp.status_code == 200
+    body = resp.json()
+    assert body["grouping_key"] == "g1"
+    assert body["scientific_name"] is None
