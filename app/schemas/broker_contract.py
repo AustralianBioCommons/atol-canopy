@@ -1,0 +1,114 @@
+from __future__ import annotations
+
+from enum import Enum
+from typing import Any, Dict, List, Optional
+from uuid import UUID
+
+from pydantic import BaseModel, ConfigDict, Field
+
+
+class BrokerEntityType(str, Enum):
+    PROJECT = "project"
+    SAMPLE = "sample"
+    EXPERIMENT = "experiment"
+    RUN = "run"
+
+
+class BrokerPrerequisites(BaseModel):
+    project_accession: Optional[str] = None
+    sample_accession: Optional[str] = None
+    experiment_accession: Optional[str] = None
+    run_accession: Optional[str] = None
+    study_accession: Optional[str] = None
+    analysis_accession: Optional[str] = None
+
+
+class BrokerValidationHints(BaseModel):
+    requires_project_accession: Optional[bool] = None
+    requires_study_accession: Optional[bool] = None
+
+
+class BrokerFileMetadata(BaseModel):
+    filename: str
+    filetype: str
+
+
+class BrokerClaimEntity(BaseModel):
+    model_config = ConfigDict(use_enum_values=True)
+
+    type: BrokerEntityType
+    id: UUID
+    tax_id: str
+    payload: Optional[Dict[str, Any]] = None
+    prerequisites: Optional[BrokerPrerequisites] = None
+    validation_hints: Optional[BrokerValidationHints] = None
+    files: Optional[List[BrokerFileMetadata]] = None
+    file_metadata: Optional[List[BrokerFileMetadata]] = None
+
+
+class BrokerReadyClaimRequest(BaseModel):
+    tax_id: str
+
+
+class BrokerReadyClaimResponse(BaseModel):
+    attempt_id: Optional[UUID]
+    tax_id: str
+    scope: str = "full"
+    entities: List[BrokerClaimEntity] = Field(default_factory=list)
+
+
+class BrokerTargetedClaimRequest(BaseModel):
+    entity_type: BrokerEntityType
+    entity_id: UUID
+
+
+class BrokerTargetedClaimResponse(BaseModel):
+    attempt_id: UUID
+    tax_id: str
+    entities: List[BrokerClaimEntity] = Field(default_factory=list)
+
+
+class BrokerValidationIssue(BaseModel):
+    field: str
+    message: str
+
+
+class BrokerValidationRequest(BaseModel):
+    entity_type: BrokerEntityType
+    entity_id: UUID
+    overrides: BrokerPrerequisites = Field(default_factory=BrokerPrerequisites)
+
+
+class BrokerValidationResponse(BaseModel):
+    model_config = ConfigDict(use_enum_values=True)
+
+    entity_type: BrokerEntityType
+    entity_id: UUID
+    valid: bool
+    issues: List[BrokerValidationIssue] = Field(default_factory=list)
+    resolved_prerequisites: Dict[str, str] = Field(default_factory=dict)
+
+
+class BrokerReportRecord(BaseModel):
+    model_config = ConfigDict(use_enum_values=True)
+
+    attempt_id: UUID
+    entity_type: BrokerEntityType
+    entity_id: UUID
+    state: str
+    accession: Optional[str] = None
+    receipt_path: Optional[str] = None
+    message: Optional[str] = None
+    errors: List[Any] = Field(default_factory=list)
+
+
+class BrokerReportRequest(BaseModel):
+    attempt_id: UUID
+    tax_id: Optional[str | int] = None
+    results: List[BrokerReportRecord] = Field(default_factory=list)
+
+
+class BrokerReportResponse(BaseModel):
+    attempt_id: UUID
+    accepted: bool
+    message: str
