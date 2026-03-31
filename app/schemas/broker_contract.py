@@ -15,12 +15,21 @@ class BrokerEntityType(str, Enum):
 
 
 class BrokerPrerequisites(BaseModel):
+    # Existing accessions (already submitted and available)
     project_accession: Optional[str] = None
     sample_accession: Optional[str] = None
     experiment_accession: Optional[str] = None
     run_accession: Optional[str] = None
     study_accession: Optional[str] = None
     analysis_accession: Optional[str] = None
+    
+    # Required accessions (needed but may not exist yet)
+    required_project_accession: Optional[str] = None
+    required_sample_accession: Optional[str] = None
+    required_experiment_accession: Optional[str] = None
+    required_run_accession: Optional[str] = None
+    required_study_accession: Optional[str] = None
+    required_analysis_accession: Optional[str] = None
 
 
 class BrokerValidationHints(BaseModel):

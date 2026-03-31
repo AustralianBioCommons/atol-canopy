@@ -3,6 +3,7 @@ from types import SimpleNamespace
 from uuid import uuid4
 
 import pytest
+from fastapi import HTTPException
 
 from app.api.v1.endpoints import broker
 from app.schemas.broker_contract import (
@@ -13,7 +14,6 @@ from app.schemas.broker_contract import (
     BrokerTargetedClaimRequest,
     BrokerValidationRequest,
 )
-from fastapi import HTTPException
 
 
 class FakeSession:
@@ -56,30 +56,44 @@ def test_claims_ready_returns_flat_entity_contract(monkeypatch):
         id=uuid4(),
         project_id=project_id,
         status="ready",
-        prepared_payload=None,
+        prepared_payload={"alias": "project-1", "study_accession": "PRJ000001"},
+        project_accession="PRJ000001",
         accession=None,
     )
     sample_row = SimpleNamespace(
         id=uuid4(),
         sample_id=sample_id,
         status="ready",
-        prepared_payload={"alias": "sample-1", "requires_project_accession": True},
+        prepared_payload={
+            "alias": "sample-1", 
+            "project_accession": "PRJ000001",  # This exists
+            "requires_project_accession": True
+        },
+        project_accession="PRJ000001",
         accession=None,
     )
     experiment_row = SimpleNamespace(
         id=uuid4(),
         experiment_id=experiment_id,
         status="ready",
-        prepared_payload={"alias": "experiment-1", "requires_study_accession": True},
+        prepared_payload={
+            "alias": "experiment-1", 
+            "requires_study_accession": True,
+            "expected_study_accession": "PRJ000001"  # Required but not yet submitted
+        },
         sample_accession="SAMEA000001",
-        project_accession="PRJ000001",
+        project_accession=None,  # Missing in DB
         accession=None,
     )
     run_row = SimpleNamespace(
         id=uuid4(),
         read_id=run_id,
         status="ready",
-        prepared_payload={"alias": "run-1", "file_name": "reads_1.fastq.gz", "file_format": "fastq"},
+        prepared_payload={
+            "alias": "run-1",
+            "file_name": "reads_1.fastq.gz",
+            "file_format": "fastq",
+        },
         experiment_accession="ERX000001",
         accession=None,
     )
@@ -90,8 +104,12 @@ def test_claims_ready_returns_flat_entity_contract(monkeypatch):
         "_get_organism_by_tax_id",
         lambda db_arg, tax_id: SimpleNamespace(grouping_key="org-1"),
     )
-    monkeypatch.setattr(broker, "_query_ready_project_submissions", lambda db_arg, tax_id: [project_row])
-    monkeypatch.setattr(broker, "_query_ready_sample_submissions", lambda db_arg, tax_id: [sample_row])
+    monkeypatch.setattr(
+        broker, "_query_ready_project_submissions", lambda db_arg, tax_id: [project_row]
+    )
+    monkeypatch.setattr(
+        broker, "_query_ready_sample_submissions", lambda db_arg, tax_id: [sample_row]
+    )
     monkeypatch.setattr(
         broker, "_query_ready_experiment_submissions", lambda db_arg, tax_id: [experiment_row]
     )
@@ -111,10 +129,17 @@ def test_claims_ready_returns_flat_entity_contract(monkeypatch):
         BrokerEntityType.EXPERIMENT,
         BrokerEntityType.RUN,
     ]
-    assert response.entities[1].prerequisites is None
+    assert response.entities[1].prerequisites.project_accession == "PRJ000001"
+    assert response.entities[1].prerequisites.required_project_accession is None  # Already exists
+    assert response.entities[1].validation_hints.requires_project_accession is True
+    
     assert response.entities[2].prerequisites.sample_accession == "SAMEA000001"
-    assert response.entities[2].prerequisites.study_accession == "PRJ000001"
+    assert response.entities[2].prerequisites.study_accession is None  # Missing in DB
+    assert response.entities[2].prerequisites.required_study_accession == "PRJ000001"  # Required but not submitted
+    assert response.entities[2].validation_hints.requires_study_accession is True
+    
     assert response.entities[3].files[0].filename == "reads_1.fastq.gz"
+    assert response.entities[3].file_metadata is None  # Should be None for this entity type
     assert sample_row.status == "submitting"
     assert db.committed is True
 
@@ -293,7 +318,7 @@ def test_reports_attempt_acceptance(monkeypatch):
 def test_claim_ready_entities_no_claimable_entities_returns_empty_response(monkeypatch):
     """Test that when organism exists but has no claimable entities, returns empty response instead of 404."""
     db = FakeSession()
-    
+
     monkeypatch.setattr(broker, "expire_stale_leases", lambda db_arg: {})
     monkeypatch.setattr(
         broker,
@@ -322,7 +347,7 @@ def test_claim_ready_entities_no_claimable_entities_returns_empty_response(monke
 def test_claim_ready_entities_organism_not_found_returns_404(monkeypatch):
     """Test that when organism doesn't exist, returns 404."""
     db = FakeSession()
-    
+
     monkeypatch.setattr(broker, "expire_stale_leases", lambda db_arg: {})
     monkeypatch.setattr(broker, "_get_organism_by_tax_id", lambda db_arg, tax_id: None)
 
@@ -332,6 +357,6 @@ def test_claim_ready_entities_organism_not_found_returns_404(monkeypatch):
             current_user=_broker_user(),
             db=db,
         )
-    
+
     assert exc_info.value.status_code == 404
     assert "Organism with tax_id 99999 not found" in exc_info.value.detail

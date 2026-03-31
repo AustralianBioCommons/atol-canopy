@@ -173,6 +173,8 @@ def _extract_broker_prerequisites(
     entity_type: BrokerEntityType | str, prepared_payload: Dict[str, Any], row: Any
 ) -> BrokerPrerequisites:
     entity_type = _coerce_entity_type(entity_type)
+    
+    # Existing accessions (from DB row or payload)
     project_accession = _first_present_value(
         getattr(row, "project_accession", None),
         prepared_payload.get("project_accession"),
@@ -181,7 +183,37 @@ def _extract_broker_prerequisites(
         prepared_payload.get("study_accession"),
         project_accession,
     )
+    
+    # Required accessions (from payload, may not exist yet)
+    # These help clients know what needs to be submitted first
+    required_project_accession = None
+    required_sample_accession = None
+    required_experiment_accession = None
+    required_run_accession = None
+    required_study_accession = None
+    required_analysis_accession = None
+    
+    # Extract required accessions based on entity type and payload hints
+    if entity_type == BrokerEntityType.SAMPLE:
+        if prepared_payload.get("requires_project_accession") and not project_accession:
+            required_project_accession = prepared_payload.get("expected_project_accession") or prepared_payload.get("project_accession")
+    
+    elif entity_type == BrokerEntityType.EXPERIMENT:
+        # Experiments always require sample accession
+        if not _first_present_value(getattr(row, "sample_accession", None), prepared_payload.get("sample_accession")):
+            required_sample_accession = prepared_payload.get("expected_sample_accession") or prepared_payload.get("sample_accession")
+        
+        # May require project/study accessions
+        if prepared_payload.get("requires_study_accession") and not study_accession:
+            required_study_accession = prepared_payload.get("expected_study_accession") or prepared_payload.get("study_accession")
+    
+    elif entity_type == BrokerEntityType.RUN:
+        # Runs always require experiment accession
+        if not _first_present_value(getattr(row, "experiment_accession", None), prepared_payload.get("experiment_accession")):
+            required_experiment_accession = prepared_payload.get("expected_experiment_accession") or prepared_payload.get("experiment_accession")
+    
     return BrokerPrerequisites(
+        # Existing accessions
         project_accession=project_accession,
         sample_accession=_first_present_value(
             getattr(row, "sample_accession", None),
@@ -197,6 +229,14 @@ def _extract_broker_prerequisites(
         ),
         study_accession=study_accession,
         analysis_accession=_first_present_value(prepared_payload.get("analysis_accession")),
+        
+        # Required accessions
+        required_project_accession=required_project_accession,
+        required_sample_accession=required_sample_accession,
+        required_experiment_accession=required_experiment_accession,
+        required_run_accession=required_run_accession,
+        required_study_accession=required_study_accession,
+        required_analysis_accession=required_analysis_accession,
     )
 
 
@@ -614,14 +654,19 @@ def _find_submission_for_attempt(
     if entity_type == BrokerEntityType.PROJECT:
         return (
             db.query(ProjectSubmission)
-            .filter(ProjectSubmission.project_id == entity_id, ProjectSubmission.attempt_id == attempt_id)
+            .filter(
+                ProjectSubmission.project_id == entity_id,
+                ProjectSubmission.attempt_id == attempt_id,
+            )
             .order_by(ProjectSubmission.created_at.desc())
             .first()
         )
     if entity_type == BrokerEntityType.SAMPLE:
         return (
             db.query(SampleSubmission)
-            .filter(SampleSubmission.sample_id == entity_id, SampleSubmission.attempt_id == attempt_id)
+            .filter(
+                SampleSubmission.sample_id == entity_id, SampleSubmission.attempt_id == attempt_id
+            )
             .order_by(SampleSubmission.created_at.desc())
             .first()
         )
@@ -715,7 +760,9 @@ def claim_ready_entities(
     entities: List[BrokerClaimEntity] = []
     for row in project_rows:
         _claim_submission_row(db, attempt=attempt, row=row, entity_type="project", now=now)
-        entities.append(_build_contract_entity(BrokerEntityType.PROJECT, row.project_id, tax_id, row))
+        entities.append(
+            _build_contract_entity(BrokerEntityType.PROJECT, row.project_id, tax_id, row)
+        )
     for row in sample_rows:
         _claim_submission_row(db, attempt=attempt, row=row, entity_type="sample", now=now)
         entities.append(_build_contract_entity(BrokerEntityType.SAMPLE, row.sample_id, tax_id, row))
@@ -761,7 +808,9 @@ def claim_specific_entity(
         db,
         attempt=attempt,
         row=row,
-        entity_type="read" if payload.entity_type == BrokerEntityType.RUN else payload.entity_type.value,
+        entity_type="read"
+        if payload.entity_type == BrokerEntityType.RUN
+        else payload.entity_type.value,
         now=datetime.now(timezone.utc),
     )
     db.commit()
@@ -786,7 +835,9 @@ def validate_entity_submission(
         raise HTTPException(status_code=404, detail="Submission entity not found")
 
     _, tax_id = _lookup_taxonomy_for_entity(db, payload.entity_type, payload.entity_id)
-    claimed_entity = _build_contract_entity(payload.entity_type, payload.entity_id, tax_id or "", row)
+    claimed_entity = _build_contract_entity(
+        payload.entity_type, payload.entity_id, tax_id or "", row
+    )
     return _validate_contract_entity(claimed_entity, payload.overrides)
 
 
