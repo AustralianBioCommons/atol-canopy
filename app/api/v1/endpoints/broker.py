@@ -641,6 +641,10 @@ def _find_submission_for_attempt(
     db: Session, entity_type: BrokerEntityType | str, entity_id: UUID, attempt_id: UUID
 ) -> Optional[Any]:
     entity_type = _coerce_entity_type(entity_type)
+
+    # DEBUG: Log what we're looking for
+    print(f"DEBUG: Looking for {entity_type}:{entity_id} in attempt {attempt_id}")
+
     if entity_type == BrokerEntityType.PROJECT:
         return (
             db.query(ProjectSubmission)
@@ -661,7 +665,7 @@ def _find_submission_for_attempt(
             .first()
         )
     if entity_type == BrokerEntityType.EXPERIMENT:
-        return (
+        result = (
             db.query(ExperimentSubmission)
             .filter(
                 ExperimentSubmission.experiment_id == entity_id,
@@ -670,13 +674,17 @@ def _find_submission_for_attempt(
             .order_by(ExperimentSubmission.created_at.desc())
             .first()
         )
+        print(f"DEBUG: EXPERIMENT query result: {result}")
+        return result
     if entity_type == BrokerEntityType.RUN:
-        return (
+        result = (
             db.query(ReadSubmission)
             .filter(ReadSubmission.read_id == entity_id, ReadSubmission.attempt_id == attempt_id)
             .order_by(ReadSubmission.created_at.desc())
             .first()
         )
+        print(f"DEBUG: RUN query result: {result}")
+        return result
 
 
 def _register_submission_accession(
