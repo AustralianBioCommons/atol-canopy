@@ -8,20 +8,27 @@ The broker API was returning null values for `prerequisites`, `validation_hints`
 ## Solution
 Enhanced the broker contract to include both **existing** and **required** accessions, allowing clients to understand dependency states.
 
+### Key Architecture Understanding
+
+**Crucial clarification**: Accessions are stored in different places:
+- **Existing accessions**: Stored in database row fields (`project_accession`, `sample_accession`, etc.) and `accession_registry` table
+- **prepared_payload**: Contains data for ENA submission, NOT existing accessions
+- **Required accessions**: Specified in payload using `expected_*_accession` fields for dependencies not yet submitted
+
 ### Changes Made
 
 #### 1. Extended BrokerPrerequisites Schema
 ```python
 class BrokerPrerequisites(BaseModel):
-    # Existing accessions (already submitted and available)
+    # Existing accessions (from database row fields)
     project_accession: Optional[str] = None
     sample_accession: Optional[str] = None
     experiment_accession: Optional[str] = None
     run_accession: Optional[str] = None
     study_accession: Optional[str] = None
     analysis_accession: Optional[str] = None
-    
-    # Required accessions (needed but may not exist yet)
+
+    # Required accessions (from payload, may not exist yet)
     required_project_accession: Optional[str] = None
     required_sample_accession: Optional[str] = None
     required_experiment_accession: Optional[str] = None
@@ -31,7 +38,7 @@ class BrokerPrerequisites(BaseModel):
 ```
 
 #### 2. Enhanced Prerequisite Extraction Logic
-- **Existing accessions**: Pulled from database rows or payload (existing behavior)
+- **Existing accessions**: Pulled from database row fields (`row.project_accession`, `row.sample_accession`, etc.)
 - **Required accessions**: Extracted from payload when dependencies are required but missing
 - Uses `expected_*_accession` fields in payloads for placeholders
 
@@ -41,11 +48,11 @@ class BrokerPrerequisites(BaseModel):
 
 ### Usage Examples
 
-#### Sample Submission
+#### Sample Submission with Existing Project Accession
+**Database state**: `sample_submission.project_accession = "PRJ123456"`
 ```json
 {
   "alias": "sample-1",
-  "project_accession": "PRJ123456",  // Existing
   "requires_project_accession": true
 }
 ```
@@ -53,17 +60,17 @@ Result:
 ```json
 {
   "prerequisites": {
-    "project_accession": "PRJ123456",     // ✅ Exists
+    "project_accession": "PRJ123456",     // ✅ From database row
     "required_project_accession": null    // ✅ Already satisfied
   }
 }
 ```
 
-#### Experiment with Missing Dependencies
+#### Experiment with Missing Study Accession
+**Database state**: `experiment_submission.project_accession = null`
 ```json
 {
   "alias": "experiment-1",
-  "sample_accession": "SAMEA123456",     // Exists
   "requires_study_accession": true,
   "expected_study_accession": "PRJ123456"  // Required but not submitted
 }
@@ -72,14 +79,15 @@ Result:
 ```json
 {
   "prerequisites": {
-    "sample_accession": "SAMEA123456",     // ✅ Exists
-    "study_accession": null,              // ❌ Missing
-    "required_study_accession": "PRJ123456"  // 📋 Required
+    "sample_accession": "SAMEA123456",     // ✅ From database row
+    "study_accession": null,              // ❌ Missing from DB
+    "required_study_accession": "PRJ123456"  // 📋 From payload
   }
 }
 ```
 
-#### Run with Missing Experiment
+#### Run with Missing Experiment Accession
+**Database state**: `read_submission.experiment_accession = null`
 ```json
 {
   "alias": "run-1",
@@ -92,8 +100,8 @@ Result:
 ```json
 {
   "prerequisites": {
-    "experiment_accession": null,              // ❌ Missing
-    "required_experiment_accession": "ERX123456"  // 📋 Required
+    "experiment_accession": null,              // ❌ Missing from DB
+    "required_experiment_accession": "ERX123456"  // 📋 From payload
   },
   "files": [
     {"filename": "reads.fastq.gz", "filetype": "fastq"}
@@ -101,8 +109,15 @@ Result:
 }
 ```
 
+### Data Flow Summary
+
+1. **prepared_payload**: Contains ENA submission data (metadata, files, etc.)
+2. **Database row fields**: Store actual accessions once submitted (`*_accession` fields)
+3. **Payload expected fields**: Specify required but not-yet-submitted accessions (`expected_*_accession`)
+4. **Broker response**: Combines both to show complete dependency state
+
 ### Client Benefits
-1. **Clear dependency visibility**: Can see exactly what's missing
+1. **Clear dependency visibility**: See exactly what's missing vs what exists
 2. **Submission planning**: Know what needs to be submitted first
 3. **Progress tracking**: Distinguish between "not needed" vs "needed but not ready"
 4. **Error prevention**: Avoid trying to submit entities with unmet dependencies
@@ -113,4 +128,4 @@ Result:
 - `requires_project_accession`: For samples
 - `requires_study_accession`: For experiments
 
-This enhancement maintains backward compatibility while providing much richer dependency information to broker clients.
+This enhancement maintains backward compatibility while providing much richer dependency information to broker clients, with the correct understanding of where different types of data are stored.
