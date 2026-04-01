@@ -670,12 +670,13 @@ def _find_submission_for_attempt(
             .order_by(ExperimentSubmission.created_at.desc())
             .first()
         )
-    return (
-        db.query(ReadSubmission)
-        .filter(ReadSubmission.read_id == entity_id, ReadSubmission.attempt_id == attempt_id)
-        .order_by(ReadSubmission.created_at.desc())
-        .first()
-    )
+    if entity_type == BrokerEntityType.RUN:
+        return (
+            db.query(ReadSubmission)
+            .filter(ReadSubmission.read_id == entity_id, ReadSubmission.attempt_id == attempt_id)
+            .order_by(ReadSubmission.created_at.desc())
+            .first()
+        )
 
 
 def _register_submission_accession(
