@@ -423,6 +423,7 @@ def bulk_import_specimen_samples(
                 )
                 skipped_count += 1
                 continue
+            sample_data["organism_part"] = "WHOLE ORGANISM"
 
             # Create specimen sample (bpa_sample_id is optional for specimens)
             sample, sample_submission = _create_sample_with_submission(
