@@ -77,6 +77,19 @@ class BrokerTargetedClaimResponse(BaseModel):
     entities: List[BrokerClaimEntity] = Field(default_factory=list)
 
 
+class BrokerBatchClaimRequest(BaseModel):
+    project_ids: List[UUID] = Field(default_factory=list)
+    sample_ids: List[UUID] = Field(default_factory=list)
+    experiment_ids: List[UUID] = Field(default_factory=list)
+    run_ids: List[UUID] = Field(default_factory=list)
+
+
+class BrokerBatchClaimResponse(BaseModel):
+    attempt_id: UUID
+    tax_id: Optional[str] = None  # None if multi-organism batch
+    entities: List[BrokerClaimEntity] = Field(default_factory=list)
+
+
 class BrokerValidationIssue(BaseModel):
     field: str
     message: str

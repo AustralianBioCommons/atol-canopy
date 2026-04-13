@@ -7,6 +7,7 @@ from fastapi import HTTPException
 
 from app.api.v1.endpoints import broker
 from app.schemas.broker_contract import (
+    BrokerBatchClaimRequest,
     BrokerEntityType,
     BrokerReadyClaimRequest,
     BrokerReportRecord,
@@ -380,3 +381,320 @@ def test_claim_ready_entities_organism_not_found_returns_404(monkeypatch):
 
     assert exc_info.value.status_code == 404
     assert "Organism with tax_id 99999 not found" in exc_info.value.detail
+
+
+def test_claims_batch_single_entity(monkeypatch):
+    """Test batch endpoint with a single entity (simplest case)."""
+    db = FakeSession()
+    sample_id = uuid4()
+    row = SimpleNamespace(
+        id=uuid4(),
+        sample_id=sample_id,
+        status="ready",
+        prepared_payload={"alias": "sample-1"},
+        accession=None,
+        project_accession=None,
+        sample_accession=None,
+        experiment_accession=None,
+    )
+
+    monkeypatch.setattr(broker, "expire_stale_leases", lambda db_arg: {})
+    monkeypatch.setattr(
+        broker,
+        "_find_latest_claimable_entity_submission",
+        lambda db_arg, entity_type_arg, entity_id_arg: row,
+    )
+    monkeypatch.setattr(
+        broker,
+        "_lookup_taxonomy_for_entity",
+        lambda db_arg, entity_type_arg, entity_id_arg: ("org-1", 9606),
+    )
+
+    response = broker.claim_batch_entities(
+        payload=BrokerBatchClaimRequest(sample_ids=[sample_id]),
+        current_user=_broker_user(),
+        db=db,
+    )
+
+    assert response.tax_id == "9606"
+    assert len(response.entities) == 1
+    assert response.entities[0].type == BrokerEntityType.SAMPLE
+    assert response.entities[0].id == sample_id
+    assert row.status == "submitting"
+    assert db.committed is True
+
+
+def test_claims_batch_multiple_entities_same_type(monkeypatch):
+    """Test batch endpoint with multiple entities of the same type."""
+    db = FakeSession()
+    sample_id_1 = uuid4()
+    sample_id_2 = uuid4()
+    sample_id_3 = uuid4()
+
+    rows = {
+        sample_id_1: SimpleNamespace(
+            id=uuid4(),
+            sample_id=sample_id_1,
+            status="ready",
+            prepared_payload={"alias": "sample-1"},
+            accession=None,
+            project_accession=None,
+            sample_accession=None,
+            experiment_accession=None,
+        ),
+        sample_id_2: SimpleNamespace(
+            id=uuid4(),
+            sample_id=sample_id_2,
+            status="ready",
+            prepared_payload={"alias": "sample-2"},
+            accession=None,
+            project_accession=None,
+            sample_accession=None,
+            experiment_accession=None,
+        ),
+        sample_id_3: SimpleNamespace(
+            id=uuid4(),
+            sample_id=sample_id_3,
+            status="ready",
+            prepared_payload={"alias": "sample-3"},
+            accession=None,
+            project_accession=None,
+            sample_accession=None,
+            experiment_accession=None,
+        ),
+    }
+
+    def mock_find_submission(db_arg, entity_type_arg, entity_id_arg):
+        return rows.get(entity_id_arg)
+
+    monkeypatch.setattr(broker, "expire_stale_leases", lambda db_arg: {})
+    monkeypatch.setattr(broker, "_find_latest_claimable_entity_submission", mock_find_submission)
+    monkeypatch.setattr(
+        broker,
+        "_lookup_taxonomy_for_entity",
+        lambda db_arg, entity_type_arg, entity_id_arg: ("org-1", 9606),
+    )
+
+    response = broker.claim_batch_entities(
+        payload=BrokerBatchClaimRequest(sample_ids=[sample_id_1, sample_id_2, sample_id_3]),
+        current_user=_broker_user(),
+        db=db,
+    )
+
+    assert response.tax_id == "9606"
+    assert len(response.entities) == 3
+    assert all(e.type == BrokerEntityType.SAMPLE for e in response.entities)
+    assert {e.id for e in response.entities} == {sample_id_1, sample_id_2, sample_id_3}
+    assert all(rows[sid].status == "submitting" for sid in [sample_id_1, sample_id_2, sample_id_3])
+    assert db.committed is True
+
+
+def test_claims_batch_multiple_entity_types(monkeypatch):
+    """Test batch endpoint with multiple entity types in one request."""
+    db = FakeSession()
+    project_id = uuid4()
+    sample_id = uuid4()
+    experiment_id = uuid4()
+    run_id = uuid4()
+
+    rows = {
+        (BrokerEntityType.PROJECT, project_id): SimpleNamespace(
+            id=uuid4(),
+            project_id=project_id,
+            status="ready",
+            prepared_payload={"alias": "project-1"},
+            accession=None,
+            project_accession="PRJ000001",
+        ),
+        (BrokerEntityType.SAMPLE, sample_id): SimpleNamespace(
+            id=uuid4(),
+            sample_id=sample_id,
+            status="ready",
+            prepared_payload={"alias": "sample-1"},
+            accession=None,
+            project_accession=None,
+            sample_accession=None,
+            experiment_accession=None,
+        ),
+        (BrokerEntityType.EXPERIMENT, experiment_id): SimpleNamespace(
+            id=uuid4(),
+            experiment_id=experiment_id,
+            status="ready",
+            prepared_payload={"alias": "experiment-1"},
+            accession=None,
+            sample_accession="SAMEA000001",
+            project_accession=None,
+            experiment_accession=None,
+        ),
+        (BrokerEntityType.RUN, run_id): SimpleNamespace(
+            id=uuid4(),
+            read_id=run_id,
+            status="ready",
+            prepared_payload={"alias": "run-1", "file_name": "reads.fastq.gz", "file_format": "fastq"},
+            accession=None,
+            experiment_accession=None,
+        ),
+    }
+
+    def mock_find_submission(db_arg, entity_type_arg, entity_id_arg):
+        return rows.get((entity_type_arg, entity_id_arg))
+
+    monkeypatch.setattr(broker, "expire_stale_leases", lambda db_arg: {})
+    monkeypatch.setattr(broker, "_find_latest_claimable_entity_submission", mock_find_submission)
+    monkeypatch.setattr(
+        broker,
+        "_lookup_taxonomy_for_entity",
+        lambda db_arg, entity_type_arg, entity_id_arg: ("org-1", 9606),
+    )
+
+    response = broker.claim_batch_entities(
+        payload=BrokerBatchClaimRequest(
+            project_ids=[project_id],
+            sample_ids=[sample_id],
+            experiment_ids=[experiment_id],
+            run_ids=[run_id],
+        ),
+        current_user=_broker_user(),
+        db=db,
+    )
+
+    assert response.tax_id == "9606"
+    assert len(response.entities) == 4
+    entity_types = [e.type for e in response.entities]
+    assert BrokerEntityType.PROJECT in entity_types
+    assert BrokerEntityType.SAMPLE in entity_types
+    assert BrokerEntityType.EXPERIMENT in entity_types
+    assert BrokerEntityType.RUN in entity_types
+    assert db.committed is True
+
+
+def test_claims_batch_multi_organism_returns_null_tax_id(monkeypatch):
+    """Test batch endpoint with entities from different organisms returns null tax_id."""
+    db = FakeSession()
+    sample_id_1 = uuid4()
+    sample_id_2 = uuid4()
+
+    rows = {
+        sample_id_1: SimpleNamespace(
+            id=uuid4(),
+            sample_id=sample_id_1,
+            status="ready",
+            prepared_payload={"alias": "sample-1"},
+            accession=None,
+            project_accession=None,
+            sample_accession=None,
+            experiment_accession=None,
+        ),
+        sample_id_2: SimpleNamespace(
+            id=uuid4(),
+            sample_id=sample_id_2,
+            status="ready",
+            prepared_payload={"alias": "sample-2"},
+            accession=None,
+            project_accession=None,
+            sample_accession=None,
+            experiment_accession=None,
+        ),
+    }
+
+    def mock_find_submission(db_arg, entity_type_arg, entity_id_arg):
+        return rows.get(entity_id_arg)
+
+    def mock_lookup_taxonomy(db_arg, entity_type_arg, entity_id_arg):
+        # Different organisms for different samples
+        if entity_id_arg == sample_id_1:
+            return ("org-1", 9606)
+        else:
+            return ("org-2", 9685)
+
+    monkeypatch.setattr(broker, "expire_stale_leases", lambda db_arg: {})
+    monkeypatch.setattr(broker, "_find_latest_claimable_entity_submission", mock_find_submission)
+    monkeypatch.setattr(broker, "_lookup_taxonomy_for_entity", mock_lookup_taxonomy)
+
+    response = broker.claim_batch_entities(
+        payload=BrokerBatchClaimRequest(sample_ids=[sample_id_1, sample_id_2]),
+        current_user=_broker_user(),
+        db=db,
+    )
+
+    assert response.tax_id is None  # Multi-organism batch
+    assert len(response.entities) == 2
+    assert db.committed is True
+
+
+def test_claims_batch_empty_request_returns_400(monkeypatch):
+    """Test batch endpoint with no entity IDs returns 400."""
+    db = FakeSession()
+
+    monkeypatch.setattr(broker, "expire_stale_leases", lambda db_arg: {})
+
+    with pytest.raises(HTTPException) as exc_info:
+        broker.claim_batch_entities(
+            payload=BrokerBatchClaimRequest(),
+            current_user=_broker_user(),
+            db=db,
+        )
+
+    assert exc_info.value.status_code == 400
+    assert "At least one entity ID must be provided" in exc_info.value.detail
+
+
+def test_claims_batch_entity_not_found_returns_404(monkeypatch):
+    """Test batch endpoint with non-existent entity returns 404."""
+    db = FakeSession()
+    sample_id = uuid4()
+
+    monkeypatch.setattr(broker, "expire_stale_leases", lambda db_arg: {})
+    monkeypatch.setattr(
+        broker,
+        "_find_latest_claimable_entity_submission",
+        lambda db_arg, entity_type_arg, entity_id_arg: None,
+    )
+
+    with pytest.raises(HTTPException) as exc_info:
+        broker.claim_batch_entities(
+            payload=BrokerBatchClaimRequest(sample_ids=[sample_id]),
+            current_user=_broker_user(),
+            db=db,
+        )
+
+    assert exc_info.value.status_code == 404
+    assert "No claimable submission found" in exc_info.value.detail
+
+
+def test_claims_batch_entity_without_taxonomy_returns_404(monkeypatch):
+    """Test batch endpoint with entity that has no taxonomy returns 404."""
+    db = FakeSession()
+    sample_id = uuid4()
+    row = SimpleNamespace(
+        id=uuid4(),
+        sample_id=sample_id,
+        status="ready",
+        prepared_payload={"alias": "sample-1"},
+        accession=None,
+        project_accession=None,
+        sample_accession=None,
+        experiment_accession=None,
+    )
+
+    monkeypatch.setattr(broker, "expire_stale_leases", lambda db_arg: {})
+    monkeypatch.setattr(
+        broker,
+        "_find_latest_claimable_entity_submission",
+        lambda db_arg, entity_type_arg, entity_id_arg: row,
+    )
+    monkeypatch.setattr(
+        broker,
+        "_lookup_taxonomy_for_entity",
+        lambda db_arg, entity_type_arg, entity_id_arg: (None, None),
+    )
+
+    with pytest.raises(HTTPException) as exc_info:
+        broker.claim_batch_entities(
+            payload=BrokerBatchClaimRequest(sample_ids=[sample_id]),
+            current_user=_broker_user(),
+            db=db,
+        )
+
+    assert exc_info.value.status_code == 404
+    assert "Entity not found" in exc_info.value.detail

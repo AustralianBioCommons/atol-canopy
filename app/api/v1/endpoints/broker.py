@@ -19,6 +19,8 @@ from app.models.read import Read, ReadSubmission
 from app.models.sample import Sample, SampleSubmission
 from app.models.user import User
 from app.schemas.broker_contract import (
+    BrokerBatchClaimRequest,
+    BrokerBatchClaimResponse,
     BrokerClaimEntity,
     BrokerEntityType,
     BrokerFileMetadata,
@@ -818,6 +820,88 @@ def claim_specific_entity(
         attempt_id=attempt.id,
         tax_id=str(tax_id),
         entities=[_build_contract_entity(payload.entity_type, payload.entity_id, tax_id, row)],
+    )
+
+
+@router.post("/claims/batch", response_model=BrokerBatchClaimResponse)
+@policy("broker:claim")
+def claim_batch_entities(
+    *,
+    payload: BrokerBatchClaimRequest,
+    current_user: User = Depends(get_current_active_user),
+    db: Session = Depends(get_db),
+) -> BrokerBatchClaimResponse:
+    """
+    Claim multiple specific entities by their IDs.
+    Supports claiming one or more entities across different types in a single request.
+    """
+    expire_stale_leases(db)
+
+    # Collect all entity IDs with their types
+    entity_requests: List[tuple[BrokerEntityType, UUID]] = []
+    
+    for project_id in payload.project_ids:
+        entity_requests.append((BrokerEntityType.PROJECT, project_id))
+    for sample_id in payload.sample_ids:
+        entity_requests.append((BrokerEntityType.SAMPLE, sample_id))
+    for experiment_id in payload.experiment_ids:
+        entity_requests.append((BrokerEntityType.EXPERIMENT, experiment_id))
+    for run_id in payload.run_ids:
+        entity_requests.append((BrokerEntityType.RUN, run_id))
+
+    if not entity_requests:
+        raise HTTPException(status_code=400, detail="At least one entity ID must be provided")
+
+    # Find all claimable submissions
+    rows_with_metadata: List[tuple[Any, BrokerEntityType, UUID, str, int]] = []
+    
+    for entity_type, entity_id in entity_requests:
+        row = _find_latest_claimable_entity_submission(db, entity_type, entity_id)
+        if not row:
+            raise HTTPException(
+                status_code=404,
+                detail=f"No claimable submission found for {entity_type.value} {entity_id}"
+            )
+        
+        organism_key, tax_id = _lookup_taxonomy_for_entity(db, entity_type, entity_id)
+        if tax_id is None:
+            raise HTTPException(
+                status_code=404,
+                detail=f"Entity not found: {entity_type.value} {entity_id}"
+            )
+        
+        rows_with_metadata.append((row, entity_type, entity_id, organism_key, tax_id))
+
+    # Check if all entities belong to the same organism
+    unique_tax_ids = set(tax_id for _, _, _, _, tax_id in rows_with_metadata)
+    unique_organism_keys = set(org_key for _, _, _, org_key, _ in rows_with_metadata)
+    
+    # Use the first organism_key for the attempt (or None if multi-organism)
+    organism_key = rows_with_metadata[0][3] if len(unique_organism_keys) == 1 else None
+    tax_id_str = str(rows_with_metadata[0][4]) if len(unique_tax_ids) == 1 else None
+
+    # Create a single attempt for all entities
+    attempt = _create_contract_attempt(db, organism_key=organism_key)
+    now = datetime.now(timezone.utc)
+
+    # Claim all submissions and build response entities
+    entities: List[BrokerClaimEntity] = []
+    for row, entity_type, entity_id, _, tax_id in rows_with_metadata:
+        _claim_submission_row(
+            db,
+            attempt=attempt,
+            row=row,
+            entity_type="read" if entity_type == BrokerEntityType.RUN else entity_type.value,
+            now=now,
+        )
+        entities.append(_build_contract_entity(entity_type, entity_id, tax_id, row))
+
+    db.commit()
+
+    return BrokerBatchClaimResponse(
+        attempt_id=attempt.id,
+        tax_id=tax_id_str,
+        entities=entities,
     )
 
 
