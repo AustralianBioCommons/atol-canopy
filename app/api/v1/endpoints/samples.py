@@ -32,6 +32,21 @@ from app.utils.mapping import to_float
 router = APIRouter()
 
 
+def _get_genomic_data_project_id(db: Session, organism_key: str) -> UUID:
+    """Get the genomic_data project ID for an organism."""
+    project = (
+        db.query(Project)
+        .filter(Project.organism_key == organism_key, Project.project_type == "genomic_data")
+        .first()
+    )
+    if not project:
+        raise HTTPException(
+            status_code=404,
+            detail=f"No genomic_data project found for organism {organism_key}"
+        )
+    return project.id
+
+
 @router.get("/", response_model=List[SampleSchema])
 def read_samples(
     db: Session = Depends(get_db),
@@ -231,12 +246,16 @@ def create_sample(
         if atol_key in sample_data:
             prepared_payload[ena_key] = sample_data[atol_key]
 
+    # Get project_id for this organism
+    project_id = _get_genomic_data_project_id(db, sample.organism_key)
+    
     sample_submission = SampleSubmission(
         sample_id=sample_id,
         authority=sample_in.authority,
         entity_type_const="sample",
         prepared_payload=prepared_payload,
         status=SubmissionStatus.DRAFT,
+        project_id=project_id,
     )
     db.add(sample_submission)
     db.commit()
@@ -343,6 +362,9 @@ def _create_sample_with_submission(
             if atol_key in sample_data:
                 prepared_payload[ena_key] = sample_data[atol_key]
 
+    # Get project_id for this organism
+    project_id = _get_genomic_data_project_id(db, organism_key)
+    
     # Create sample_submission record
     sample_submission = SampleSubmission(
         id=uuid.uuid4(),
@@ -350,6 +372,7 @@ def _create_sample_with_submission(
         authority="ENA",
         entity_type_const="sample",
         prepared_payload=prepared_payload,
+        project_id=project_id,
     )
 
     return sample, sample_submission
@@ -658,12 +681,14 @@ def update_sample(
         new_sample_submission = None
         latest_sample_submission = {}
         if not sample_submission:
+            project_id = _get_genomic_data_project_id(db, sample.organism_key)
             new_sample_submission = SampleSubmission(
                 sample_id=sample_id,
-                authority=sample_submission.authority,
+                authority="ENA",
                 entity_type_const="sample",
                 prepared_payload=prepared_payload,
                 status="draft",
+                project_id=project_id,
             )
             db.add(new_sample_submission)
         else:
@@ -680,6 +705,7 @@ def update_sample(
             ):
                 # leave the old record for logs and create a new record
                 # retain accessions if they exist (accessions may not exist if status is 'rejected' and the sample has not successfully been submitted in the past)
+                project_id = _get_genomic_data_project_id(db, sample.organism_key)
                 new_sample_submission = SampleSubmission(
                     sample_id=sample_id,
                     authority=sample_submission.authority,
@@ -689,6 +715,7 @@ def update_sample(
                     accession=sample_submission.accession,
                     biosample_accession=sample_submission.biosample_accession,
                     status="draft",
+                    project_id=project_id,
                 )
                 db.add(new_sample_submission)
 
@@ -697,6 +724,7 @@ def update_sample(
                 # retain accessions
                 setattr(latest_sample_submission, "status", "replaced")
                 db.add(latest_sample_submission)
+                project_id = _get_genomic_data_project_id(db, sample.organism_key)
                 new_sample_submission = SampleSubmission(
                     sample_id=sample_id,
                     authority=sample_submission.authority,
@@ -706,6 +734,7 @@ def update_sample(
                     accession=sample_submission.accession,
                     biosample_accession=sample_submission.biosample_accession,
                     status="draft",
+                    project_id=project_id,
                 )
                 db.add(new_sample_submission)
             elif (
@@ -906,6 +935,9 @@ def bulk_import_samples(
                 if atol_key in sample_data:
                     prepared_payload[ena_key] = sample_data[atol_key]
 
+            # Get project_id for this organism
+            project_id = _get_genomic_data_project_id(db, organism_key)
+            
             # Create sample_submission record
             sample_submission = SampleSubmission(
                 id=uuid.uuid4(),
@@ -913,6 +945,7 @@ def bulk_import_samples(
                 authority="ENA",
                 entity_type_const="sample",
                 prepared_payload=prepared_payload,
+                project_id=project_id,
             )
             db.add(sample_submission)
 

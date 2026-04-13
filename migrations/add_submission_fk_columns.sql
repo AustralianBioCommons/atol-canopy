@@ -2,9 +2,9 @@
 -- This migration adds foreign key columns to link submissions to their prerequisite entities
 -- Accessions will be looked up from accession_registry instead of being denormalized
 
--- Step 1: Add project_id FK to sample_submission
+-- Step 1: Add project_id FK to sample_submission (if it doesn't exist)
 ALTER TABLE sample_submission
-  ADD COLUMN project_id UUID REFERENCES project(id);
+  ADD COLUMN IF NOT EXISTS project_id UUID REFERENCES project(id);
 
 -- Step 2: Backfill project_id from organism's genomic_data project
 UPDATE sample_submission ss
