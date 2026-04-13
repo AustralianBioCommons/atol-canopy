@@ -17,12 +17,25 @@ from app.schemas.broker_contract import (
 )
 
 
+class FakeQuery:
+    """Mock query object for FakeSession."""
+    def __init__(self, result=None):
+        self._result = result
+    
+    def filter(self, *args, **kwargs):
+        return self
+    
+    def scalar(self):
+        return self._result
+
+
 class FakeSession:
     def __init__(self):
         self.added = []
         self.committed = False
         self.flushed = False
         self.executed = []
+        self._accession_lookups = {}  # Map of (entity_type, entity_id) -> accession
 
     def add(self, obj):
         if getattr(obj, "id", None) is None:
@@ -40,6 +53,10 @@ class FakeSession:
 
     def execute(self, stmt):
         self.executed.append(stmt)
+    
+    def query(self, *args):
+        """Mock query method that returns None by default (no accessions found)."""
+        return FakeQuery(result=None)
 
 
 def _broker_user():
@@ -58,37 +75,41 @@ def test_claims_ready_returns_flat_entity_contract(monkeypatch):
         project_id=project_id,
         status="ready",
         prepared_payload={"alias": "project-1"},
-        project_accession="PRJ000001",  # This is where the accession actually lives
         accession=None,
+        authority="ENA",
     )
     sample_row = SimpleNamespace(
         id=uuid4(),
         sample_id=sample_id,
+        project_id=project_id,  # FK to project
         status="ready",
         prepared_payload={
             "alias": "sample-1",
             "requires_project_accession": True,
             "expected_project_accession": "PRJ000001",  # Required but may not exist yet
         },
-        project_accession=None,  # Will be populated when project is submitted
         accession=None,
+        authority="ENA",
     )
     experiment_row = SimpleNamespace(
         id=uuid4(),
         experiment_id=experiment_id,
+        sample_id=sample_id,  # FK to sample
+        project_id=project_id,  # FK to project
         status="ready",
         prepared_payload={
             "alias": "experiment-1",
             "requires_study_accession": True,
             "expected_study_accession": "PRJ000001",  # Required but not yet submitted
         },
-        sample_accession="SAMEA000001",  # This exists
-        project_accession=None,  # Missing in DB
         accession=None,
+        authority="ENA",
     )
     run_row = SimpleNamespace(
         id=uuid4(),
         read_id=run_id,
+        experiment_id=experiment_id,  # FK to experiment
+        project_id=project_id,  # FK to project
         status="ready",
         prepared_payload={
             "alias": "run-1",
@@ -96,8 +117,8 @@ def test_claims_ready_returns_flat_entity_contract(monkeypatch):
             "file_format": "fastq",
             "expected_experiment_accession": "ERX000001",  # Required but not submitted
         },
-        experiment_accession=None,  # Missing in DB
         accession=None,
+        authority="ENA",
     )
 
     monkeypatch.setattr(broker, "expire_stale_leases", lambda db_arg: {})
@@ -131,23 +152,22 @@ def test_claims_ready_returns_flat_entity_contract(monkeypatch):
         BrokerEntityType.EXPERIMENT,
         BrokerEntityType.RUN,
     ]
-    assert (
-        response.entities[0].prerequisites.project_accession == "PRJ000001"
-    )  # Project has accession
-    assert response.entities[0].prerequisites.required_project_accession is None
+    # With normalized lookups, accessions are None unless they exist in accession_registry
+    # Projects don't have prerequisite accessions
+    assert response.entities[0].prerequisites is None  # No prerequisites for projects
 
     assert (
         response.entities[1].prerequisites.project_accession is None
-    )  # Sample missing project accession
+    )  # Sample - project not yet submitted to registry
     assert (
         response.entities[1].prerequisites.required_project_accession == "PRJ000001"
     )  # Required but not submitted
     assert response.entities[1].validation_hints.requires_project_accession is True
 
     assert (
-        response.entities[2].prerequisites.sample_accession == "SAMEA000001"
-    )  # Has sample accession
-    assert response.entities[2].prerequisites.study_accession is None  # Missing study accession
+        response.entities[2].prerequisites.sample_accession is None
+    )  # Experiment - sample not in registry
+    assert response.entities[2].prerequisites.study_accession is None  # Project not in registry
     assert (
         response.entities[2].prerequisites.required_study_accession == "PRJ000001"
     )  # Required but not submitted
@@ -530,7 +550,11 @@ def test_claims_batch_multiple_entity_types(monkeypatch):
             id=uuid4(),
             read_id=run_id,
             status="ready",
-            prepared_payload={"alias": "run-1", "file_name": "reads.fastq.gz", "file_format": "fastq"},
+            prepared_payload={
+                "alias": "run-1",
+                "file_name": "reads.fastq.gz",
+                "file_format": "fastq",
+            },
             accession=None,
             experiment_accession=None,
         ),

@@ -171,19 +171,39 @@ def _as_payload(payload: Any) -> Dict[str, Any]:
     return {}
 
 
+def _get_accession_for_entity(
+    db: Session, entity_type: str, entity_id: UUID, authority: str
+) -> Optional[str]:
+    """Lookup accession from accession_registry for a given entity."""
+    if not entity_id:
+        return None
+    return (
+        db.query(AccessionRegistry.accession)
+        .filter(
+            AccessionRegistry.entity_type == entity_type,
+            AccessionRegistry.entity_id == entity_id,
+            AccessionRegistry.authority == authority,
+        )
+        .scalar()
+    )
+
+
 def _extract_broker_prerequisites(
-    entity_type: BrokerEntityType | str, prepared_payload: Dict[str, Any], row: Any
+    db: Session, entity_type: BrokerEntityType | str, prepared_payload: Dict[str, Any], row: Any
 ) -> BrokerPrerequisites:
     entity_type = _coerce_entity_type(entity_type)
+    authority = getattr(row, "authority", "ENA")
 
-    # Existing accessions (from database row fields - these are the actual accessions)
-    project_accession = getattr(row, "project_accession", None)
-    sample_accession = getattr(row, "sample_accession", None)
-    experiment_accession = getattr(row, "experiment_accession", None)
+    # Lookup existing accessions from accession_registry via FK relationships
+    project_id = getattr(row, "project_id", None)
+    sample_id = getattr(row, "sample_id", None)
+    experiment_id = getattr(row, "experiment_id", None)
+    
+    project_accession = _get_accession_for_entity(db, "project", project_id, authority)
+    sample_accession = _get_accession_for_entity(db, "sample", sample_id, authority)
+    experiment_accession = _get_accession_for_entity(db, "experiment", experiment_id, authority)
     run_accession = getattr(row, "accession", None) if entity_type == BrokerEntityType.RUN else None
-    study_accession = (
-        project_accession  # For projects, study_accession is the same as project_accession
-    )
+    study_accession = project_accession  # For projects, study_accession is the same as project_accession
     analysis_accession = prepared_payload.get("analysis_accession")  # This might only be in payload
 
     # Required accessions (from payload, may not exist yet)
@@ -274,11 +294,11 @@ def _extract_run_files(prepared_payload: Dict[str, Any]) -> Optional[List[Broker
 
 
 def _build_contract_entity(
-    entity_type: BrokerEntityType | str, entity_id: UUID, tax_id: str | int, row: Any
+    db: Session, entity_type: BrokerEntityType | str, entity_id: UUID, tax_id: str | int, row: Any
 ) -> BrokerClaimEntity:
     entity_type = _coerce_entity_type(entity_type)
     prepared_payload = _as_payload(getattr(row, "prepared_payload", None))
-    prerequisites = _extract_broker_prerequisites(entity_type, prepared_payload, row)
+    prerequisites = _extract_broker_prerequisites(db, entity_type, prepared_payload, row)
     validation_hints = _extract_validation_hints(entity_type, prepared_payload, row)
     files = _extract_run_files(prepared_payload) if entity_type == BrokerEntityType.RUN else None
 
@@ -762,19 +782,19 @@ def claim_ready_entities(
     for row in project_rows:
         _claim_submission_row(db, attempt=attempt, row=row, entity_type="project", now=now)
         entities.append(
-            _build_contract_entity(BrokerEntityType.PROJECT, row.project_id, tax_id, row)
+            _build_contract_entity(db, BrokerEntityType.PROJECT, row.project_id, tax_id, row)
         )
     for row in sample_rows:
         _claim_submission_row(db, attempt=attempt, row=row, entity_type="sample", now=now)
-        entities.append(_build_contract_entity(BrokerEntityType.SAMPLE, row.sample_id, tax_id, row))
+        entities.append(_build_contract_entity(db, BrokerEntityType.SAMPLE, row.sample_id, tax_id, row))
     for row in experiment_rows:
         _claim_submission_row(db, attempt=attempt, row=row, entity_type="experiment", now=now)
         entities.append(
-            _build_contract_entity(BrokerEntityType.EXPERIMENT, row.experiment_id, tax_id, row)
+            _build_contract_entity(db, BrokerEntityType.EXPERIMENT, row.experiment_id, tax_id, row)
         )
     for row in run_rows:
         _claim_submission_row(db, attempt=attempt, row=row, entity_type="read", now=now)
-        entities.append(_build_contract_entity(BrokerEntityType.RUN, row.read_id, tax_id, row))
+        entities.append(_build_contract_entity(db, BrokerEntityType.RUN, row.read_id, tax_id, row))
 
     db.commit()
 
@@ -819,7 +839,7 @@ def claim_specific_entity(
     return BrokerTargetedClaimResponse(
         attempt_id=attempt.id,
         tax_id=str(tax_id),
-        entities=[_build_contract_entity(payload.entity_type, payload.entity_id, tax_id, row)],
+        entities=[_build_contract_entity(db, payload.entity_type, payload.entity_id, tax_id, row)],
     )
 
 
@@ -839,7 +859,7 @@ def claim_batch_entities(
 
     # Collect all entity IDs with their types
     entity_requests: List[tuple[BrokerEntityType, UUID]] = []
-    
+
     for project_id in payload.project_ids:
         entity_requests.append((BrokerEntityType.PROJECT, project_id))
     for sample_id in payload.sample_ids:
@@ -854,28 +874,27 @@ def claim_batch_entities(
 
     # Find all claimable submissions
     rows_with_metadata: List[tuple[Any, BrokerEntityType, UUID, str, int]] = []
-    
+
     for entity_type, entity_id in entity_requests:
         row = _find_latest_claimable_entity_submission(db, entity_type, entity_id)
         if not row:
             raise HTTPException(
                 status_code=404,
-                detail=f"No claimable submission found for {entity_type.value} {entity_id}"
+                detail=f"No claimable submission found for {entity_type.value} {entity_id}",
             )
-        
+
         organism_key, tax_id = _lookup_taxonomy_for_entity(db, entity_type, entity_id)
         if tax_id is None:
             raise HTTPException(
-                status_code=404,
-                detail=f"Entity not found: {entity_type.value} {entity_id}"
+                status_code=404, detail=f"Entity not found: {entity_type.value} {entity_id}"
             )
-        
+
         rows_with_metadata.append((row, entity_type, entity_id, organism_key, tax_id))
 
     # Check if all entities belong to the same organism
     unique_tax_ids = set(tax_id for _, _, _, _, tax_id in rows_with_metadata)
     unique_organism_keys = set(org_key for _, _, _, org_key, _ in rows_with_metadata)
-    
+
     # Use the first organism_key for the attempt (or None if multi-organism)
     organism_key = rows_with_metadata[0][3] if len(unique_organism_keys) == 1 else None
     tax_id_str = str(rows_with_metadata[0][4]) if len(unique_tax_ids) == 1 else None
@@ -894,7 +913,7 @@ def claim_batch_entities(
             entity_type="read" if entity_type == BrokerEntityType.RUN else entity_type.value,
             now=now,
         )
-        entities.append(_build_contract_entity(entity_type, entity_id, tax_id, row))
+        entities.append(_build_contract_entity(db, entity_type, entity_id, tax_id, row))
 
     db.commit()
 
@@ -919,7 +938,7 @@ def validate_entity_submission(
 
     _, tax_id = _lookup_taxonomy_for_entity(db, payload.entity_type, payload.entity_id)
     claimed_entity = _build_contract_entity(
-        payload.entity_type, payload.entity_id, tax_id or "", row
+        db, payload.entity_type, payload.entity_id, tax_id or "", row
     )
     return _validate_contract_entity(claimed_entity, payload.overrides)
 

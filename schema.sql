@@ -269,6 +269,9 @@ CREATE TABLE sample_submission (
     -- constant to help the composite FK
     entity_type_const entity_type NOT NULL DEFAULT 'sample' CHECK (entity_type_const = 'sample'),
 
+    -- prerequisite FK (for normalized accession lookups)
+    project_id UUID NOT NULL REFERENCES project(id),
+
     -- attempt linkage
     attempt_id UUID,
     finalised_attempt_id UUID,
@@ -294,6 +297,7 @@ CREATE INDEX IF NOT EXISTS idx_sample_submission_attempt ON sample_submission (a
 CREATE INDEX IF NOT EXISTS idx_sample_submission_finalised_attempt ON sample_submission (finalised_attempt_id);
 CREATE INDEX IF NOT EXISTS idx_sample_submission_status ON sample_submission (status);
 CREATE INDEX IF NOT EXISTS idx_sample_submission_lock_expires_at ON sample_submission (lock_expires_at);
+CREATE INDEX IF NOT EXISTS idx_sample_submission_project_id ON sample_submission (project_id);
 
 -- Support parent/child lookups for derived samples
 CREATE INDEX IF NOT EXISTS idx_sample_derived_from_sample_id ON sample(derived_from_sample_id);
@@ -362,12 +366,8 @@ CREATE TABLE experiment_submission (
     authority authority_type NOT NULL DEFAULT 'ENA',
     status submission_status NOT NULL DEFAULT 'draft',
 
-    sample_id UUID REFERENCES sample(id) NOT NULL, -- nullable if sample doesn't exist yet? or are we happy to have the constraint that a sample & project needs to exist before we create an experiment, probs
-    project_id UUID REFERENCES project(id),
-    -- TO DO do we even need this ? I don't think so
-
-    project_accession TEXT,
-    sample_accession TEXT,
+    sample_id UUID NOT NULL REFERENCES sample(id),
+    project_id UUID REFERENCES project(id),  -- Nullable, derived via sample->project if needed
 
     prepared_payload JSONB,
     response_payload JSONB,
@@ -392,15 +392,7 @@ CREATE TABLE experiment_submission (
   CONSTRAINT fk_self_accession
     FOREIGN KEY (accession, authority, entity_type_const, experiment_id)
     REFERENCES accession_registry (accession, authority, entity_type, entity_id)
-    DEFERRABLE INITIALLY DEFERRED,
-
-  -- Upstream accessions also validated (drafts allowed to be NULL):
-  CONSTRAINT fk_proj_acc
-    FOREIGN KEY (project_accession, authority)
-    REFERENCES accession_registry (accession, authority),
-  CONSTRAINT fk_samp_acc
-    FOREIGN KEY (sample_accession, authority)
-    REFERENCES accession_registry (accession, authority)
+    DEFERRABLE INITIALLY DEFERRED
 );
 
 -- Broker lease/claim index
@@ -456,9 +448,7 @@ CREATE TABLE read_submission (
     response_payload JSONB,
 
     experiment_id UUID NOT NULL REFERENCES experiment(id) ON DELETE CASCADE,
-    project_id UUID REFERENCES project(id),
-
-    experiment_accession TEXT,
+    project_id UUID REFERENCES project(id),  -- Nullable, derived via experiment->sample->project if needed
 
     accession TEXT,
 
@@ -480,12 +470,7 @@ CREATE TABLE read_submission (
   CONSTRAINT fk_self_accession
     FOREIGN KEY (accession, authority, entity_type_const, read_id)
     REFERENCES accession_registry (accession, authority, entity_type, entity_id)
-    DEFERRABLE INITIALLY DEFERRED,
-
-  -- Upstream accessions also validated (drafts allowed to be NULL):
-  CONSTRAINT fk_exp_acc
-    FOREIGN KEY (experiment_accession, authority)
-    REFERENCES accession_registry (accession, authority)
+    DEFERRABLE INITIALLY DEFERRED
 );
 
 CREATE UNIQUE INDEX uq_read_one_accepted

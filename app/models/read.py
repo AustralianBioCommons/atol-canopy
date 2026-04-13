@@ -107,8 +107,6 @@ class ReadSubmission(Base):
         UUID(as_uuid=True), ForeignKey("project.id", ondelete="SET NULL"), nullable=True
     )
 
-    experiment_accession = Column(Text, nullable=True)
-
     accession = Column(Text, nullable=True)
 
     # Constant to help the composite FK
@@ -153,12 +151,6 @@ class ReadSubmission(Base):
             name="fk_self_accession",
             deferrable=True,
             initially="DEFERRED",
-        ),
-        # Foreign key constraint for experiment accession
-        ForeignKeyConstraint(
-            ["experiment_accession", "authority"],
-            ["accession_registry.accession", "accession_registry.authority"],
-            name="fk_exp_acc",
         ),
         # This is a simplified version of the SQL constraint:
         # UNIQUE (read_id, authority) WHERE (status = 'accepted' AND accession IS NOT NULL)

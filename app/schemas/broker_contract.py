@@ -22,7 +22,7 @@ class BrokerPrerequisites(BaseModel):
     run_accession: Optional[str] = None
     study_accession: Optional[str] = None
     analysis_accession: Optional[str] = None
-    
+
     # Required accessions (needed but may not exist yet)
     required_project_accession: Optional[str] = None
     required_sample_accession: Optional[str] = None

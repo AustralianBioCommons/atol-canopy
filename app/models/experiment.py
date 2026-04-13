@@ -98,9 +98,6 @@ class ExperimentSubmission(Base):
         UUID(as_uuid=True), ForeignKey("project.id", ondelete="SET NULL"), nullable=True
     )
 
-    project_accession = Column(Text, nullable=True)
-    sample_accession = Column(Text, nullable=True)
-
     prepared_payload = Column(JSONB, nullable=True)
     response_payload = Column(JSONB, nullable=True)
     accession = Column(Text, nullable=True)
@@ -149,18 +146,6 @@ class ExperimentSubmission(Base):
             name="fk_self_accession",
             deferrable=True,
             initially="DEFERRED",
-        ),
-        # Foreign key constraint for project accession
-        ForeignKeyConstraint(
-            ["project_accession", "authority"],
-            ["accession_registry.accession", "accession_registry.authority"],
-            name="fk_proj_acc",
-        ),
-        # Foreign key constraint for sample accession
-        ForeignKeyConstraint(
-            ["sample_accession", "authority"],
-            ["accession_registry.accession", "accession_registry.authority"],
-            name="fk_samp_acc",
         ),
         # This is a simplified version of the SQL constraint:
         # UNIQUE (experiment_id, authority) WHERE (status = 'accepted' AND accession IS NOT NULL)

@@ -14,6 +14,7 @@ from app.core.pagination import Pagination, apply_pagination, pagination_params
 from app.core.policy import policy
 from app.models.experiment import Experiment
 from app.models.organism import Organism
+from app.models.project import Project
 from app.models.sample import Sample, SampleSubmission
 from app.models.user import User
 from app.schemas.bulk_import import BulkImportResponse, BulkSampleImport

@@ -128,6 +128,10 @@ class SampleSubmission(Base):
     accession = Column(Text, nullable=True)
     biosample_accession = Column(Text, nullable=True)
     entity_type_const = Column(Text, nullable=False, default="sample", server_default="sample")
+    
+    # Prerequisite FK (for normalized accession lookups)
+    project_id = Column(UUID(as_uuid=True), ForeignKey("project.id"), nullable=False)
+    
     submitted_at = Column(DateTime(timezone=True), nullable=True)
     created_at = Column(DateTime(timezone=True), nullable=False, server_default=func.now())
     updated_at = Column(
