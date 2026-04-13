@@ -198,12 +198,14 @@ def _extract_broker_prerequisites(
     project_id = getattr(row, "project_id", None)
     sample_id = getattr(row, "sample_id", None)
     experiment_id = getattr(row, "experiment_id", None)
-    
+
     project_accession = _get_accession_for_entity(db, "project", project_id, authority)
     sample_accession = _get_accession_for_entity(db, "sample", sample_id, authority)
     experiment_accession = _get_accession_for_entity(db, "experiment", experiment_id, authority)
     run_accession = getattr(row, "accession", None) if entity_type == BrokerEntityType.RUN else None
-    study_accession = project_accession  # For projects, study_accession is the same as project_accession
+    study_accession = (
+        project_accession  # For projects, study_accession is the same as project_accession
+    )
     analysis_accession = prepared_payload.get("analysis_accession")  # This might only be in payload
 
     # Required accessions (from payload, may not exist yet)
@@ -786,7 +788,9 @@ def claim_ready_entities(
         )
     for row in sample_rows:
         _claim_submission_row(db, attempt=attempt, row=row, entity_type="sample", now=now)
-        entities.append(_build_contract_entity(db, BrokerEntityType.SAMPLE, row.sample_id, tax_id, row))
+        entities.append(
+            _build_contract_entity(db, BrokerEntityType.SAMPLE, row.sample_id, tax_id, row)
+        )
     for row in experiment_rows:
         _claim_submission_row(db, attempt=attempt, row=row, entity_type="experiment", now=now)
         entities.append(

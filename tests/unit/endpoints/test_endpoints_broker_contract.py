@@ -19,12 +19,13 @@ from app.schemas.broker_contract import (
 
 class FakeQuery:
     """Mock query object for FakeSession."""
+
     def __init__(self, result=None):
         self._result = result
-    
+
     def filter(self, *args, **kwargs):
         return self
-    
+
     def scalar(self):
         return self._result
 
@@ -53,7 +54,7 @@ class FakeSession:
 
     def execute(self, stmt):
         self.executed.append(stmt)
-    
+
     def query(self, *args):
         """Mock query method that returns None by default (no accessions found)."""
         return FakeQuery(result=None)
