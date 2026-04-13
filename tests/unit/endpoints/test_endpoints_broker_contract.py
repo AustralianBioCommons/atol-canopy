@@ -186,6 +186,52 @@ def test_claims_ready_returns_flat_entity_contract(monkeypatch):
     assert db.committed is True
 
 
+def test_project_entities_never_return_prerequisites_even_if_registry_has_accession(monkeypatch):
+    db = FakeSession()
+    project_id = uuid4()
+
+    project_row = SimpleNamespace(
+        id=uuid4(),
+        project_id=project_id,
+        status="ready",
+        prepared_payload={"alias": "project-1"},
+        accession=None,
+        authority="ENA",
+    )
+
+    monkeypatch.setattr(broker, "expire_stale_leases", lambda db_arg: {})
+    monkeypatch.setattr(
+        broker,
+        "_find_latest_claimable_entity_submission",
+        lambda db_arg, entity_type_arg, entity_id_arg: project_row,
+    )
+    monkeypatch.setattr(
+        broker,
+        "_lookup_taxonomy_for_entity",
+        lambda db_arg, entity_type_arg, entity_id_arg: ("org-1", 9606),
+    )
+
+    # If prerequisites were calculated for projects, we'd see them here.
+    # This simulates a (possibly incorrect) accession_registry hit.
+    def _fake_prereqs(db_arg, entity_type_arg, prepared_payload_arg, row_arg):
+        return broker.BrokerPrerequisites(
+            project_accession="PRJEB99999",
+            study_accession="PRJEB99999",
+        )
+
+    monkeypatch.setattr(broker, "_extract_broker_prerequisites", _fake_prereqs)
+
+    response = broker.claim_batch_entities(
+        payload=BrokerBatchClaimRequest(project_ids=[project_id]),
+        current_user=_broker_user(),
+        db=db,
+    )
+
+    assert len(response.entities) == 1
+    assert response.entities[0].type == BrokerEntityType.PROJECT
+    assert response.entities[0].prerequisites is None
+
+
 @pytest.mark.parametrize(
     ("entity_type", "row_attr"),
     [
@@ -339,7 +385,8 @@ def test_reports_attempt_acceptance(monkeypatch):
                     entity_type=BrokerEntityType.SAMPLE,
                     entity_id=entity_id,
                     status="completed",
-                    accession="SAMEA000001",
+                    accession="ERS000001",
+                    secondary_accession="SAMEA000001",
                     receipt_path=None,
                     message=None,
                     errors=[],

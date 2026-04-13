@@ -300,7 +300,9 @@ def _build_contract_entity(
 ) -> BrokerClaimEntity:
     entity_type = _coerce_entity_type(entity_type)
     prepared_payload = _as_payload(getattr(row, "prepared_payload", None))
-    prerequisites = _extract_broker_prerequisites(db, entity_type, prepared_payload, row)
+    prerequisites = None
+    if entity_type != BrokerEntityType.PROJECT:
+        prerequisites = _extract_broker_prerequisites(db, entity_type, prepared_payload, row)
     validation_hints = _extract_validation_hints(entity_type, prepared_payload, row)
     files = _extract_run_files(prepared_payload) if entity_type == BrokerEntityType.RUN else None
 
@@ -712,7 +714,11 @@ def _find_submission_for_attempt(
 
 
 def _register_submission_accession(
-    db: Session, entity_type: BrokerEntityType | str, row: Any, accession: Optional[str]
+    db: Session,
+    entity_type: BrokerEntityType | str,
+    row: Any,
+    accession: Optional[str],
+    secondary_accession: Optional[str] = None,
 ) -> None:
     entity_type = _coerce_entity_type(entity_type)
     if not accession:
@@ -737,6 +743,7 @@ def _register_submission_accession(
     stmt = insert(AccessionRegistry).values(
         authority=getattr(row, "authority", None) or "ENA",
         accession=accession,
+        secondary_accession=secondary_accession,
         entity_type=registry_entity_type,
         entity_id=registry_entity_id,
         accepted_at=datetime.now(timezone.utc),
@@ -980,14 +987,17 @@ def report_submission_outcomes(
                 "errors": result.errors,
             }
         
-        # Handle primary accession
+        # Handle accessions
         if result.accession:
             row.accession = result.accession
-            _register_submission_accession(db, result.entity_type, row, result.accession)
+            # Register both primary and secondary accessions in accession_registry
+            _register_submission_accession(
+                db, result.entity_type, row, result.accession, result.secondary_accession
+            )
         
-        # Handle biosample_accession for samples
-        if result.biosample_accession and hasattr(row, 'biosample_accession'):
-            row.biosample_accession = result.biosample_accession
+        # Store secondary accession (public accession) in biosample_accession field for samples
+        if result.secondary_accession and hasattr(row, 'biosample_accession'):
+            row.biosample_accession = result.secondary_accession
 
         if row.status != "submitting":
             row.attempt_id = None
