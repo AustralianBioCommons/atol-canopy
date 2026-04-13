@@ -336,10 +336,9 @@ def test_reports_attempt_acceptance(monkeypatch):
             tax_id=9606,
             results=[
                 BrokerReportRecord(
-                    attempt_id=attempt_id,
                     entity_type=BrokerEntityType.SAMPLE,
                     entity_id=entity_id,
-                    state="completed",
+                    status="completed",
                     accession="SAMEA000001",
                     receipt_path=None,
                     message=None,

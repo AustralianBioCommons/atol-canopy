@@ -962,24 +962,32 @@ def report_submission_outcomes(
         raise HTTPException(status_code=400, detail="results must contain at least one record")
 
     for result in payload.results:
-        if result.attempt_id != attempt_id:
-            raise HTTPException(status_code=409, detail="result attempt_id must match path")
-
         row = _find_submission_for_attempt(db, result.entity_type, result.entity_id, attempt_id)
         if not row:
             raise HTTPException(status_code=404, detail="Submission attempt item not found")
         if row.status != "submitting":
             raise HTTPException(status_code=409, detail="Submission is not in submitting state")
 
-        row.status = _map_report_state_to_submission_status(result.state)
-        row.response_payload = {
-            "receipt_path": result.receipt_path,
-            "message": result.message,
-            "errors": result.errors,
-        }
+        row.status = _map_report_state_to_submission_status(result.status)
+        
+        # Build response payload from provided fields or use full response_payload if provided
+        if result.response_payload:
+            row.response_payload = result.response_payload
+        else:
+            row.response_payload = {
+                "receipt_path": result.receipt_path,
+                "message": result.message,
+                "errors": result.errors,
+            }
+        
+        # Handle primary accession
         if result.accession:
             row.accession = result.accession
             _register_submission_accession(db, result.entity_type, row, result.accession)
+        
+        # Handle biosample_accession for samples
+        if result.biosample_accession and hasattr(row, 'biosample_accession'):
+            row.biosample_accession = result.biosample_accession
 
         if row.status != "submitting":
             row.attempt_id = None

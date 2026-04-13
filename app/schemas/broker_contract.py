@@ -114,14 +114,15 @@ class BrokerValidationResponse(BaseModel):
 class BrokerReportRecord(BaseModel):
     model_config = ConfigDict(use_enum_values=True)
 
-    attempt_id: UUID
     entity_type: BrokerEntityType
     entity_id: UUID
-    state: str
+    status: str  # "completed"/"accepted"/"success" -> accepted, "failed"/"rejected"/"error" -> rejected
     accession: Optional[str] = None
+    biosample_accession: Optional[str] = None  # For samples: secondary BioSample accession
     receipt_path: Optional[str] = None
     message: Optional[str] = None
     errors: List[Any] = Field(default_factory=list)
+    response_payload: Optional[Dict[str, Any]] = None  # Full ENA response
 
 
 class BrokerReportRequest(BaseModel):
