@@ -173,17 +173,17 @@ def _extract_broker_prerequisites(
     entity_type: BrokerEntityType | str, prepared_payload: Dict[str, Any], row: Any
 ) -> BrokerPrerequisites:
     entity_type = _coerce_entity_type(entity_type)
-    
-    # Existing accessions (from DB row or payload)
-    project_accession = _first_present_value(
-        getattr(row, "project_accession", None),
-        prepared_payload.get("project_accession"),
+
+    # Existing accessions (from database row fields - these are the actual accessions)
+    project_accession = getattr(row, "project_accession", None)
+    sample_accession = getattr(row, "sample_accession", None)
+    experiment_accession = getattr(row, "experiment_accession", None)
+    run_accession = getattr(row, "accession", None) if entity_type == BrokerEntityType.RUN else None
+    study_accession = (
+        project_accession  # For projects, study_accession is the same as project_accession
     )
-    study_accession = _first_present_value(
-        prepared_payload.get("study_accession"),
-        project_accession,
-    )
-    
+    analysis_accession = prepared_payload.get("analysis_accession")  # This might only be in payload
+
     # Required accessions (from payload, may not exist yet)
     # These help clients know what needs to be submitted first
     required_project_accession = None
@@ -192,45 +192,35 @@ def _extract_broker_prerequisites(
     required_run_accession = None
     required_study_accession = None
     required_analysis_accession = None
-    
+
     # Extract required accessions based on entity type and payload hints
     if entity_type == BrokerEntityType.SAMPLE:
         if prepared_payload.get("requires_project_accession") and not project_accession:
-            required_project_accession = prepared_payload.get("expected_project_accession") or prepared_payload.get("project_accession")
-    
+            required_project_accession = prepared_payload.get("expected_project_accession")
+
     elif entity_type == BrokerEntityType.EXPERIMENT:
         # Experiments always require sample accession
-        if not _first_present_value(getattr(row, "sample_accession", None), prepared_payload.get("sample_accession")):
-            required_sample_accession = prepared_payload.get("expected_sample_accession") or prepared_payload.get("sample_accession")
-        
+        if not sample_accession:
+            required_sample_accession = prepared_payload.get("expected_sample_accession")
+
         # May require project/study accessions
         if prepared_payload.get("requires_study_accession") and not study_accession:
-            required_study_accession = prepared_payload.get("expected_study_accession") or prepared_payload.get("study_accession")
-    
+            required_study_accession = prepared_payload.get("expected_study_accession")
+
     elif entity_type == BrokerEntityType.RUN:
         # Runs always require experiment accession
-        if not _first_present_value(getattr(row, "experiment_accession", None), prepared_payload.get("experiment_accession")):
-            required_experiment_accession = prepared_payload.get("expected_experiment_accession") or prepared_payload.get("experiment_accession")
-    
+        if not experiment_accession:
+            required_experiment_accession = prepared_payload.get("expected_experiment_accession")
+
     return BrokerPrerequisites(
-        # Existing accessions
+        # Existing accessions (from database)
         project_accession=project_accession,
-        sample_accession=_first_present_value(
-            getattr(row, "sample_accession", None),
-            prepared_payload.get("sample_accession"),
-        ),
-        experiment_accession=_first_present_value(
-            getattr(row, "experiment_accession", None),
-            prepared_payload.get("experiment_accession"),
-        ),
-        run_accession=_first_present_value(
-            getattr(row, "accession", None) if entity_type == BrokerEntityType.RUN else None,
-            prepared_payload.get("run_accession"),
-        ),
+        sample_accession=sample_accession,
+        experiment_accession=experiment_accession,
+        run_accession=run_accession,
         study_accession=study_accession,
-        analysis_accession=_first_present_value(prepared_payload.get("analysis_accession")),
-        
-        # Required accessions
+        analysis_accession=analysis_accession,
+        # Required accessions (from payload)
         required_project_accession=required_project_accession,
         required_sample_accession=required_sample_accession,
         required_experiment_accession=required_experiment_accession,

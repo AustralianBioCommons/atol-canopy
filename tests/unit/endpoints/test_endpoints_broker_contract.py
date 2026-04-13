@@ -56,8 +56,8 @@ def test_claims_ready_returns_flat_entity_contract(monkeypatch):
         id=uuid4(),
         project_id=project_id,
         status="ready",
-        prepared_payload={"alias": "project-1", "study_accession": "PRJ000001"},
-        project_accession="PRJ000001",
+        prepared_payload={"alias": "project-1"},
+        project_accession="PRJ000001",  # This is where the accession actually lives
         accession=None,
     )
     sample_row = SimpleNamespace(
@@ -65,11 +65,11 @@ def test_claims_ready_returns_flat_entity_contract(monkeypatch):
         sample_id=sample_id,
         status="ready",
         prepared_payload={
-            "alias": "sample-1", 
-            "project_accession": "PRJ000001",  # This exists
-            "requires_project_accession": True
+            "alias": "sample-1",
+            "requires_project_accession": True,
+            "expected_project_accession": "PRJ000001",  # Required but may not exist yet
         },
-        project_accession="PRJ000001",
+        project_accession=None,  # Will be populated when project is submitted
         accession=None,
     )
     experiment_row = SimpleNamespace(
@@ -77,11 +77,11 @@ def test_claims_ready_returns_flat_entity_contract(monkeypatch):
         experiment_id=experiment_id,
         status="ready",
         prepared_payload={
-            "alias": "experiment-1", 
+            "alias": "experiment-1",
             "requires_study_accession": True,
-            "expected_study_accession": "PRJ000001"  # Required but not yet submitted
+            "expected_study_accession": "PRJ000001",  # Required but not yet submitted
         },
-        sample_accession="SAMEA000001",
+        sample_accession="SAMEA000001",  # This exists
         project_accession=None,  # Missing in DB
         accession=None,
     )
@@ -93,8 +93,9 @@ def test_claims_ready_returns_flat_entity_contract(monkeypatch):
             "alias": "run-1",
             "file_name": "reads_1.fastq.gz",
             "file_format": "fastq",
+            "expected_experiment_accession": "ERX000001",  # Required but not submitted
         },
-        experiment_accession="ERX000001",
+        experiment_accession=None,  # Missing in DB
         accession=None,
     )
 
@@ -129,17 +130,36 @@ def test_claims_ready_returns_flat_entity_contract(monkeypatch):
         BrokerEntityType.EXPERIMENT,
         BrokerEntityType.RUN,
     ]
-    assert response.entities[1].prerequisites.project_accession == "PRJ000001"
-    assert response.entities[1].prerequisites.required_project_accession is None  # Already exists
+    assert (
+        response.entities[0].prerequisites.project_accession == "PRJ000001"
+    )  # Project has accession
+    assert response.entities[0].prerequisites.required_project_accession is None
+
+    assert (
+        response.entities[1].prerequisites.project_accession is None
+    )  # Sample missing project accession
+    assert (
+        response.entities[1].prerequisites.required_project_accession == "PRJ000001"
+    )  # Required but not submitted
     assert response.entities[1].validation_hints.requires_project_accession is True
-    
-    assert response.entities[2].prerequisites.sample_accession == "SAMEA000001"
-    assert response.entities[2].prerequisites.study_accession is None  # Missing in DB
-    assert response.entities[2].prerequisites.required_study_accession == "PRJ000001"  # Required but not submitted
+
+    assert (
+        response.entities[2].prerequisites.sample_accession == "SAMEA000001"
+    )  # Has sample accession
+    assert response.entities[2].prerequisites.study_accession is None  # Missing study accession
+    assert (
+        response.entities[2].prerequisites.required_study_accession == "PRJ000001"
+    )  # Required but not submitted
     assert response.entities[2].validation_hints.requires_study_accession is True
-    
+
+    assert (
+        response.entities[3].prerequisites.experiment_accession is None
+    )  # Missing experiment accession
+    assert (
+        response.entities[3].prerequisites.required_experiment_accession == "ERX000001"
+    )  # Required but not submitted
     assert response.entities[3].files[0].filename == "reads_1.fastq.gz"
-    assert response.entities[3].file_metadata is None  # Should be None for this entity type
+    assert response.entities[3].file_metadata is None
     assert sample_row.status == "submitting"
     assert db.committed is True
 
