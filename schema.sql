@@ -138,6 +138,7 @@ CREATE TABLE project (
     description TEXT NOT NULL,
     centre_name TEXT,
     study_attributes JSONB,
+    -- TODO remove submitted_at, should only be for submission table
     submitted_at TIMESTAMPTZ,
     status submission_status NOT NULL DEFAULT 'draft',
     authority authority_type NOT NULL DEFAULT 'ENA',

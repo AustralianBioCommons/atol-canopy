@@ -116,7 +116,9 @@ class BrokerReportRecord(BaseModel):
 
     entity_type: BrokerEntityType
     entity_id: UUID
-    status: str  # "completed"/"accepted"/"success" -> accepted, "failed"/"rejected"/"error" -> rejected
+    status: (
+        str  # "completed"/"accepted"/"success" -> accepted, "failed"/"rejected"/"error" -> rejected
+    )
     accession: Optional[str] = None  # Primary/ENA accession (internal ENA ID)
     secondary_accession: Optional[str] = None  # Public accession (SAMEA*, PRJEB*, etc.)
     receipt_path: Optional[str] = None

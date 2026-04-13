@@ -4,6 +4,7 @@ from uuid import uuid4
 
 import pytest
 from fastapi import HTTPException
+from sqlalchemy.exc import IntegrityError
 
 from app.api.v1.endpoints import broker
 from app.schemas.broker_contract import (
@@ -35,6 +36,8 @@ class FakeSession:
         self.added = []
         self.committed = False
         self.flushed = False
+        self.rolled_back = False
+        self.commit_exception = None
         self.executed = []
         self._accession_lookups = {}  # Map of (entity_type, entity_id) -> accession
 
@@ -50,7 +53,12 @@ class FakeSession:
         self.flushed = True
 
     def commit(self):
+        if self.commit_exception is not None:
+            raise self.commit_exception
         self.committed = True
+
+    def rollback(self):
+        self.rolled_back = True
 
     def execute(self, stmt):
         self.executed.append(stmt)
@@ -184,6 +192,63 @@ def test_claims_ready_returns_flat_entity_contract(monkeypatch):
     assert response.entities[3].file_metadata is None
     assert sample_row.status == "submitting"
     assert db.committed is True
+
+
+def test_report_returns_409_on_integrity_error_during_commit(monkeypatch):
+    db = FakeSession()
+    attempt_id = uuid4()
+    entity_id = uuid4()
+    row = SimpleNamespace(
+        id=uuid4(),
+        sample_id=entity_id,
+        attempt_id=attempt_id,
+        status="submitting",
+        prepared_payload={"alias": "sample-1"},
+        authority="ENA",
+        accession=None,
+        response_payload=None,
+        lock_acquired_at=None,
+        lock_expires_at=None,
+        finalised_attempt_id=None,
+        biosample_accession=None,
+    )
+
+    monkeypatch.setattr(
+        broker,
+        "_find_submission_for_attempt",
+        lambda db_arg, entity_type_arg, entity_id_arg, attempt_id_arg: row,
+    )
+    monkeypatch.setattr(broker, "_register_submission_accession", lambda *args, **kwargs: None)
+
+    db.commit_exception = IntegrityError(
+        statement="COMMIT",
+        params=None,
+        orig=Exception("fk_self_accession violation"),
+    )
+
+    with pytest.raises(HTTPException) as exc:
+        broker.report_submission_outcomes(
+            attempt_id=attempt_id,
+            payload=BrokerReportRequest(
+                attempt_id=attempt_id,
+                results=[
+                    BrokerReportRecord(
+                        entity_type=BrokerEntityType.SAMPLE,
+                        entity_id=entity_id,
+                        status="accepted",
+                        accession="ERS123456",
+                        secondary_accession="SAMEA123456",
+                        errors=[],
+                    )
+                ],
+            ),
+            current_user=_broker_user(),
+            db=db,
+        )
+
+    assert exc.value.status_code == 409
+    assert "Report failed due to database integrity constraints" in str(exc.value.detail)
+    assert db.rolled_back is True
 
 
 def test_project_entities_never_return_prerequisites_even_if_registry_has_accession(monkeypatch):

@@ -1,3 +1,4 @@
+import logging
 from datetime import datetime, timedelta, timezone
 from typing import Any, Dict, List, Optional
 from uuid import UUID, uuid4
@@ -6,6 +7,7 @@ from fastapi import APIRouter, Body, Depends, HTTPException, Path, Query
 from pydantic import BaseModel, Field
 from sqlalchemy import func, or_
 from sqlalchemy.dialects.postgresql import insert
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from app.core.dependencies import get_current_active_user, get_db, has_role
@@ -39,6 +41,9 @@ from app.schemas.broker_contract import (
 
 router = APIRouter()
 CLAIMABLE_SUBMISSION_STATES = ("draft", "ready")
+
+
+logger = logging.getLogger(__name__)
 
 
 # ---------- Pydantic models for request/response ----------
@@ -150,7 +155,9 @@ def _coerce_entity_type(entity_type: BrokerEntityType | str) -> BrokerEntityType
     return BrokerEntityType(entity_type)
 
 
-def _prerequisites_to_dict(prerequisites: BrokerPrerequisites) -> Dict[str, str]:
+def _prerequisites_to_dict(prerequisites: Optional[BrokerPrerequisites]) -> Dict[str, str]:
+    if prerequisites is None:
+        return {}
     return {key: value for key, value in prerequisites.model_dump().items() if value is not None}
 
 
@@ -668,9 +675,6 @@ def _find_submission_for_attempt(
 ) -> Optional[Any]:
     entity_type = _coerce_entity_type(entity_type)
 
-    # DEBUG: Log what we're looking for
-    print(f"DEBUG: Looking for {entity_type}:{entity_id} in attempt {attempt_id}")
-
     if entity_type == BrokerEntityType.PROJECT:
         return (
             db.query(ProjectSubmission)
@@ -700,7 +704,6 @@ def _find_submission_for_attempt(
             .order_by(ExperimentSubmission.created_at.desc())
             .first()
         )
-        print(f"DEBUG: EXPERIMENT query result: {result}")
         return result
     if entity_type == BrokerEntityType.RUN:
         result = (
@@ -709,7 +712,6 @@ def _find_submission_for_attempt(
             .order_by(ReadSubmission.created_at.desc())
             .first()
         )
-        print(f"DEBUG: RUN query result: {result}")
         return result
 
 
@@ -976,7 +978,7 @@ def report_submission_outcomes(
             raise HTTPException(status_code=409, detail="Submission is not in submitting state")
 
         row.status = _map_report_state_to_submission_status(result.status)
-        
+
         # Build response payload from provided fields or use full response_payload if provided
         if result.response_payload:
             row.response_payload = result.response_payload
@@ -986,7 +988,7 @@ def report_submission_outcomes(
                 "message": result.message,
                 "errors": result.errors,
             }
-        
+
         # Handle accessions
         if result.accession:
             row.accession = result.accession
@@ -994,9 +996,9 @@ def report_submission_outcomes(
             _register_submission_accession(
                 db, result.entity_type, row, result.accession, result.secondary_accession
             )
-        
+
         # Store secondary accession (public accession) in biosample_accession field for samples
-        if result.secondary_accession and hasattr(row, 'biosample_accession'):
+        if result.secondary_accession and hasattr(row, "biosample_accession"):
             row.biosample_accession = result.secondary_accession
 
         if row.status != "submitting":
@@ -1017,7 +1019,27 @@ def report_submission_outcomes(
                 )
             )
 
-    db.commit()
+    try:
+        db.commit()
+    except IntegrityError as exc:
+        db.rollback()
+        # This is an expected class of failure when accession_registry contains conflicting rows
+        # (e.g. the accession already exists for a different entity so the registry insert is skipped,
+        # then a FK on the submission table fails). Avoid emitting a full stack trace in logs.
+        logger.warning(
+            "Report outcomes failed due to integrity error (attempt_id=%s): %s",
+            attempt_id,
+            str(getattr(exc, "orig", exc)),
+        )
+        raise HTTPException(
+            status_code=409,
+            detail=(
+                "Report failed due to database integrity constraints. "
+                "A common cause is an accession already existing in accession_registry for a different entity "
+                "(so the registry insert is skipped/blocked), which then violates the submission table FK. "
+                "Check accession_registry for conflicting rows for the reported accession(s)."
+            ),
+        ) from exc
 
     return BrokerReportResponse(attempt_id=attempt_id, accepted=True, message="reported")
 
