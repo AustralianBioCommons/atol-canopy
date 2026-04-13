@@ -965,8 +965,6 @@ def report_submission_outcomes(
     current_user: User = Depends(get_current_active_user),
     db: Session = Depends(get_db),
 ) -> BrokerReportResponse:
-    if payload.attempt_id != attempt_id:
-        raise HTTPException(status_code=409, detail="attempt_id in body must match path")
     if not payload.results:
         raise HTTPException(status_code=400, detail="results must contain at least one record")
 

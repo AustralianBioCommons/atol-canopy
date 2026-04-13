@@ -230,7 +230,6 @@ def test_report_returns_409_on_integrity_error_during_commit(monkeypatch):
         broker.report_submission_outcomes(
             attempt_id=attempt_id,
             payload=BrokerReportRequest(
-                attempt_id=attempt_id,
                 results=[
                     BrokerReportRecord(
                         entity_type=BrokerEntityType.SAMPLE,
@@ -443,7 +442,6 @@ def test_reports_attempt_acceptance(monkeypatch):
     response = broker.report_submission_outcomes(
         attempt_id=attempt_id,
         payload=BrokerReportRequest(
-            attempt_id=attempt_id,
             tax_id=9606,
             results=[
                 BrokerReportRecord(

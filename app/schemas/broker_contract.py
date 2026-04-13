@@ -128,7 +128,6 @@ class BrokerReportRecord(BaseModel):
 
 
 class BrokerReportRequest(BaseModel):
-    attempt_id: UUID
     tax_id: Optional[str | int] = None
     results: List[BrokerReportRecord] = Field(default_factory=list)
 
