@@ -51,8 +51,9 @@ class Sample(Base):
     habitat = Column(Text, nullable=False)
     collection_method = Column(Text, nullable=True)
     collection_date = Column(Text, nullable=True)
-    collected_by = Column(Text, nullable=False, server_default=text("'not provided'"))
-    collecting_institution = Column(Text, nullable=False, server_default=text("'not provided'"))
+    # TODO unify approach to default values - either set in DB or in code, but not both - currently a mix of both approaches
+    collected_by = Column(Text, nullable=False)
+    collecting_institution = Column(Text, nullable=False)
     collection_permit = Column(Text, nullable=True)
     data_context = Column(Text, nullable=True)
     bioplatforms_project_id = Column(Text, nullable=True)
