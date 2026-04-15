@@ -103,9 +103,6 @@ class ReadSubmission(Base):
     experiment_id = Column(
         UUID(as_uuid=True), ForeignKey("experiment.id", ondelete="CASCADE"), nullable=True
     )
-    project_id = Column(
-        UUID(as_uuid=True), ForeignKey("project.id", ondelete="SET NULL"), nullable=True
-    )
 
     accession = Column(Text, nullable=True)
 
@@ -126,9 +123,6 @@ class ReadSubmission(Base):
     )
     experiment = relationship(
         "Experiment", backref=backref("read_exp_submission_records", cascade="all, delete-orphan")
-    )
-    project = relationship(
-        "Project", backref=backref("read_proj_submission_records", cascade="all, delete-orphan")
     )
 
     # Broker lease/claim fields

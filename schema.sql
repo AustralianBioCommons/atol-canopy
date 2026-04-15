@@ -329,6 +329,7 @@ CREATE INDEX IF NOT EXISTS idx_sample_organism_specimen_lookup
 CREATE TABLE experiment (
     id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
     sample_id UUID NOT NULL REFERENCES sample(id) ON DELETE CASCADE,
+    project_id UUID NOT NULL REFERENCES project(id) ON DELETE CASCADE,
     bpa_package_id TEXT UNIQUE NOT NULL,
     design_description TEXT,
     bpa_library_id TEXT,
@@ -450,7 +451,6 @@ CREATE TABLE read_submission (
     response_payload JSONB,
 
     experiment_id UUID NOT NULL REFERENCES experiment(id) ON DELETE CASCADE,
-    project_id UUID REFERENCES project(id),  -- Nullable, derived via experiment->sample->project if needed
 
     accession TEXT,
 

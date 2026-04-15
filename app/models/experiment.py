@@ -21,6 +21,9 @@ class Experiment(Base):
     sample_id = Column(
         UUID(as_uuid=True), ForeignKey("sample.id", ondelete="CASCADE"), nullable=False
     )
+    project_id = Column(
+        UUID(as_uuid=True), ForeignKey("project.id", ondelete="CASCADE"), nullable=False
+    )
     bpa_package_id = Column(Text, unique=True, nullable=False)
     design_description = Column(Text, nullable=True)
     bpa_library_id = Column(Text, nullable=True)
@@ -58,6 +61,9 @@ class Experiment(Base):
     # Relationships
     sample = relationship(
         "Sample", backref=backref("exp_sample_records", cascade="all, delete-orphan")
+    )
+    project = relationship(
+        "Project", backref=backref("exp_project_records", cascade="all, delete-orphan")
     )
 
 

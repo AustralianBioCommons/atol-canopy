@@ -201,6 +201,10 @@ def _extract_broker_prerequisites(
     sample_id = getattr(row, "sample_id", None)
     experiment_id = getattr(row, "experiment_id", None)
 
+    # Runs and reads may not carry project_id directly; derive via experiment.
+    if project_id is None and experiment_id is not None:
+        project_id = db.query(Experiment.project_id).filter(Experiment.id == experiment_id).scalar()
+
     project_accession = _get_accession_for_entity(db, "project", project_id, authority)
     sample_accession = _get_accession_for_entity(db, "sample", sample_id, authority)
     experiment_accession = _get_accession_for_entity(db, "experiment", experiment_id, authority)

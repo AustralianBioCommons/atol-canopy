@@ -7,6 +7,7 @@ from uuid import UUID
 from sqlalchemy.orm import Session
 
 from app.models.experiment import Experiment, ExperimentSubmission
+from app.models.organism import Organism
 from app.models.project import Project
 from app.models.read import Read, ReadSubmission
 from app.models.sample import Sample
@@ -73,10 +74,27 @@ class ExperimentService(BaseService[Experiment, ExperimentCreate, ExperimentUpda
         """Create experiment and corresponding submission with prepared payload."""
         experiment_id = uuid.uuid4()
 
+        sample = db.query(Sample).filter(Sample.id == experiment_in.sample_id).first()
+        if not sample:
+            raise RuntimeError(f"Sample not found: {experiment_in.sample_id}")
+
+        project = (
+            db.query(Project)
+            .filter(
+                Project.organism_key == sample.organism_key,
+                Project.project_type == "genomic_data",
+            )
+            .first()
+        )
+        if not project:
+            raise RuntimeError(
+                f"No genomic_data project found for organism_key '{sample.organism_key}'"
+            )
+
         # Auto-map fields from Pydantic schema to Experiment columns using shared mapper
         exp_data = experiment_in.model_dump(exclude_unset=True)
         transforms = {"insert_size": (lambda v: str(v) if v is not None else None)}
-        inject = {"id": experiment_id}
+        inject = {"id": experiment_id, "project_id": project.id}
         experiment_kwargs = map_to_model_columns(
             Experiment,
             exp_data,
@@ -97,7 +115,7 @@ class ExperimentService(BaseService[Experiment, ExperimentCreate, ExperimentUpda
         experiment_submission = ExperimentSubmission(
             experiment_id=experiment_id,
             sample_id=experiment_in.sample_id,
-            project_id=exp_data.get("project_id"),
+            project_id=project.id,
             entity_type_const="experiment",
             prepared_payload=prepared_payload,
             status=SubmissionStatus.DRAFT,
@@ -261,12 +279,6 @@ class ExperimentService(BaseService[Experiment, ExperimentCreate, ExperimentUpda
                 # Still process reads for existing experiment
                 experiment_id = existing_experiment.id
 
-                # Find project for read submissions
-                project_id = None
-                project = db.query(Project).first()
-                if project:
-                    project_id = project.id
-
                 # Process reads even though experiment exists
                 if isinstance(experiment_data.get("runs"), list):
                     for run in experiment_data["runs"]:
@@ -319,7 +331,6 @@ class ExperimentService(BaseService[Experiment, ExperimentCreate, ExperimentUpda
                                 id=uuid.uuid4(),
                                 read_id=read.id,
                                 experiment_id=experiment_id,
-                                project_id=project_id,
                                 authority="ENA",
                                 entity_type_const="read",
                                 prepared_payload=run_prepared_payload,
@@ -382,9 +393,32 @@ class ExperimentService(BaseService[Experiment, ExperimentCreate, ExperimentUpda
                 # Create experiment
                 experiment_id = uuid.uuid4()
                 sample_id = sample.id
+
+                organism_key = sample.organism_key
+
+                project = (
+                    db.query(Project)
+                    .filter(
+                        Project.organism_key == organism_key,
+                        Project.project_type == "genomic_data",
+                    )
+                    .first()
+                )
+                if not project:
+                    raise RuntimeError(
+                        f"No genomic_data project found for organism_key '{organism_key}'"
+                    )
+
+                project_id = project.id
+
                 aliases = {"GAL": "gal", "extraction_protocol_DOI": "extraction_protocol_doi"}
                 transforms = {"insert_size": (lambda v: str(v) if v is not None else None)}
-                inject = {"id": experiment_id, "sample_id": sample_id, "bpa_package_id": package_id}
+                inject = {
+                    "id": experiment_id,
+                    "sample_id": sample_id,
+                    "project_id": project_id,
+                    "bpa_package_id": package_id,
+                }
                 experiment_kwargs = map_to_model_columns(
                     Experiment,
                     experiment_data,
@@ -394,12 +428,6 @@ class ExperimentService(BaseService[Experiment, ExperimentCreate, ExperimentUpda
                 )
                 experiment = Experiment(**experiment_kwargs)
                 db.add(experiment)
-
-                # Find a project (fallback to any project for now)
-                project_id = None
-                project = db.query(Project).first()
-                if project:
-                    project_id = project.id
 
                 # Build prepared payload for experiment submission
                 prepared_payload: Dict[str, Any] = {}
@@ -459,7 +487,6 @@ class ExperimentService(BaseService[Experiment, ExperimentCreate, ExperimentUpda
                                 id=uuid.uuid4(),
                                 read_id=read.id,
                                 experiment_id=experiment_id,
-                                project_id=project_id,
                                 authority="ENA",
                                 entity_type_const="read",
                                 prepared_payload=run_prepared_payload,

@@ -37,7 +37,7 @@ This script:
 - Backfills `project_id` from `sample.project_id`
 - Makes `project_id` NOT NULL
 - Adds index for performance
-- Makes `experiment_submission.project_id` and `read_submission.project_id` nullable
+- Makes `experiment_submission.project_id` nullable
 
 #### 2. Deploy Application Code
 
