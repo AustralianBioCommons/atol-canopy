@@ -178,9 +178,9 @@ def test_claims_ready_returns_flat_entity_contract(monkeypatch):
     )  # Experiment - sample not in registry
     assert response.entities[2].prerequisites.study_accession is None  # Project not in registry
     assert (
-        response.entities[2].prerequisites.required_study_accession == "PRJ000001"
+        response.entities[2].prerequisites.required_project_accession == "PRJ000001"
     )  # Required but not submitted
-    assert response.entities[2].validation_hints.requires_study_accession is True
+    assert response.entities[2].validation_hints.requires_project_accession is True
 
     assert (
         response.entities[3].prerequisites.experiment_accession is None

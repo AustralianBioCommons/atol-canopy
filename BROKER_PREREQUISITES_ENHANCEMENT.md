@@ -33,7 +33,6 @@ class BrokerPrerequisites(BaseModel):
     required_sample_accession: Optional[str] = None
     required_experiment_accession: Optional[str] = None
     required_run_accession: Optional[str] = None
-    required_study_accession: Optional[str] = None
     required_analysis_accession: Optional[str] = None
 ```
 
@@ -81,7 +80,7 @@ Result:
   "prerequisites": {
     "sample_accession": "SAMEA123456",     // ✅ From database row
     "study_accession": null,              // ❌ Missing from DB
-    "required_study_accession": "PRJ123456"  // 📋 From payload
+    "required_project_accession": "PRJ123456"  // 📋 From payload
   }
 }
 ```
@@ -126,6 +125,6 @@ Result:
 - `expected_*_accession`: Placeholder for the accession that will be assigned
 - `requires_*_accession`: Boolean flag indicating the dependency is required
 - `requires_project_accession`: For samples
-- `requires_study_accession`: For experiments
+- `requires_study_accession`: For experiments (maps to `required_project_accession` in broker prerequisites)
 
 This enhancement maintains backward compatibility while providing much richer dependency information to broker clients, with the correct understanding of where different types of data are stored.

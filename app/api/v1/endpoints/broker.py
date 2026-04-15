@@ -221,7 +221,6 @@ def _extract_broker_prerequisites(
     required_sample_accession = None
     required_experiment_accession = None
     required_run_accession = None
-    required_study_accession = None
     required_analysis_accession = None
 
     # Extract required accessions based on entity type and payload hints
@@ -236,7 +235,7 @@ def _extract_broker_prerequisites(
 
         # May require project/study accessions
         if prepared_payload.get("requires_study_accession") and not study_accession:
-            required_study_accession = prepared_payload.get("expected_study_accession")
+            required_project_accession = prepared_payload.get("expected_study_accession")
 
     elif entity_type == BrokerEntityType.RUN:
         # Runs always require experiment accession
@@ -256,7 +255,6 @@ def _extract_broker_prerequisites(
         required_sample_accession=required_sample_accession,
         required_experiment_accession=required_experiment_accession,
         required_run_accession=required_run_accession,
-        required_study_accession=required_study_accession,
         required_analysis_accession=required_analysis_accession,
     )
 
@@ -266,20 +264,18 @@ def _extract_validation_hints(
 ) -> Optional[BrokerValidationHints]:
     entity_type = _coerce_entity_type(entity_type)
     requires_project_accession = prepared_payload.get("requires_project_accession")
-    requires_study_accession = prepared_payload.get("requires_study_accession")
 
     if requires_project_accession is None and entity_type == BrokerEntityType.SAMPLE:
         requires_project_accession = bool(
             prepared_payload.get("project_accession") or getattr(row, "project_accession", None)
         )
-    if requires_study_accession is None and entity_type == BrokerEntityType.EXPERIMENT:
-        requires_study_accession = bool(
+    if requires_project_accession is None and entity_type == BrokerEntityType.EXPERIMENT:
+        requires_project_accession = bool(
             prepared_payload.get("study_accession") or getattr(row, "project_accession", None)
         )
 
     hints = BrokerValidationHints(
         requires_project_accession=requires_project_accession,
-        requires_study_accession=requires_study_accession,
     )
     return hints if _validation_hints_to_dict(hints) else None
 
@@ -596,15 +592,6 @@ def _validate_contract_entity(
                     message="project accession is required",
                 )
             )
-        if validation_hints.requires_study_accession and not resolved_prerequisites.get(
-            "study_accession"
-        ):
-            issues.append(
-                BrokerValidationIssue(
-                    field="study_accession",
-                    message="study accession is required",
-                )
-            )
     elif entity_type == BrokerEntityType.EXPERIMENT:
         if not claimed_entity.payload:
             issues.append(
@@ -615,15 +602,6 @@ def _validate_contract_entity(
                 BrokerValidationIssue(
                     field="sample_accession",
                     message="sample accession is required",
-                )
-            )
-        if validation_hints.requires_study_accession and not resolved_prerequisites.get(
-            "study_accession"
-        ):
-            issues.append(
-                BrokerValidationIssue(
-                    field="study_accession",
-                    message="study accession is required",
                 )
             )
         if validation_hints.requires_project_accession and not resolved_prerequisites.get(

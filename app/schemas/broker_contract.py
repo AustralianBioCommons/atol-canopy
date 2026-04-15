@@ -28,13 +28,11 @@ class BrokerPrerequisites(BaseModel):
     required_sample_accession: Optional[str] = None
     required_experiment_accession: Optional[str] = None
     required_run_accession: Optional[str] = None
-    required_study_accession: Optional[str] = None
     required_analysis_accession: Optional[str] = None
 
 
 class BrokerValidationHints(BaseModel):
     requires_project_accession: Optional[bool] = None
-    requires_study_accession: Optional[bool] = None
 
 
 class BrokerFileMetadata(BaseModel):
