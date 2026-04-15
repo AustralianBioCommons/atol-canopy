@@ -165,9 +165,8 @@ def test_claims_ready_returns_flat_entity_contract(monkeypatch):
     # Projects don't have prerequisite accessions
     assert response.entities[0].prerequisites is None  # No prerequisites for projects
 
-    assert (
-        response.entities[1].prerequisites.project_accession is None
-    )  # Sample - project not yet submitted to registry
+    assert response.entities[1].prerequisites.project_accession is None
+    assert response.entities[1].prerequisites.study_accession is None
 
     assert (
         response.entities[2].prerequisites.sample_accession is None

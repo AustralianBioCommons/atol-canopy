@@ -271,6 +271,7 @@ CREATE TABLE sample_submission (
     entity_type_const entity_type NOT NULL DEFAULT 'sample' CHECK (entity_type_const = 'sample'),
 
     -- prerequisite FK (for normalized accession lookups)
+    -- TODO remove: samples are not project-scoped; project context (if any) is derived via experiments
     project_id UUID NOT NULL REFERENCES project(id),
 
     -- attempt linkage

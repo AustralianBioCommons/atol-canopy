@@ -205,9 +205,11 @@ def _extract_broker_prerequisites(
     sample_accession = _get_accession_for_entity(db, "sample", sample_id, authority)
     experiment_accession = _get_accession_for_entity(db, "experiment", experiment_id, authority)
     run_accession = getattr(row, "accession", None) if entity_type == BrokerEntityType.RUN else None
-    study_accession = (
-        project_accession  # For projects, study_accession is the same as project_accession
-    )
+
+    if entity_type == BrokerEntityType.SAMPLE:
+        project_accession = None
+
+    study_accession = project_accession
     analysis_accession = prepared_payload.get("analysis_accession")  # This might only be in payload
 
     return BrokerPrerequisites(
@@ -520,13 +522,6 @@ def _validate_contract_entity(
         if not claimed_entity.payload:
             issues.append(
                 BrokerValidationIssue(field="payload", message="sample payload is required")
-            )
-        if not resolved_prerequisites.get("project_accession"):
-            issues.append(
-                BrokerValidationIssue(
-                    field="project_accession",
-                    message="project accession is required",
-                )
             )
     elif entity_type == BrokerEntityType.EXPERIMENT:
         if not claimed_entity.payload:
