@@ -13,8 +13,7 @@ Previously, prerequisite accessions were stored in denormalized columns:
 
 Now, accessions are looked up from `accession_registry` via FK relationships:
 - `sample_submission.project_id` → lookup project accession
-- `experiment_submission.sample_id` → lookup sample accession
-- `experiment_submission.project_id` → lookup project accession
+- `experiment_submission.experiment_id` → lookup experiment accession, then derive sample/project via `experiment`
 - `read_submission.experiment_id` → lookup experiment accession
 
 ### Benefits
@@ -37,7 +36,7 @@ This script:
 - Backfills `project_id` from `sample.project_id`
 - Makes `project_id` NOT NULL
 - Adds index for performance
-- Makes `experiment_submission.project_id` nullable
+
 
 #### 2. Deploy Application Code
 

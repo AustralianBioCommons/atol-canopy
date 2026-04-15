@@ -369,9 +369,6 @@ CREATE TABLE experiment_submission (
     authority authority_type NOT NULL DEFAULT 'ENA',
     status submission_status NOT NULL DEFAULT 'draft',
 
-    sample_id UUID NOT NULL REFERENCES sample(id),
-    project_id UUID REFERENCES project(id),  -- Nullable, derived via sample->project if needed
-
     prepared_payload JSONB,
     response_payload JSONB,
 
@@ -494,6 +491,7 @@ CREATE TABLE submission_attempt (
     id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
     organism_key TEXT REFERENCES organism(grouping_key),
     campaign_label TEXT,
+    -- TODO make ENUM
     status TEXT NOT NULL DEFAULT 'processing',
     lock_acquired_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     lock_expires_at TIMESTAMPTZ,

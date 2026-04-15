@@ -97,13 +97,6 @@ class ExperimentSubmission(Base):
         default="draft",
     )
 
-    sample_id = Column(
-        UUID(as_uuid=True), ForeignKey("sample.id", ondelete="SET NULL"), nullable=False
-    )
-    project_id = Column(
-        UUID(as_uuid=True), ForeignKey("project.id", ondelete="SET NULL"), nullable=True
-    )
-
     prepared_payload = Column(JSONB, nullable=True)
     response_payload = Column(JSONB, nullable=True)
     accession = Column(Text, nullable=True)
@@ -130,12 +123,6 @@ class ExperimentSubmission(Base):
     # Relationships
     experiment = relationship(
         "Experiment", backref=backref("exp_submission_records", cascade="all, delete-orphan")
-    )
-    sample = relationship(
-        "Sample", backref=backref("exp_sample_submission_records", cascade="all, delete-orphan")
-    )
-    project = relationship(
-        "Project", backref=backref("exp_project_submission_records", cascade="all, delete-orphan")
     )
 
     # Table constraints

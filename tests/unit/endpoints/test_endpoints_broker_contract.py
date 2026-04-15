@@ -7,6 +7,9 @@ from fastapi import HTTPException
 from sqlalchemy.exc import IntegrityError
 
 from app.api.v1.endpoints import broker
+from app.models.experiment import Experiment
+from app.models.organism import Organism
+from app.models.sample import Sample
 from app.schemas.broker_contract import (
     BrokerBatchClaimRequest,
     BrokerEntityType,
@@ -30,6 +33,9 @@ class FakeQuery:
     def scalar(self):
         return self._result
 
+    def first(self):
+        return self._result
+
 
 class FakeSession:
     def __init__(self):
@@ -40,6 +46,7 @@ class FakeSession:
         self.commit_exception = None
         self.executed = []
         self._accession_lookups = {}  # Map of (entity_type, entity_id) -> accession
+        self._query_results = {}  # Map of tuple(query_args) -> scalar/first result
 
     def add(self, obj):
         if getattr(obj, "id", None) is None:
@@ -64,8 +71,8 @@ class FakeSession:
         self.executed.append(stmt)
 
     def query(self, *args):
-        """Mock query method that returns None by default (no accessions found)."""
-        return FakeQuery(result=None)
+        """Mock query method that returns configured results by query args."""
+        return FakeQuery(result=self._query_results.get(tuple(args), None))
 
 
 def _broker_user():
@@ -131,6 +138,14 @@ def test_claims_ready_returns_flat_entity_contract(monkeypatch):
     )
 
     monkeypatch.setattr(broker, "expire_stale_leases", lambda db_arg: {})
+
+    db._query_results[(Organism.scientific_name,)] = "Homo sapiens"
+    db._query_results[(Experiment.bpa_package_id,)] = "PKG1"
+    db._query_results[(Sample.kind, Sample.specimen_id, Sample.bpa_sample_id)] = (
+        "specimen",
+        "SP1",
+        "BPA-S1",
+    )
     monkeypatch.setattr(
         broker,
         "_get_organism_by_tax_id",
@@ -167,11 +182,16 @@ def test_claims_ready_returns_flat_entity_contract(monkeypatch):
 
     assert response.entities[1].prerequisites.project_accession is None
     assert response.entities[1].prerequisites.study_accession is None
+    assert response.entities[1].payload["title"] == "Specimen SP1 for Homo sapiens"
 
     assert (
         response.entities[2].prerequisites.sample_accession is None
     )  # Experiment - sample not in registry
     assert response.entities[2].prerequisites.study_accession is None  # Project not in registry
+    assert (
+        response.entities[2].payload["title"]
+        == "Bioplatforms Australia dataset PKG1 for Homo sapiens"
+    )
 
     assert (
         response.entities[3].prerequisites.experiment_accession is None

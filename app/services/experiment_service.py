@@ -7,7 +7,6 @@ from uuid import UUID
 from sqlalchemy.orm import Session
 
 from app.models.experiment import Experiment, ExperimentSubmission
-from app.models.organism import Organism
 from app.models.project import Project
 from app.models.read import Read, ReadSubmission
 from app.models.sample import Sample
@@ -114,8 +113,6 @@ class ExperimentService(BaseService[Experiment, ExperimentCreate, ExperimentUpda
 
         experiment_submission = ExperimentSubmission(
             experiment_id=experiment_id,
-            sample_id=experiment_in.sample_id,
-            project_id=project.id,
             entity_type_const="experiment",
             prepared_payload=prepared_payload,
             status=SubmissionStatus.DRAFT,
@@ -172,8 +169,6 @@ class ExperimentService(BaseService[Experiment, ExperimentCreate, ExperimentUpda
         if not latest_experiment_submission:
             new_experiment_submission = ExperimentSubmission(
                 experiment_id=experiment_id,
-                sample_id=experiment.sample_id,
-                project_id=experiment.project_id,
                 authority="ENA",
                 entity_type_const="experiment",
                 prepared_payload=prepared_payload,
@@ -188,8 +183,6 @@ class ExperimentService(BaseService[Experiment, ExperimentCreate, ExperimentUpda
             elif latest_experiment_submission.status in ("rejected", "replaced"):
                 new_experiment_submission = ExperimentSubmission(
                     experiment_id=experiment_id,
-                    sample_id=experiment.sample_id,
-                    project_id=experiment.project_id,
                     authority=latest_experiment_submission.authority,
                     entity_type_const="experiment",
                     prepared_payload=prepared_payload,
@@ -205,8 +198,6 @@ class ExperimentService(BaseService[Experiment, ExperimentCreate, ExperimentUpda
                 db.add(latest_experiment_submission)
                 new_experiment_submission = ExperimentSubmission(
                     experiment_id=experiment_id,
-                    sample_id=experiment.sample_id,
-                    project_id=experiment.project_id,
                     authority=latest_experiment_submission.authority,
                     entity_type_const="experiment",
                     prepared_payload=prepared_payload,
@@ -438,8 +429,6 @@ class ExperimentService(BaseService[Experiment, ExperimentCreate, ExperimentUpda
                 experiment_submission = ExperimentSubmission(
                     id=uuid.uuid4(),
                     experiment_id=experiment_id,
-                    sample_id=sample_id,
-                    project_id=project_id,
                     authority="ENA",
                     entity_type_const="experiment",
                     prepared_payload=prepared_payload,
@@ -549,14 +538,18 @@ class ExperimentSubmissionService(
     def get_by_sample_id(self, db: Session, sample_id: UUID) -> List[ExperimentSubmission]:
         """Get submission experiments by sample ID."""
         return (
-            db.query(ExperimentSubmission).filter(ExperimentSubmission.sample_id == sample_id).all()
+            db.query(ExperimentSubmission)
+            .join(Experiment, Experiment.id == ExperimentSubmission.experiment_id)
+            .filter(Experiment.sample_id == sample_id)
+            .all()
         )
 
     def get_by_project_id(self, db: Session, project_id: UUID) -> List[ExperimentSubmission]:
         """Get submission experiments by project ID."""
         return (
             db.query(ExperimentSubmission)
-            .filter(ExperimentSubmission.project_id == project_id)
+            .join(Experiment, Experiment.id == ExperimentSubmission.experiment_id)
+            .filter(Experiment.project_id == project_id)
             .all()
         )
 

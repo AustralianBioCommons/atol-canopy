@@ -21,9 +21,5 @@ ALTER TABLE sample_submission
 -- Step 4: Add index for performance
 CREATE INDEX IF NOT EXISTS idx_sample_submission_project_id ON sample_submission(project_id);
 
--- Step 5: Make experiment_submission.project_id nullable (it's derived via sample)
-ALTER TABLE experiment_submission
-  ALTER COLUMN project_id DROP NOT NULL;
-
 -- Note: We'll remove denormalized accession columns in a separate migration
 -- after updating the application code to use lookups

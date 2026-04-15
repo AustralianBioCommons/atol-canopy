@@ -54,16 +54,10 @@ def upgrade():
         unique=False,
     )
 
-    # Make experiment_submission.project_id nullable (it's derived via sample)
-    op.alter_column("experiment_submission", "project_id", nullable=True)
-
 
 def downgrade():
     # Drop index
     op.drop_index("idx_sample_submission_project_id", table_name="sample_submission")
-
-    # Make experiment_submission.project_id NOT NULL again
-    op.alter_column("experiment_submission", "project_id", nullable=False)
 
     # Drop foreign key constraint
     op.drop_constraint("fk_sample_submission_project_id", "sample_submission", type_="foreignkey")

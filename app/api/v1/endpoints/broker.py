@@ -167,6 +167,49 @@ def _first_present_value(*values: Any) -> Optional[str]:
     return None
 
 
+def _derive_claim_title(
+    db: Session, *, entity_type: BrokerEntityType, entity_id: UUID, tax_id: str | int
+) -> Optional[str]:
+    try:
+        tax_id_int = int(tax_id)
+    except Exception:
+        return None
+
+    scientific_name = (
+        db.query(Organism.scientific_name).filter(Organism.tax_id == tax_id_int).scalar()
+    )
+    if not scientific_name:
+        return None
+
+    if entity_type == BrokerEntityType.EXPERIMENT:
+        bpa_package_id = (
+            db.query(Experiment.bpa_package_id).filter(Experiment.id == entity_id).scalar()
+        )
+        if not bpa_package_id:
+            return None
+        return f"Bioplatforms Australia dataset {bpa_package_id} for {scientific_name}"
+
+    if entity_type == BrokerEntityType.SAMPLE:
+        sample_row = (
+            db.query(Sample.kind, Sample.specimen_id, Sample.bpa_sample_id)
+            .filter(Sample.id == entity_id)
+            .first()
+        )
+        if not sample_row:
+            return None
+        kind, specimen_id, bpa_sample_id = sample_row
+        if kind == "specimen":
+            if not specimen_id:
+                return None
+            return f"Specimen {specimen_id} for {scientific_name}"
+        if kind == "derived":
+            if not bpa_sample_id:
+                return None
+            return f"Sample {bpa_sample_id} for {scientific_name}"
+
+    return None
+
+
 def _as_payload(payload: Any) -> Dict[str, Any]:
     if isinstance(payload, dict):
         return payload
@@ -204,6 +247,10 @@ def _extract_broker_prerequisites(
     # Runs and reads may not carry project_id directly; derive via experiment.
     if project_id is None and experiment_id is not None:
         project_id = db.query(Experiment.project_id).filter(Experiment.id == experiment_id).scalar()
+
+    # Experiment submissions may not carry sample_id directly; derive via experiment.
+    if sample_id is None and experiment_id is not None:
+        sample_id = db.query(Experiment.sample_id).filter(Experiment.id == experiment_id).scalar()
 
     project_accession = _get_accession_for_entity(db, "project", project_id, authority)
     sample_accession = _get_accession_for_entity(db, "sample", sample_id, authority)
@@ -254,6 +301,11 @@ def _build_contract_entity(
     if entity_type != BrokerEntityType.PROJECT:
         prerequisites = _extract_broker_prerequisites(db, entity_type, prepared_payload, row)
     files = _extract_run_files(prepared_payload) if entity_type == BrokerEntityType.RUN else None
+
+    if entity_type in (BrokerEntityType.EXPERIMENT, BrokerEntityType.SAMPLE):
+        title = _derive_claim_title(db, entity_type=entity_type, entity_id=entity_id, tax_id=tax_id)
+        if title is not None:
+            prepared_payload["title"] = title
 
     return BrokerClaimEntity(
         type=entity_type,
