@@ -168,26 +168,15 @@ def test_claims_ready_returns_flat_entity_contract(monkeypatch):
     assert (
         response.entities[1].prerequisites.project_accession is None
     )  # Sample - project not yet submitted to registry
-    assert (
-        response.entities[1].prerequisites.required_project_accession == "PRJ000001"
-    )  # Required but not submitted
-    assert response.entities[1].validation_hints.requires_project_accession is True
 
     assert (
         response.entities[2].prerequisites.sample_accession is None
     )  # Experiment - sample not in registry
     assert response.entities[2].prerequisites.study_accession is None  # Project not in registry
-    assert (
-        response.entities[2].prerequisites.required_project_accession == "PRJ000001"
-    )  # Required but not submitted
-    assert response.entities[2].validation_hints.requires_project_accession is True
 
     assert (
         response.entities[3].prerequisites.experiment_accession is None
     )  # Missing experiment accession
-    assert (
-        response.entities[3].prerequisites.required_experiment_accession == "ERX000001"
-    )  # Required but not submitted
     assert response.entities[3].files[0].filename == "reads_1.fastq.gz"
     assert response.entities[3].file_metadata is None
     assert sample_row.status == "submitting"
@@ -436,7 +425,7 @@ def test_reports_attempt_acceptance(monkeypatch):
     monkeypatch.setattr(
         broker,
         "_register_submission_accession",
-        lambda db_arg, entity_type_arg, row_arg, accession_arg: None,
+        lambda db_arg, entity_type_arg, row_arg, accession_arg, secondary_accession=None: None,
     )
 
     response = broker.report_submission_outcomes(

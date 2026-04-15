@@ -23,17 +23,6 @@ class BrokerPrerequisites(BaseModel):
     study_accession: Optional[str] = None
     analysis_accession: Optional[str] = None
 
-    # Required accessions (needed but may not exist yet)
-    required_project_accession: Optional[str] = None
-    required_sample_accession: Optional[str] = None
-    required_experiment_accession: Optional[str] = None
-    required_run_accession: Optional[str] = None
-    required_analysis_accession: Optional[str] = None
-
-
-class BrokerValidationHints(BaseModel):
-    requires_project_accession: Optional[bool] = None
-
 
 class BrokerFileMetadata(BaseModel):
     filename: str
@@ -48,7 +37,6 @@ class BrokerClaimEntity(BaseModel):
     tax_id: str
     payload: Optional[Dict[str, Any]] = None
     prerequisites: Optional[BrokerPrerequisites] = None
-    validation_hints: Optional[BrokerValidationHints] = None
     files: Optional[List[BrokerFileMetadata]] = None
     file_metadata: Optional[List[BrokerFileMetadata]] = None
 

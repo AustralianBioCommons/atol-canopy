@@ -6,7 +6,7 @@ The broker API was returning null values for `prerequisites`, `validation_hints`
 2. No way to distinguish between "not required" vs "required but not yet submitted"
 
 ## Solution
-Enhanced the broker contract to include both **existing** and **required** accessions, allowing clients to understand dependency states.
+Enhanced the broker contract to include **existing** accessions (resolved from `accession_registry`), allowing clients to decide whether dependency state is complete enough to submit.
 
 ### Key Architecture Understanding
 
@@ -17,7 +17,7 @@ Enhanced the broker contract to include both **existing** and **required** acces
 
 ### Changes Made
 
-#### 1. Extended BrokerPrerequisites Schema
+#### 1. BrokerPrerequisites Schema
 ```python
 class BrokerPrerequisites(BaseModel):
     # Existing accessions (from database row fields)
@@ -27,19 +27,10 @@ class BrokerPrerequisites(BaseModel):
     run_accession: Optional[str] = None
     study_accession: Optional[str] = None
     analysis_accession: Optional[str] = None
-
-    # Required accessions (from payload, may not exist yet)
-    required_project_accession: Optional[str] = None
-    required_sample_accession: Optional[str] = None
-    required_experiment_accession: Optional[str] = None
-    required_run_accession: Optional[str] = None
-    required_analysis_accession: Optional[str] = None
 ```
 
 #### 2. Enhanced Prerequisite Extraction Logic
-- **Existing accessions**: Pulled from database row fields (`row.project_accession`, `row.sample_accession`, etc.)
-- **Required accessions**: Extracted from payload when dependencies are required but missing
-- Uses `expected_*_accession` fields in payloads for placeholders
+- **Existing accessions**: Looked up from `accession_registry` via FK relationships on submission tables
 
 #### 3. Updated Test Cases
 - Tests now verify both existing and required accessions
@@ -48,7 +39,7 @@ class BrokerPrerequisites(BaseModel):
 ### Usage Examples
 
 #### Sample Submission with Existing Project Accession
-**Database state**: `sample_submission.project_accession = "PRJ123456"`
+**Database state**: `accession_registry` contains a project accession for the sample's `project_id`
 ```json
 {
   "alias": "sample-1",
@@ -59,14 +50,13 @@ Result:
 ```json
 {
   "prerequisites": {
-    "project_accession": "PRJ123456",     // ✅ From database row
-    "required_project_accession": null    // ✅ Already satisfied
+    "project_accession": "PRJ123456"     // ✅ Resolved from accession_registry
   }
 }
 ```
 
 #### Experiment with Missing Study Accession
-**Database state**: `experiment_submission.project_accession = null`
+**Database state**: `accession_registry` does not contain a project accession for the experiment's `project_id`
 ```json
 {
   "alias": "experiment-1",
@@ -78,15 +68,14 @@ Result:
 ```json
 {
   "prerequisites": {
-    "sample_accession": "SAMEA123456",     // ✅ From database row
-    "study_accession": null,              // ❌ Missing from DB
-    "required_project_accession": "PRJ123456"  // 📋 From payload
+    "sample_accession": "SAMEA123456",     // ✅ Resolved from accession_registry
+    "study_accession": null               // ❌ Missing from registry
   }
 }
 ```
 
 #### Run with Missing Experiment Accession
-**Database state**: `read_submission.experiment_accession = null`
+**Database state**: `accession_registry` does not contain an experiment accession for the run's `experiment_id`
 ```json
 {
   "alias": "run-1",
@@ -99,8 +88,7 @@ Result:
 ```json
 {
   "prerequisites": {
-    "experiment_accession": null,              // ❌ Missing from DB
-    "required_experiment_accession": "ERX123456"  // 📋 From payload
+    "experiment_accession": null               // ❌ Missing from registry
   },
   "files": [
     {"filename": "reads.fastq.gz", "filetype": "fastq"}
@@ -112,14 +100,11 @@ Result:
 
 1. **prepared_payload**: Contains ENA submission data (metadata, files, etc.)
 2. **Database row fields**: Store actual accessions once submitted (`*_accession` fields)
-3. **Payload expected fields**: Specify required but not-yet-submitted accessions (`expected_*_accession`)
-4. **Broker response**: Combines both to show complete dependency state
+3. **Broker response**: Shows resolved accessions (or `null`), and clients decide completeness
 
 ### Client Benefits
-1. **Clear dependency visibility**: See exactly what's missing vs what exists
-2. **Submission planning**: Know what needs to be submitted first
-3. **Progress tracking**: Distinguish between "not needed" vs "needed but not ready"
-4. **Error prevention**: Avoid trying to submit entities with unmet dependencies
+1. **Clear dependency visibility**: See what exists vs what is missing
+2. **Single source of truth**: Accessions resolved from `accession_registry`
 
 ### Payload Fields for Required Accessions
 - `expected_*_accession`: Placeholder for the accession that will be assigned
