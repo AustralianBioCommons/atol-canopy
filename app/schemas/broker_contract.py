@@ -35,6 +35,7 @@ class BrokerClaimEntity(BaseModel):
     type: BrokerEntityType
     id: UUID
     tax_id: str
+    scientific_name: Optional[str] = None
     payload: Optional[Dict[str, Any]] = None
     prerequisites: Optional[BrokerPrerequisites] = None
     files: Optional[List[BrokerFileMetadata]] = None

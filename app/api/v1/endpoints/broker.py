@@ -167,6 +167,14 @@ def _first_present_value(*values: Any) -> Optional[str]:
     return None
 
 
+def _lookup_scientific_name(db: Session, *, tax_id: str | int) -> Optional[str]:
+    try:
+        tax_id_int = int(tax_id)
+    except Exception:
+        return None
+    return db.query(Organism.scientific_name).filter(Organism.tax_id == tax_id_int).scalar()
+
+
 def _derive_claim_title(
     db: Session, *, entity_type: BrokerEntityType, entity_id: UUID, tax_id: str | int
 ) -> Optional[str]:
@@ -301,6 +309,7 @@ def _build_contract_entity(
     if entity_type != BrokerEntityType.PROJECT:
         prerequisites = _extract_broker_prerequisites(db, entity_type, prepared_payload, row)
     files = _extract_run_files(prepared_payload) if entity_type == BrokerEntityType.RUN else None
+    scientific_name = _lookup_scientific_name(db, tax_id=tax_id)
 
     if entity_type in (BrokerEntityType.EXPERIMENT, BrokerEntityType.SAMPLE):
         title = _derive_claim_title(db, entity_type=entity_type, entity_id=entity_id, tax_id=tax_id)
@@ -311,6 +320,7 @@ def _build_contract_entity(
         type=entity_type,
         id=entity_id,
         tax_id=str(tax_id),
+        scientific_name=scientific_name,
         payload=prepared_payload or None,
         prerequisites=prerequisites if _prerequisites_to_dict(prerequisites) else None,
         files=files,

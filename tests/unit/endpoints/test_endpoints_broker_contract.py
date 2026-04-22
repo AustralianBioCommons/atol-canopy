@@ -176,6 +176,11 @@ def test_claims_ready_returns_flat_entity_contract(monkeypatch):
         BrokerEntityType.EXPERIMENT,
         BrokerEntityType.RUN,
     ]
+
+    assert response.entities[0].scientific_name == "Homo sapiens"
+    assert response.entities[1].scientific_name == "Homo sapiens"
+    assert response.entities[2].scientific_name == "Homo sapiens"
+    assert response.entities[3].scientific_name == "Homo sapiens"
     # With normalized lookups, accessions are None unless they exist in accession_registry
     # Projects don't have prerequisite accessions
     assert response.entities[0].prerequisites is None  # No prerequisites for projects
