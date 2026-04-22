@@ -9,7 +9,7 @@ from sqlalchemy.exc import IntegrityError
 from app.api.v1.endpoints import broker
 from app.models.experiment import Experiment
 from app.models.organism import Organism
-from app.models.sample import Sample
+from app.models.sample import Sample, SampleSubmission
 from app.schemas.broker_contract import (
     BrokerBatchClaimRequest,
     BrokerEntityType,
@@ -477,6 +477,71 @@ def test_reports_attempt_acceptance(monkeypatch):
     assert response.message == "reported"
     assert row.status == "accepted"
     assert row.attempt_id is None
+
+
+def test_reports_attempt_rejection_creates_new_draft_submission(monkeypatch):
+    db = FakeSession()
+    attempt_id = uuid4()
+    entity_id = uuid4()
+    project_id = uuid4()
+    prepared_payload = {"alias": "sample-1"}
+    row = SimpleNamespace(
+        id=uuid4(),
+        sample_id=entity_id,
+        project_id=project_id,
+        status="submitting",
+        attempt_id=attempt_id,
+        authority="ENA",
+        accession=None,
+        prepared_payload=prepared_payload,
+        response_payload={"receipt_path": None},
+        lock_acquired_at=datetime.now(timezone.utc),
+        lock_expires_at=datetime.now(timezone.utc),
+        finalised_attempt_id=None,
+        biosample_accession=None,
+    )
+
+    monkeypatch.setattr(
+        broker,
+        "_find_submission_for_attempt",
+        lambda db_arg, entity_type_arg, entity_id_arg, attempt_id_arg: row,
+    )
+    monkeypatch.setattr(
+        broker,
+        "_register_submission_accession",
+        lambda db_arg, entity_type_arg, row_arg, accession_arg, secondary_accession=None: None,
+    )
+
+    response = broker.report_submission_outcomes(
+        attempt_id=attempt_id,
+        payload=BrokerReportRequest(
+            tax_id=9606,
+            results=[
+                BrokerReportRecord(
+                    entity_type=BrokerEntityType.SAMPLE,
+                    entity_id=entity_id,
+                    status="rejected",
+                    receipt_path=None,
+                    message="bad",
+                    errors=[{"x": "y"}],
+                )
+            ],
+        ),
+        current_user=_broker_user(),
+        db=db,
+    )
+
+    assert response.accepted is True
+    assert row.status == "rejected"
+    assert row.attempt_id is None
+
+    new_rows = [obj for obj in db.added if isinstance(obj, SampleSubmission)]
+    assert len(new_rows) == 1
+    new_row = new_rows[0]
+    assert new_row.sample_id == entity_id
+    assert new_row.project_id == project_id
+    assert new_row.status == "draft"
+    assert new_row.response_payload is None
 
 
 def test_claim_ready_entities_no_claimable_entities_returns_empty_response(monkeypatch):

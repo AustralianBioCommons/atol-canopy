@@ -175,6 +175,71 @@ def _lookup_scientific_name(db: Session, *, tax_id: str | int) -> Optional[str]:
     return db.query(Organism.scientific_name).filter(Organism.tax_id == tax_id_int).scalar()
 
 
+def _create_new_draft_submission_after_rejection(
+    db: Session,
+    *,
+    entity_type: BrokerEntityType,
+    row: Any,
+) -> None:
+    """Create a new draft submission row after a rejection so the entity can be re-claimed.
+
+    Copies the original row data (where applicable) but clears response_payload and resets status.
+    """
+
+    model_cls = None
+    entity_fk_field = None
+    if entity_type == BrokerEntityType.SAMPLE:
+        model_cls = SampleSubmission
+        entity_fk_field = "sample_id"
+    elif entity_type == BrokerEntityType.EXPERIMENT:
+        model_cls = ExperimentSubmission
+        entity_fk_field = "experiment_id"
+    elif entity_type == BrokerEntityType.RUN:
+        model_cls = ReadSubmission
+        entity_fk_field = "read_id"
+    elif entity_type == BrokerEntityType.PROJECT:
+        model_cls = ProjectSubmission
+        entity_fk_field = "project_id"
+
+    if model_cls is None or entity_fk_field is None:
+        return
+
+    entity_id = getattr(row, entity_fk_field, None)
+    prepared_payload = getattr(row, "prepared_payload", None) or None
+    authority = getattr(row, "authority", "ENA")
+    entity_type_const = getattr(row, "entity_type_const", entity_type.value)
+
+    if entity_id is None or prepared_payload is None:
+        return
+
+    kwargs: Dict[str, Any] = {
+        entity_fk_field: entity_id,
+        "authority": authority,
+        "entity_type_const": entity_type_const,
+        "prepared_payload": prepared_payload,
+        "status": "draft",
+        "response_payload": None,
+        "accession": getattr(row, "accession", None),
+        "submitted_at": None,
+        "attempt_id": None,
+        "finalised_attempt_id": None,
+        "lock_acquired_at": None,
+        "lock_expires_at": None,
+    }
+
+    # Preserve optional extra fields where present
+    model_column_names = set(getattr(model_cls, "__table__").columns.keys())
+    if hasattr(row, "project_id") and "project_id" in model_column_names:
+        kwargs["project_id"] = getattr(row, "project_id", None)
+    if hasattr(row, "biosample_accession") and "biosample_accession" in model_column_names:
+        kwargs["biosample_accession"] = getattr(row, "biosample_accession", None)
+
+    # Drop keys that don't exist on the model (helps keep this generic)
+    kwargs = {k: v for k, v in kwargs.items() if k in model_column_names}
+
+    db.add(model_cls(**kwargs))
+
+
 def _derive_claim_title(
     db: Session, *, entity_type: BrokerEntityType, entity_id: UUID, tax_id: str | int
 ) -> Optional[str]:
@@ -989,6 +1054,13 @@ def report_submission_outcomes(
                     details=row.response_payload,
                 )
             )
+
+            if row.status == "rejected":
+                _create_new_draft_submission_after_rejection(
+                    db,
+                    entity_type=_coerce_entity_type(result.entity_type),
+                    row=row,
+                )
 
     try:
         db.commit()
