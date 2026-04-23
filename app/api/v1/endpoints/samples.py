@@ -41,8 +41,7 @@ def _get_genomic_data_project_id(db: Session, organism_key: str) -> UUID:
     )
     if not project:
         raise HTTPException(
-            status_code=404,
-            detail=f"No genomic_data project found for organism {organism_key}"
+            status_code=404, detail=f"No genomic_data project found for organism {organism_key}"
         )
     return project.id
 
@@ -251,7 +250,7 @@ def create_sample(
 
     # Get project_id for this organism
     project_id = _get_genomic_data_project_id(db, sample.organism_key)
-    
+
     sample_submission = SampleSubmission(
         sample_id=sample_id,
         authority=sample_in.authority,
@@ -374,7 +373,7 @@ def _create_sample_with_submission(
 
     # Get project_id for this organism
     project_id = _get_genomic_data_project_id(db, organism_key)
-    
+
     # Create sample_submission record
     sample_submission = SampleSubmission(
         id=uuid.uuid4(),
@@ -941,7 +940,7 @@ def bulk_import_samples(
 
             # Get project_id for this organism
             project_id = _get_genomic_data_project_id(db, organism_key)
-            
+
             # Create sample_submission record
             sample_submission = SampleSubmission(
                 id=uuid.uuid4(),
