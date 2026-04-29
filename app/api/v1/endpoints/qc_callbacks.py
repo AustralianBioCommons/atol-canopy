@@ -70,6 +70,7 @@ def receive_qc_callback(
             qc_read_id=qc_read.id,
             file_type=f.file_type,
             storage_backend=f.storage_backend,
+            # TODO document / manage storage profiles
             storage_profile=f.storage_profile,
             bucket_name=f.bucket_name,
             path_to_file=f.path_to_file,

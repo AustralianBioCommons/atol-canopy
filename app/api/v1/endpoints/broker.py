@@ -233,6 +233,8 @@ def _create_new_draft_submission_after_rejection(
     model_column_names = set(getattr(model_cls, "__table__").columns.keys())
     if hasattr(row, "project_id") and "project_id" in model_column_names:
         kwargs["project_id"] = getattr(row, "project_id", None)
+    if hasattr(row, "experiment_id") and "experiment_id" in model_column_names:
+        kwargs["experiment_id"] = getattr(row, "experiment_id", None)
     if hasattr(row, "biosample_accession") and "biosample_accession" in model_column_names:
         kwargs["biosample_accession"] = getattr(row, "biosample_accession", None)
 
@@ -2392,6 +2394,12 @@ def report_results(
                     details=item.response_payload,
                 )
             )
+            if item.status == "rejected":
+                _create_new_draft_submission_after_rejection(
+                    db,
+                    entity_type=BrokerEntityType.RUN,
+                    row=sub,
+                )
 
         updated_reads += 1
 
