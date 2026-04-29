@@ -9,7 +9,7 @@ from sqlalchemy.orm import Session
 from app.models.broker import SubmissionAttempt
 from app.models.experiment import ExperimentSubmission
 from app.models.project import ProjectSubmission
-from app.models.read import ReadSubmission
+from app.models.qc_read import QcReadSubmission
 from app.models.sample import SampleSubmission
 
 
@@ -47,6 +47,6 @@ def expire_leases(db: Session) -> Dict[str, int]:
         "project_submissions": _expire_submissions(ProjectSubmission),
         "sample_submissions": _expire_submissions(SampleSubmission),
         "experiment_submissions": _expire_submissions(ExperimentSubmission),
-        "read_submissions": _expire_submissions(ReadSubmission),
+        "qc_read_submissions": _expire_submissions(QcReadSubmission),
         "attempts": _expire_attempts(),
     }

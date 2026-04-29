@@ -8,7 +8,7 @@ from sqlalchemy.orm import Session
 
 from app.models.experiment import Experiment, ExperimentSubmission
 from app.models.project import Project
-from app.models.read import Read, ReadSubmission
+from app.models.read import Read
 from app.models.sample import Sample
 from app.schemas.bulk_import import BulkImportResponseExperiments
 from app.schemas.common import SubmissionStatus
@@ -243,10 +243,8 @@ class ExperimentService(BaseService[Experiment, ExperimentCreate, ExperimentUpda
             ena_atol_map = json.load(f)
 
         experiment_mapping = ena_atol_map.get("experiment", {})
-        run_mapping = ena_atol_map.get("run", {})
 
         created_experiments_count = 0
-        created_submission_count = 0
         created_reads_count = 0
         skipped_experiments_count = 0
         skipped_reads_count = 0
@@ -313,21 +311,6 @@ class ExperimentService(BaseService[Experiment, ExperimentCreate, ExperimentUpda
                             db.add(read)
                             created_reads_count += 1
 
-                            run_prepared_payload: Dict[str, Any] = {}
-                            for ena_key, atol_key in run_mapping.items():
-                                if atol_key in run:
-                                    run_prepared_payload[ena_key] = run[atol_key]
-
-                            read_submission = ReadSubmission(
-                                id=uuid.uuid4(),
-                                read_id=read.id,
-                                experiment_id=experiment_id,
-                                authority="ENA",
-                                entity_type_const="read",
-                                prepared_payload=run_prepared_payload,
-                            )
-                            db.add(read_submission)
-                            created_submission_count += 1
                         except Exception as e:
                             # Try to get the most identifying information from the run
                             run_identifier = (
@@ -466,22 +449,6 @@ class ExperimentService(BaseService[Experiment, ExperimentCreate, ExperimentUpda
                             read = Read(**read_kwargs)
                             db.add(read)
                             created_reads_count += 1
-
-                            run_prepared_payload: Dict[str, Any] = {}
-                            for ena_key, atol_key in run_mapping.items():
-                                if atol_key in run:
-                                    run_prepared_payload[ena_key] = run[atol_key]
-
-                            read_submission = ReadSubmission(
-                                id=uuid.uuid4(),
-                                read_id=read.id,
-                                experiment_id=experiment_id,
-                                authority="ENA",
-                                entity_type_const="read",
-                                prepared_payload=run_prepared_payload,
-                            )
-                            db.add(read_submission)
-                            created_submission_count += 1
                         except Exception as e:
                             # Try to get the most identifying information from the run
                             run_identifier = (
@@ -496,7 +463,6 @@ class ExperimentService(BaseService[Experiment, ExperimentCreate, ExperimentUpda
 
                 db.commit()
                 created_experiments_count += 1
-                created_submission_count += 1
             except Exception as e:
                 errors.append(f"{package_id}: {str(e)}")
                 db.rollback()
@@ -509,8 +475,7 @@ class ExperimentService(BaseService[Experiment, ExperimentCreate, ExperimentUpda
             skipped_reads_count=skipped_reads_count,
             message=(
                 f"Experiments: {created_experiments_count} created, {skipped_experiments_count} skipped. "
-                f"Reads: {created_reads_count} created, {skipped_reads_count} skipped. "
-                f"Submission records: {created_submission_count} created."
+                f"Reads: {created_reads_count} created, {skipped_reads_count} skipped."
             ),
             errors=errors if errors else None,
             debug={

@@ -10,7 +10,7 @@ from app.models.broker import SubmissionAttempt
 from app.models.experiment import ExperimentSubmission
 from app.models.organism import Organism
 from app.models.project import ProjectSubmission
-from app.models.read import ReadSubmission
+from app.models.qc_read import QcReadSubmission
 from app.models.sample import SampleSubmission
 
 
@@ -99,7 +99,7 @@ def test_broker_claim_explicit_ids_empty_lists_returns_empty_response():
     payload = broker.ClaimRequest(
         sample_submission_ids=[uuid4()],
         experiment_submission_ids=[uuid4()],
-        read_submission_ids=[uuid4()],
+        qc_read_submission_ids=[uuid4()],
         project_submission_ids=[uuid4()],
         lease_duration_minutes=5,
     )
@@ -130,7 +130,7 @@ def test_broker_renew_attempt_lease_updates_items():
             SubmissionAttempt: [attempt],
             SampleSubmission: [s1],
             ExperimentSubmission: [e1],
-            ReadSubmission: [r1],
+            QcReadSubmission: [r1],
             ProjectSubmission: [p1],
         }
     )
@@ -164,7 +164,7 @@ def test_broker_finalise_attempt_releases_items():
             SubmissionAttempt: [attempt],
             SampleSubmission: [s1],
             ExperimentSubmission: [e1],
-            ReadSubmission: [r1],
+            QcReadSubmission: [r1],
             ProjectSubmission: [p1],
         }
     )
@@ -445,17 +445,17 @@ def test_broker_report_results_experiment_registry_inserts_and_accept():
 def test_broker_report_results_read_registry_inserts_and_accept():
     att_id = uuid4()
     sub_id = uuid4()
-    read_id = uuid4()
+    qc_read_id = uuid4()
     exp_id = uuid4()
     sub = SimpleNamespace(
         id=sub_id,
-        read_id=read_id,
+        qc_read_id=qc_read_id,
         experiment_id=exp_id,
         status="submitting",
         attempt_id=att_id,
         authority="ENA",
     )
-    db = FakeSession({ReadSubmission: [sub]})
+    db = FakeSession({QcReadSubmission: [sub]})
     payload = broker.ReportRequest(
         attempt_id=att_id,
         samples=[],

@@ -12,7 +12,7 @@ from app.models.broker import SubmissionAttempt, SubmissionEvent
 from app.models.experiment import ExperimentSubmission
 from app.models.organism import Organism
 from app.models.project import ProjectSubmission
-from app.models.read import ReadSubmission
+from app.models.qc_read import QcReadSubmission
 from app.models.sample import Sample, SampleSubmission
 
 
@@ -226,7 +226,7 @@ def test_expire_stale_leases_resets_all_entity_types():
         {
             SampleSubmission: [s1],
             ExperimentSubmission: [e1],
-            ReadSubmission: [r1],
+            QcReadSubmission: [r1],
             ProjectSubmission: [p1],
         }
     )
