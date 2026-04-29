@@ -1,9 +1,14 @@
-"""QC callback endpoint — receives QC output metadata from the genome launcher."""
+"""QC read endpoints — CRUD and genome launcher report callback."""
 
-from fastapi import APIRouter, Depends, HTTPException
+from typing import Any, List, Optional
+from uuid import UUID
+
+from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.orm import Session
 
 from app.core.dependencies import get_current_active_user, get_db
+from app.core.pagination import Pagination, apply_pagination, pagination_params
+from app.core.policy import policy
 from app.models.experiment import Experiment
 from app.models.qc_read import QcRead, QcReadFile, QcReadSubmission
 from app.models.user import User
@@ -31,8 +36,64 @@ def _build_prepared_payload(qc_read: QcRead, files: list[QcReadFile]) -> dict:
     }
 
 
-@router.post("", response_model=QcReadOut, status_code=201)
-def receive_qc_callback(
+# ---------------------------------------------------------------------------
+# CRUD
+# ---------------------------------------------------------------------------
+
+
+@router.get("/", response_model=List[QcReadOut])
+def list_qc_reads(
+    db: Session = Depends(get_db),
+    pagination: Pagination = Depends(pagination_params),
+    experiment_id: Optional[UUID] = Query(None, description="Filter by experiment ID"),
+    current_user: User = Depends(get_current_active_user),
+) -> Any:
+    """List QC reads, optionally filtered by experiment."""
+    query = db.query(QcRead)
+    if experiment_id:
+        query = query.filter(QcRead.experiment_id == experiment_id)
+    return apply_pagination(query, pagination).all()
+
+
+@router.get("/{qc_read_id}", response_model=QcReadOut)
+def get_qc_read(
+    *,
+    db: Session = Depends(get_db),
+    qc_read_id: UUID,
+    current_user: User = Depends(get_current_active_user),
+) -> Any:
+    """Get a single QC read by ID, including its files and submission records."""
+    qc_read = db.query(QcRead).filter(QcRead.id == qc_read_id).first()
+    if not qc_read:
+        raise HTTPException(status_code=404, detail="QC read not found")
+    return qc_read
+
+
+@router.delete("/{qc_read_id}", response_model=QcReadOut)
+@policy("qc_reads:delete")
+def delete_qc_read(
+    *,
+    db: Session = Depends(get_db),
+    qc_read_id: UUID,
+    current_user: User = Depends(get_current_active_user),
+) -> Any:
+    """Delete a QC read and its associated files and submission records."""
+    qc_read = db.query(QcRead).filter(QcRead.id == qc_read_id).first()
+    if not qc_read:
+        raise HTTPException(status_code=404, detail="QC read not found")
+    db.delete(qc_read)
+    db.commit()
+    return qc_read
+
+
+# ---------------------------------------------------------------------------
+# Genome launcher callback
+# ---------------------------------------------------------------------------
+
+
+@router.post("/report", response_model=QcReadOut, status_code=201)
+@policy("qc_reads:report")
+def report_qc_result(
     *,
     payload: QcCallbackRequest,
     current_user: User = Depends(get_current_active_user),
@@ -70,7 +131,6 @@ def receive_qc_callback(
             qc_read_id=qc_read.id,
             file_type=f.file_type,
             storage_backend=f.storage_backend,
-            # TODO document / manage storage profiles
             storage_profile=f.storage_profile,
             bucket_name=f.bucket_name,
             path_to_file=f.path_to_file,

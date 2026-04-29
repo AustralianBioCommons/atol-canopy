@@ -11,7 +11,7 @@ from app.api.v1.endpoints import (
     genome_notes,
     organisms,
     projects,
-    qc_callbacks,
+    qc_reads,
     reads,
     sample_submissions,
     samples,
@@ -44,8 +44,7 @@ api_router.include_router(
 )
 api_router.include_router(projects.router, prefix="/projects", tags=["projects"])
 api_router.include_router(reads.router, prefix="/reads", tags=["reads"])
-# TODO update naming
-api_router.include_router(qc_callbacks.router, prefix="/qc-callbacks", tags=["qc-callbacks"])
+api_router.include_router(qc_reads.router, prefix="/qc-reads", tags=["qc-reads"])
 api_router.include_router(genome_notes.router, prefix="/genome-notes", tags=["genome-notes"])
 
 # XML export endpoints
