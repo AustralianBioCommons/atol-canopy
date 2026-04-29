@@ -107,8 +107,6 @@ class Experiment(ExperimentInDBBase):
 class ExperimentSubmissionBase(BaseModel):
     """Base ExperimentSubmission schema with common attributes."""
 
-    sample_id: UUID
-    project_id: Optional[UUID] = None
     authority: str = Field(default="ENA", description="Authority for the submission")
     status: SubmissionStatus = Field(
         default=SubmissionStatus.DRAFT, description="Status of the submission"
@@ -135,8 +133,6 @@ class ExperimentSubmissionCreate(ExperimentSubmissionBase):
 class ExperimentSubmissionUpdate(BaseModel):
     """Schema for updating an existing experiment submission."""
 
-    sample_id: Optional[UUID] = None
-    project_id: Optional[UUID] = None
     authority: Optional[str] = None
     project_accession: Optional[str] = None
     sample_accession: Optional[str] = None

@@ -3,6 +3,7 @@ from uuid import UUID
 
 from sqlalchemy.orm import Session
 
+from app.models.experiment import Experiment
 from app.models.read import Read, ReadSubmission
 from app.schemas.read import ReadCreate, ReadUpdate
 from app.services.base_service import BaseService
@@ -50,7 +51,12 @@ class ReadSubmissionService(BaseService[ReadSubmission, ReadCreate, ReadUpdate])
 
     def get_by_project_id(self, db: Session, project_id: UUID) -> List[ReadSubmission]:
         """Get submission reads by project ID."""
-        return db.query(ReadSubmission).filter(ReadSubmission.project_id == project_id).all()
+        return (
+            db.query(ReadSubmission)
+            .join(Experiment, Experiment.id == ReadSubmission.experiment_id)
+            .filter(Experiment.project_id == project_id)
+            .all()
+        )
 
     def get_by_accession(self, db: Session, accession: str) -> Optional[ReadSubmission]:
         """Get submission read by accession."""

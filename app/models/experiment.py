@@ -21,6 +21,9 @@ class Experiment(Base):
     sample_id = Column(
         UUID(as_uuid=True), ForeignKey("sample.id", ondelete="CASCADE"), nullable=False
     )
+    project_id = Column(
+        UUID(as_uuid=True), ForeignKey("project.id", ondelete="CASCADE"), nullable=False
+    )
     bpa_package_id = Column(Text, unique=True, nullable=False)
     design_description = Column(Text, nullable=True)
     bpa_library_id = Column(Text, nullable=True)
@@ -59,6 +62,9 @@ class Experiment(Base):
     sample = relationship(
         "Sample", backref=backref("exp_sample_records", cascade="all, delete-orphan")
     )
+    project = relationship(
+        "Project", backref=backref("exp_project_records", cascade="all, delete-orphan")
+    )
 
 
 class ExperimentSubmission(Base):
@@ -91,16 +97,6 @@ class ExperimentSubmission(Base):
         default="draft",
     )
 
-    sample_id = Column(
-        UUID(as_uuid=True), ForeignKey("sample.id", ondelete="SET NULL"), nullable=False
-    )
-    project_id = Column(
-        UUID(as_uuid=True), ForeignKey("project.id", ondelete="SET NULL"), nullable=True
-    )
-
-    project_accession = Column(Text, nullable=True)
-    sample_accession = Column(Text, nullable=True)
-
     prepared_payload = Column(JSONB, nullable=True)
     response_payload = Column(JSONB, nullable=True)
     accession = Column(Text, nullable=True)
@@ -128,12 +124,6 @@ class ExperimentSubmission(Base):
     experiment = relationship(
         "Experiment", backref=backref("exp_submission_records", cascade="all, delete-orphan")
     )
-    sample = relationship(
-        "Sample", backref=backref("exp_sample_submission_records", cascade="all, delete-orphan")
-    )
-    project = relationship(
-        "Project", backref=backref("exp_project_submission_records", cascade="all, delete-orphan")
-    )
 
     # Table constraints
     __table_args__ = (
@@ -149,18 +139,6 @@ class ExperimentSubmission(Base):
             name="fk_self_accession",
             deferrable=True,
             initially="DEFERRED",
-        ),
-        # Foreign key constraint for project accession
-        ForeignKeyConstraint(
-            ["project_accession", "authority"],
-            ["accession_registry.accession", "accession_registry.authority"],
-            name="fk_proj_acc",
-        ),
-        # Foreign key constraint for sample accession
-        ForeignKeyConstraint(
-            ["sample_accession", "authority"],
-            ["accession_registry.accession", "accession_registry.authority"],
-            name="fk_samp_acc",
         ),
         # This is a simplified version of the SQL constraint:
         # UNIQUE (experiment_id, authority) WHERE (status = 'accepted' AND accession IS NOT NULL)

@@ -73,7 +73,7 @@ def main():
     # Database connection parameters
     parser.add_argument("--host", default="localhost", help="Database host")
     parser.add_argument("--port", default="5433", help="Database port")
-    parser.add_argument("--dbname", default="atol_database", help="Database name")
+    parser.add_argument("--dbname", default="atol_db", help="Database name")
     parser.add_argument("--user", default="postgres", help="Database user")
     parser.add_argument("--password", default="postgres", help="Database password")
     parser.add_argument(

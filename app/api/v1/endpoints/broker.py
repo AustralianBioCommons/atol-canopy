@@ -1,3 +1,4 @@
+import logging
 from datetime import datetime, timedelta, timezone
 from typing import Any, Dict, List, Optional
 from uuid import UUID, uuid4
@@ -6,6 +7,7 @@ from fastapi import APIRouter, Body, Depends, HTTPException, Path, Query
 from pydantic import BaseModel, Field
 from sqlalchemy import func, or_
 from sqlalchemy.dialects.postgresql import insert
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from app.core.dependencies import get_current_active_user, get_db, has_role
@@ -18,8 +20,29 @@ from app.models.project import Project, ProjectSubmission
 from app.models.read import Read, ReadSubmission
 from app.models.sample import Sample, SampleSubmission
 from app.models.user import User
+from app.schemas.broker_contract import (
+    BrokerBatchClaimRequest,
+    BrokerBatchClaimResponse,
+    BrokerClaimEntity,
+    BrokerEntityType,
+    BrokerFileMetadata,
+    BrokerPrerequisites,
+    BrokerReadyClaimRequest,
+    BrokerReadyClaimResponse,
+    BrokerReportRequest,
+    BrokerReportResponse,
+    BrokerTargetedClaimRequest,
+    BrokerTargetedClaimResponse,
+    BrokerValidationIssue,
+    BrokerValidationRequest,
+    BrokerValidationResponse,
+)
 
 router = APIRouter()
+CLAIMABLE_SUBMISSION_STATES = ("draft", "ready")
+
+
+logger = logging.getLogger(__name__)
 
 
 # ---------- Pydantic models for request/response ----------
@@ -116,6 +139,952 @@ class ReportRequest(BaseModel):
 
 class ReportResult(BaseModel):
     updated_counts: Dict[str, int]
+
+
+def _normalise_tax_id_value(value: str | int) -> int:
+    try:
+        return int(str(value))
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail="tax_id must be an integer value") from exc
+
+
+def _coerce_entity_type(entity_type: BrokerEntityType | str) -> BrokerEntityType:
+    if isinstance(entity_type, BrokerEntityType):
+        return entity_type
+    return BrokerEntityType(entity_type)
+
+
+def _prerequisites_to_dict(prerequisites: Optional[BrokerPrerequisites]) -> Dict[str, str]:
+    if prerequisites is None:
+        return {}
+    return {key: value for key, value in prerequisites.model_dump().items() if value is not None}
+
+
+def _first_present_value(*values: Any) -> Optional[str]:
+    for value in values:
+        if value is not None:
+            return str(value)
+    return None
+
+
+def _lookup_scientific_name(db: Session, *, tax_id: str | int) -> Optional[str]:
+    try:
+        tax_id_int = int(tax_id)
+    except Exception:
+        return None
+    return db.query(Organism.scientific_name).filter(Organism.tax_id == tax_id_int).scalar()
+
+
+def _create_new_draft_submission_after_rejection(
+    db: Session,
+    *,
+    entity_type: BrokerEntityType,
+    row: Any,
+) -> None:
+    """Create a new draft submission row after a rejection so the entity can be re-claimed.
+
+    Copies the original row data (where applicable) but clears response_payload and resets status.
+    """
+
+    model_cls = None
+    entity_fk_field = None
+    if entity_type == BrokerEntityType.SAMPLE:
+        model_cls = SampleSubmission
+        entity_fk_field = "sample_id"
+    elif entity_type == BrokerEntityType.EXPERIMENT:
+        model_cls = ExperimentSubmission
+        entity_fk_field = "experiment_id"
+    elif entity_type == BrokerEntityType.RUN:
+        model_cls = ReadSubmission
+        entity_fk_field = "read_id"
+    elif entity_type == BrokerEntityType.PROJECT:
+        model_cls = ProjectSubmission
+        entity_fk_field = "project_id"
+
+    if model_cls is None or entity_fk_field is None:
+        return
+
+    entity_id = getattr(row, entity_fk_field, None)
+    prepared_payload = getattr(row, "prepared_payload", None) or None
+    authority = getattr(row, "authority", "ENA")
+    entity_type_const = getattr(row, "entity_type_const", entity_type.value)
+
+    if entity_id is None or prepared_payload is None:
+        return
+
+    kwargs: Dict[str, Any] = {
+        entity_fk_field: entity_id,
+        "authority": authority,
+        "entity_type_const": entity_type_const,
+        "prepared_payload": prepared_payload,
+        "status": "draft",
+        "response_payload": None,
+        "accession": getattr(row, "accession", None),
+        "submitted_at": None,
+        "attempt_id": None,
+        "finalised_attempt_id": None,
+        "lock_acquired_at": None,
+        "lock_expires_at": None,
+    }
+
+    # Preserve optional extra fields where present
+    model_column_names = set(getattr(model_cls, "__table__").columns.keys())
+    if hasattr(row, "project_id") and "project_id" in model_column_names:
+        kwargs["project_id"] = getattr(row, "project_id", None)
+    if hasattr(row, "biosample_accession") and "biosample_accession" in model_column_names:
+        kwargs["biosample_accession"] = getattr(row, "biosample_accession", None)
+
+    # Drop keys that don't exist on the model (helps keep this generic)
+    kwargs = {k: v for k, v in kwargs.items() if k in model_column_names}
+
+    db.add(model_cls(**kwargs))
+
+
+def _derive_claim_title(
+    db: Session, *, entity_type: BrokerEntityType, entity_id: UUID, tax_id: str | int
+) -> Optional[str]:
+    try:
+        tax_id_int = int(tax_id)
+    except Exception:
+        return None
+
+    scientific_name = (
+        db.query(Organism.scientific_name).filter(Organism.tax_id == tax_id_int).scalar()
+    )
+    if not scientific_name:
+        return None
+
+    if entity_type == BrokerEntityType.EXPERIMENT:
+        bpa_package_id = (
+            db.query(Experiment.bpa_package_id).filter(Experiment.id == entity_id).scalar()
+        )
+        if not bpa_package_id:
+            return None
+        return f"Bioplatforms Australia dataset {bpa_package_id} for {scientific_name}"
+
+    if entity_type == BrokerEntityType.SAMPLE:
+        sample_row = (
+            db.query(Sample.kind, Sample.specimen_id, Sample.bpa_sample_id)
+            .filter(Sample.id == entity_id)
+            .first()
+        )
+        if not sample_row:
+            return None
+        kind, specimen_id, bpa_sample_id = sample_row
+        if kind == "specimen":
+            if not specimen_id:
+                return None
+            return f"Specimen {specimen_id} for {scientific_name}"
+        if kind == "derived":
+            if not bpa_sample_id:
+                return None
+            return f"Sample {bpa_sample_id} for {scientific_name}"
+
+    return None
+
+
+def _as_payload(payload: Any) -> Dict[str, Any]:
+    if isinstance(payload, dict):
+        return payload
+    return {}
+
+
+def _get_accession_for_entity(
+    db: Session, entity_type: str, entity_id: UUID, authority: str
+) -> Optional[str]:
+    """Lookup accession from accession_registry for a given entity."""
+    if not entity_id:
+        return None
+    return (
+        db.query(AccessionRegistry.accession)
+        .filter(
+            AccessionRegistry.entity_type == entity_type,
+            AccessionRegistry.entity_id == entity_id,
+            AccessionRegistry.authority == authority,
+        )
+        .scalar()
+    )
+
+
+def _extract_broker_prerequisites(
+    db: Session, entity_type: BrokerEntityType | str, prepared_payload: Dict[str, Any], row: Any
+) -> BrokerPrerequisites:
+    entity_type = _coerce_entity_type(entity_type)
+    authority = getattr(row, "authority", "ENA")
+
+    # Lookup existing accessions from accession_registry via FK relationships
+    project_id = getattr(row, "project_id", None)
+    sample_id = getattr(row, "sample_id", None)
+    experiment_id = getattr(row, "experiment_id", None)
+
+    # Runs and reads may not carry project_id directly; derive via experiment.
+    if project_id is None and experiment_id is not None:
+        project_id = db.query(Experiment.project_id).filter(Experiment.id == experiment_id).scalar()
+
+    # Experiment submissions may not carry sample_id directly; derive via experiment.
+    if sample_id is None and experiment_id is not None:
+        sample_id = db.query(Experiment.sample_id).filter(Experiment.id == experiment_id).scalar()
+
+    project_accession = _get_accession_for_entity(db, "project", project_id, authority)
+    sample_accession = _get_accession_for_entity(db, "sample", sample_id, authority)
+    experiment_accession = _get_accession_for_entity(db, "experiment", experiment_id, authority)
+    run_accession = getattr(row, "accession", None) if entity_type == BrokerEntityType.RUN else None
+
+    if entity_type == BrokerEntityType.SAMPLE:
+        project_accession = None
+
+    study_accession = project_accession
+    analysis_accession = prepared_payload.get("analysis_accession")  # This might only be in payload
+
+    return BrokerPrerequisites(
+        # Existing accessions (from database)
+        project_accession=project_accession,
+        sample_accession=sample_accession,
+        experiment_accession=experiment_accession,
+        run_accession=run_accession,
+        study_accession=study_accession,
+        analysis_accession=analysis_accession,
+    )
+
+
+def _extract_run_files(prepared_payload: Dict[str, Any]) -> Optional[List[BrokerFileMetadata]]:
+    if isinstance(prepared_payload.get("files"), list):
+        files: List[BrokerFileMetadata] = []
+        for item in prepared_payload["files"]:
+            if isinstance(item, dict) and item.get("filename") and item.get("filetype"):
+                files.append(
+                    BrokerFileMetadata(filename=item["filename"], filetype=item["filetype"])
+                )
+        if files:
+            return files
+
+    filename = prepared_payload.get("filename") or prepared_payload.get("file_name")
+    filetype = prepared_payload.get("filetype") or prepared_payload.get("file_format")
+    if filename and filetype:
+        return [BrokerFileMetadata(filename=filename, filetype=filetype)]
+    return None
+
+
+def _build_contract_entity(
+    db: Session, entity_type: BrokerEntityType | str, entity_id: UUID, tax_id: str | int, row: Any
+) -> BrokerClaimEntity:
+    entity_type = _coerce_entity_type(entity_type)
+    prepared_payload = _as_payload(getattr(row, "prepared_payload", None))
+    prerequisites = None
+    if entity_type != BrokerEntityType.PROJECT:
+        prerequisites = _extract_broker_prerequisites(db, entity_type, prepared_payload, row)
+    files = _extract_run_files(prepared_payload) if entity_type == BrokerEntityType.RUN else None
+    scientific_name = _lookup_scientific_name(db, tax_id=tax_id)
+
+    if entity_type in (BrokerEntityType.EXPERIMENT, BrokerEntityType.SAMPLE):
+        title = _derive_claim_title(db, entity_type=entity_type, entity_id=entity_id, tax_id=tax_id)
+        if title is not None:
+            prepared_payload["title"] = title
+
+    return BrokerClaimEntity(
+        type=entity_type,
+        id=entity_id,
+        tax_id=str(tax_id),
+        scientific_name=scientific_name,
+        payload=prepared_payload or None,
+        prerequisites=prerequisites if _prerequisites_to_dict(prerequisites) else None,
+        files=files,
+    )
+
+
+def _claim_submission_row(
+    db: Session,
+    *,
+    attempt: SubmissionAttempt,
+    row: Any,
+    entity_type: str,
+    now: datetime,
+) -> None:
+    row.status = "submitting"
+    row.attempt_id = attempt.id
+    row.lock_acquired_at = now
+    row.lock_expires_at = attempt.lock_expires_at
+    db.add(
+        SubmissionEvent(
+            attempt_id=attempt.id,
+            entity_type=entity_type,
+            submission_id=row.id,
+            action="claimed",
+        )
+    )
+
+
+def _create_contract_attempt(
+    db: Session, *, organism_key: Optional[str], lease_minutes: int = 30
+) -> SubmissionAttempt:
+    now = datetime.now(timezone.utc)
+    attempt = SubmissionAttempt(
+        organism_key=organism_key,
+        status="processing",
+        lock_acquired_at=now,
+        lock_expires_at=now + timedelta(minutes=lease_minutes),
+    )
+    db.add(attempt)
+    db.flush()
+    return attempt
+
+
+def _get_organism_by_tax_id(db: Session, tax_id: int) -> Optional[Organism]:
+    return db.query(Organism).filter(Organism.tax_id == tax_id).first()
+
+
+def _query_ready_project_submissions(db: Session, tax_id: int) -> List[ProjectSubmission]:
+    return (
+        db.query(ProjectSubmission)
+        .join(Project, ProjectSubmission.project_id == Project.id)
+        .join(Organism, Project.organism_key == Organism.grouping_key)
+        .filter(
+            Organism.tax_id == tax_id,
+            ProjectSubmission.status.in_(CLAIMABLE_SUBMISSION_STATES),
+        )
+        .order_by(ProjectSubmission.created_at.desc())
+        .with_for_update(skip_locked=True)
+        .all()
+    )
+
+
+def _query_ready_sample_submissions(db: Session, tax_id: int) -> List[SampleSubmission]:
+    return (
+        db.query(SampleSubmission)
+        .join(Sample, SampleSubmission.sample_id == Sample.id)
+        .join(Organism, Sample.organism_key == Organism.grouping_key)
+        .filter(
+            Organism.tax_id == tax_id,
+            SampleSubmission.status.in_(CLAIMABLE_SUBMISSION_STATES),
+        )
+        .order_by(SampleSubmission.created_at.desc())
+        .with_for_update(skip_locked=True)
+        .all()
+    )
+
+
+def _query_ready_experiment_submissions(db: Session, tax_id: int) -> List[ExperimentSubmission]:
+    return (
+        db.query(ExperimentSubmission)
+        .join(Experiment, ExperimentSubmission.experiment_id == Experiment.id)
+        .join(Sample, Experiment.sample_id == Sample.id)
+        .join(Organism, Sample.organism_key == Organism.grouping_key)
+        .filter(
+            Organism.tax_id == tax_id,
+            ExperimentSubmission.status.in_(CLAIMABLE_SUBMISSION_STATES),
+        )
+        .order_by(ExperimentSubmission.created_at.desc())
+        .with_for_update(skip_locked=True)
+        .all()
+    )
+
+
+def _query_ready_run_submissions(db: Session, tax_id: int) -> List[ReadSubmission]:
+    return (
+        db.query(ReadSubmission)
+        .join(Read, ReadSubmission.read_id == Read.id)
+        .join(Experiment, Read.experiment_id == Experiment.id)
+        .join(Sample, Experiment.sample_id == Sample.id)
+        .join(Organism, Sample.organism_key == Organism.grouping_key)
+        .filter(
+            Organism.tax_id == tax_id,
+            ReadSubmission.status.in_(CLAIMABLE_SUBMISSION_STATES),
+        )
+        .order_by(ReadSubmission.created_at.desc())
+        .with_for_update(skip_locked=True)
+        .all()
+    )
+
+
+def _latest_per_entity(rows: List[Any], entity_attr: str) -> List[Any]:
+    latest_rows: List[Any] = []
+    seen_entity_ids: set[UUID] = set()
+    for row in rows:
+        entity_id = getattr(row, entity_attr, None)
+        if entity_id is None or entity_id in seen_entity_ids:
+            continue
+        seen_entity_ids.add(entity_id)
+        latest_rows.append(row)
+    return latest_rows
+
+
+def _find_latest_claimable_entity_submission(
+    db: Session, entity_type: BrokerEntityType | str, entity_id: UUID
+) -> Optional[Any]:
+    entity_type = _coerce_entity_type(entity_type)
+    if entity_type == BrokerEntityType.PROJECT:
+        return (
+            db.query(ProjectSubmission)
+            .filter(
+                ProjectSubmission.project_id == entity_id,
+                ProjectSubmission.status.in_(CLAIMABLE_SUBMISSION_STATES),
+            )
+            .order_by(ProjectSubmission.created_at.desc())
+            .with_for_update(skip_locked=True)
+            .first()
+        )
+    if entity_type == BrokerEntityType.SAMPLE:
+        return (
+            db.query(SampleSubmission)
+            .filter(
+                SampleSubmission.sample_id == entity_id,
+                SampleSubmission.status.in_(CLAIMABLE_SUBMISSION_STATES),
+            )
+            .order_by(SampleSubmission.created_at.desc())
+            .with_for_update(skip_locked=True)
+            .first()
+        )
+    if entity_type == BrokerEntityType.EXPERIMENT:
+        return (
+            db.query(ExperimentSubmission)
+            .filter(
+                ExperimentSubmission.experiment_id == entity_id,
+                ExperimentSubmission.status.in_(CLAIMABLE_SUBMISSION_STATES),
+            )
+            .order_by(ExperimentSubmission.created_at.desc())
+            .with_for_update(skip_locked=True)
+            .first()
+        )
+    return (
+        db.query(ReadSubmission)
+        .filter(
+            ReadSubmission.read_id == entity_id,
+            ReadSubmission.status.in_(CLAIMABLE_SUBMISSION_STATES),
+        )
+        .order_by(ReadSubmission.created_at.desc())
+        .with_for_update(skip_locked=True)
+        .first()
+    )
+
+
+def _find_latest_submission_for_validation(
+    db: Session, entity_type: BrokerEntityType | str, entity_id: UUID
+) -> Optional[Any]:
+    entity_type = _coerce_entity_type(entity_type)
+    if entity_type == BrokerEntityType.PROJECT:
+        return (
+            db.query(ProjectSubmission)
+            .filter(ProjectSubmission.project_id == entity_id)
+            .order_by(ProjectSubmission.created_at.desc())
+            .first()
+        )
+    if entity_type == BrokerEntityType.SAMPLE:
+        return (
+            db.query(SampleSubmission)
+            .filter(SampleSubmission.sample_id == entity_id)
+            .order_by(SampleSubmission.created_at.desc())
+            .first()
+        )
+    if entity_type == BrokerEntityType.EXPERIMENT:
+        return (
+            db.query(ExperimentSubmission)
+            .filter(ExperimentSubmission.experiment_id == entity_id)
+            .order_by(ExperimentSubmission.created_at.desc())
+            .first()
+        )
+    return (
+        db.query(ReadSubmission)
+        .filter(ReadSubmission.read_id == entity_id)
+        .order_by(ReadSubmission.created_at.desc())
+        .first()
+    )
+
+
+def _lookup_taxonomy_for_entity(
+    db: Session, entity_type: BrokerEntityType | str, entity_id: UUID
+) -> tuple[Optional[str], Optional[int]]:
+    entity_type = _coerce_entity_type(entity_type)
+    if entity_type == BrokerEntityType.PROJECT:
+        row = (
+            db.query(Project.organism_key, Organism.tax_id)
+            .join(Organism, Project.organism_key == Organism.grouping_key)
+            .filter(Project.id == entity_id)
+            .first()
+        )
+    elif entity_type == BrokerEntityType.SAMPLE:
+        row = (
+            db.query(Sample.organism_key, Organism.tax_id)
+            .join(Organism, Sample.organism_key == Organism.grouping_key)
+            .filter(Sample.id == entity_id)
+            .first()
+        )
+    elif entity_type == BrokerEntityType.EXPERIMENT:
+        row = (
+            db.query(Sample.organism_key, Organism.tax_id)
+            .join(Experiment, Experiment.sample_id == Sample.id)
+            .join(Organism, Sample.organism_key == Organism.grouping_key)
+            .filter(Experiment.id == entity_id)
+            .first()
+        )
+    else:
+        row = (
+            db.query(Sample.organism_key, Organism.tax_id)
+            .join(Experiment, Experiment.sample_id == Sample.id)
+            .join(Read, Read.experiment_id == Experiment.id)
+            .join(Organism, Sample.organism_key == Organism.grouping_key)
+            .filter(Read.id == entity_id)
+            .first()
+        )
+
+    if not row:
+        return None, None
+    return row[0], row[1]
+
+
+def _merge_prerequisites(
+    stored: BrokerPrerequisites, overrides: BrokerPrerequisites
+) -> Dict[str, str]:
+    merged = _prerequisites_to_dict(stored)
+    for key, value in overrides.model_dump().items():
+        if value is not None:
+            merged[key] = value
+    return merged
+
+
+def _validate_contract_entity(
+    claimed_entity: BrokerClaimEntity, overrides: BrokerPrerequisites
+) -> BrokerValidationResponse:
+    entity_type = _coerce_entity_type(claimed_entity.type)
+    stored_prerequisites = claimed_entity.prerequisites or BrokerPrerequisites()
+    resolved_prerequisites = _merge_prerequisites(stored_prerequisites, overrides)
+    issues: List[BrokerValidationIssue] = []
+
+    if entity_type == BrokerEntityType.SAMPLE:
+        if not claimed_entity.payload:
+            issues.append(
+                BrokerValidationIssue(field="payload", message="sample payload is required")
+            )
+    elif entity_type == BrokerEntityType.EXPERIMENT:
+        if not claimed_entity.payload:
+            issues.append(
+                BrokerValidationIssue(field="payload", message="experiment payload is required")
+            )
+        if not resolved_prerequisites.get("sample_accession"):
+            issues.append(
+                BrokerValidationIssue(
+                    field="sample_accession",
+                    message="sample accession is required",
+                )
+            )
+        if not resolved_prerequisites.get("project_accession"):
+            issues.append(
+                BrokerValidationIssue(
+                    field="project_accession",
+                    message="project accession is required",
+                )
+            )
+    elif entity_type == BrokerEntityType.RUN:
+        if not claimed_entity.payload:
+            issues.append(BrokerValidationIssue(field="payload", message="run payload is required"))
+        if not resolved_prerequisites.get("experiment_accession"):
+            issues.append(
+                BrokerValidationIssue(
+                    field="experiment_accession",
+                    message="experiment accession is required",
+                )
+            )
+        if not (claimed_entity.files or claimed_entity.file_metadata):
+            issues.append(
+                BrokerValidationIssue(field="files", message="run file metadata is required")
+            )
+
+    return BrokerValidationResponse(
+        entity_type=claimed_entity.type,
+        entity_id=claimed_entity.id,
+        valid=not issues,
+        issues=issues,
+        resolved_prerequisites=resolved_prerequisites,
+    )
+
+
+def _map_report_state_to_submission_status(state: str) -> str:
+    lowered = state.lower()
+    if lowered in {"completed", "accepted", "success"}:
+        return "accepted"
+    if lowered in {"failed", "rejected", "error"}:
+        return "rejected"
+    if lowered in {"submitting", "processing"}:
+        return "submitting"
+    raise HTTPException(status_code=422, detail=f"Unsupported report state '{state}'")
+
+
+def _find_submission_for_attempt(
+    db: Session, entity_type: BrokerEntityType | str, entity_id: UUID, attempt_id: UUID
+) -> Optional[Any]:
+    entity_type = _coerce_entity_type(entity_type)
+
+    if entity_type == BrokerEntityType.PROJECT:
+        return (
+            db.query(ProjectSubmission)
+            .filter(
+                ProjectSubmission.project_id == entity_id,
+                ProjectSubmission.attempt_id == attempt_id,
+            )
+            .order_by(ProjectSubmission.created_at.desc())
+            .first()
+        )
+    if entity_type == BrokerEntityType.SAMPLE:
+        return (
+            db.query(SampleSubmission)
+            .filter(
+                SampleSubmission.sample_id == entity_id, SampleSubmission.attempt_id == attempt_id
+            )
+            .order_by(SampleSubmission.created_at.desc())
+            .first()
+        )
+    if entity_type == BrokerEntityType.EXPERIMENT:
+        result = (
+            db.query(ExperimentSubmission)
+            .filter(
+                ExperimentSubmission.experiment_id == entity_id,
+                ExperimentSubmission.attempt_id == attempt_id,
+            )
+            .order_by(ExperimentSubmission.created_at.desc())
+            .first()
+        )
+        return result
+    if entity_type == BrokerEntityType.RUN:
+        result = (
+            db.query(ReadSubmission)
+            .filter(ReadSubmission.read_id == entity_id, ReadSubmission.attempt_id == attempt_id)
+            .order_by(ReadSubmission.created_at.desc())
+            .first()
+        )
+        return result
+
+
+def _register_submission_accession(
+    db: Session,
+    entity_type: BrokerEntityType | str,
+    row: Any,
+    accession: Optional[str],
+    secondary_accession: Optional[str] = None,
+) -> None:
+    entity_type = _coerce_entity_type(entity_type)
+    if not accession:
+        return
+
+    if entity_type == BrokerEntityType.PROJECT:
+        registry_entity_type = "project"
+        registry_entity_id = row.project_id
+    elif entity_type == BrokerEntityType.SAMPLE:
+        registry_entity_type = "sample"
+        registry_entity_id = row.sample_id
+    elif entity_type == BrokerEntityType.EXPERIMENT:
+        registry_entity_type = "experiment"
+        registry_entity_id = row.experiment_id
+    else:
+        registry_entity_type = "read"
+        registry_entity_id = row.read_id
+
+    if registry_entity_id is None:
+        return
+
+    stmt = insert(AccessionRegistry).values(
+        authority=getattr(row, "authority", None) or "ENA",
+        accession=accession,
+        secondary_accession=secondary_accession,
+        entity_type=registry_entity_type,
+        entity_id=registry_entity_id,
+        accepted_at=datetime.now(timezone.utc),
+    )
+    stmt = stmt.on_conflict_do_nothing(index_elements=[AccessionRegistry.accession])
+    db.execute(stmt)
+
+
+@router.post("/claims/ready", response_model=BrokerReadyClaimResponse)
+@policy("broker:claim")
+def claim_ready_entities(
+    *,
+    payload: BrokerReadyClaimRequest,
+    current_user: User = Depends(get_current_active_user),
+    db: Session = Depends(get_db),
+) -> BrokerReadyClaimResponse:
+    expire_stale_leases(db)
+
+    tax_id = _normalise_tax_id_value(payload.tax_id)
+    organism = _get_organism_by_tax_id(db, tax_id)
+    if not organism:
+        raise HTTPException(status_code=404, detail=f"Organism with tax_id {tax_id} not found")
+    organism_key = organism.grouping_key
+
+    project_rows = _latest_per_entity(_query_ready_project_submissions(db, tax_id), "project_id")
+    sample_rows = _latest_per_entity(_query_ready_sample_submissions(db, tax_id), "sample_id")
+    experiment_rows = _latest_per_entity(
+        _query_ready_experiment_submissions(db, tax_id), "experiment_id"
+    )
+    run_rows = _latest_per_entity(_query_ready_run_submissions(db, tax_id), "read_id")
+
+    if not any([project_rows, sample_rows, experiment_rows, run_rows]):
+        # Return empty response when organism exists but has no claimable entities
+        return BrokerReadyClaimResponse(
+            attempt_id=None,
+            tax_id=str(tax_id),
+            scope="full",
+            entities=[],
+        )
+
+    attempt = _create_contract_attempt(db, organism_key=organism_key)
+    now = datetime.now(timezone.utc)
+
+    entities: List[BrokerClaimEntity] = []
+    for row in project_rows:
+        _claim_submission_row(db, attempt=attempt, row=row, entity_type="project", now=now)
+        entities.append(
+            _build_contract_entity(db, BrokerEntityType.PROJECT, row.project_id, tax_id, row)
+        )
+    for row in sample_rows:
+        _claim_submission_row(db, attempt=attempt, row=row, entity_type="sample", now=now)
+        entities.append(
+            _build_contract_entity(db, BrokerEntityType.SAMPLE, row.sample_id, tax_id, row)
+        )
+    for row in experiment_rows:
+        _claim_submission_row(db, attempt=attempt, row=row, entity_type="experiment", now=now)
+        entities.append(
+            _build_contract_entity(db, BrokerEntityType.EXPERIMENT, row.experiment_id, tax_id, row)
+        )
+    for row in run_rows:
+        _claim_submission_row(db, attempt=attempt, row=row, entity_type="read", now=now)
+        entities.append(_build_contract_entity(db, BrokerEntityType.RUN, row.read_id, tax_id, row))
+
+    db.commit()
+
+    return BrokerReadyClaimResponse(
+        attempt_id=attempt.id,
+        tax_id=str(tax_id),
+        scope="full",
+        entities=entities,
+    )
+
+
+@router.post("/claims/entity", response_model=BrokerTargetedClaimResponse)
+@policy("broker:claim")
+def claim_specific_entity(
+    *,
+    payload: BrokerTargetedClaimRequest,
+    current_user: User = Depends(get_current_active_user),
+    db: Session = Depends(get_db),
+) -> BrokerTargetedClaimResponse:
+    expire_stale_leases(db)
+
+    row = _find_latest_claimable_entity_submission(db, payload.entity_type, payload.entity_id)
+    if not row:
+        raise HTTPException(status_code=404, detail="No claimable submission found for entity")
+
+    organism_key, tax_id = _lookup_taxonomy_for_entity(db, payload.entity_type, payload.entity_id)
+    if tax_id is None:
+        raise HTTPException(status_code=404, detail="Entity not found")
+
+    attempt = _create_contract_attempt(db, organism_key=organism_key)
+    _claim_submission_row(
+        db,
+        attempt=attempt,
+        row=row,
+        entity_type="read"
+        if payload.entity_type == BrokerEntityType.RUN
+        else payload.entity_type.value,
+        now=datetime.now(timezone.utc),
+    )
+    db.commit()
+
+    return BrokerTargetedClaimResponse(
+        attempt_id=attempt.id,
+        tax_id=str(tax_id),
+        entities=[_build_contract_entity(db, payload.entity_type, payload.entity_id, tax_id, row)],
+    )
+
+
+@router.post("/claims/batch", response_model=BrokerBatchClaimResponse)
+@policy("broker:claim")
+def claim_batch_entities(
+    *,
+    payload: BrokerBatchClaimRequest,
+    current_user: User = Depends(get_current_active_user),
+    db: Session = Depends(get_db),
+) -> BrokerBatchClaimResponse:
+    """
+    Claim multiple specific entities by their IDs.
+    Supports claiming one or more entities across different types in a single request.
+    """
+    expire_stale_leases(db)
+
+    # Collect all entity IDs with their types
+    entity_requests: List[tuple[BrokerEntityType, UUID]] = []
+
+    for project_id in payload.project_ids:
+        entity_requests.append((BrokerEntityType.PROJECT, project_id))
+    for sample_id in payload.sample_ids:
+        entity_requests.append((BrokerEntityType.SAMPLE, sample_id))
+    for experiment_id in payload.experiment_ids:
+        entity_requests.append((BrokerEntityType.EXPERIMENT, experiment_id))
+    for run_id in payload.run_ids:
+        entity_requests.append((BrokerEntityType.RUN, run_id))
+
+    if not entity_requests:
+        raise HTTPException(status_code=400, detail="At least one entity ID must be provided")
+
+    # Find all claimable submissions
+    rows_with_metadata: List[tuple[Any, BrokerEntityType, UUID, str, int]] = []
+
+    for entity_type, entity_id in entity_requests:
+        row = _find_latest_claimable_entity_submission(db, entity_type, entity_id)
+        if not row:
+            raise HTTPException(
+                status_code=404,
+                detail=f"No claimable submission found for {entity_type.value} {entity_id}",
+            )
+
+        organism_key, tax_id = _lookup_taxonomy_for_entity(db, entity_type, entity_id)
+        if tax_id is None:
+            raise HTTPException(
+                status_code=404, detail=f"Entity not found: {entity_type.value} {entity_id}"
+            )
+
+        rows_with_metadata.append((row, entity_type, entity_id, organism_key, tax_id))
+
+    # Check if all entities belong to the same organism
+    unique_tax_ids = set(tax_id for _, _, _, _, tax_id in rows_with_metadata)
+    unique_organism_keys = set(org_key for _, _, _, org_key, _ in rows_with_metadata)
+
+    # Use the first organism_key for the attempt (or None if multi-organism)
+    organism_key = rows_with_metadata[0][3] if len(unique_organism_keys) == 1 else None
+    tax_id_str = str(rows_with_metadata[0][4]) if len(unique_tax_ids) == 1 else None
+
+    # Create a single attempt for all entities
+    attempt = _create_contract_attempt(db, organism_key=organism_key)
+    now = datetime.now(timezone.utc)
+
+    # Claim all submissions and build response entities
+    entities: List[BrokerClaimEntity] = []
+    for row, entity_type, entity_id, _, tax_id in rows_with_metadata:
+        _claim_submission_row(
+            db,
+            attempt=attempt,
+            row=row,
+            entity_type="read" if entity_type == BrokerEntityType.RUN else entity_type.value,
+            now=now,
+        )
+        entities.append(_build_contract_entity(db, entity_type, entity_id, tax_id, row))
+
+    db.commit()
+
+    return BrokerBatchClaimResponse(
+        attempt_id=attempt.id,
+        tax_id=tax_id_str,
+        entities=entities,
+    )
+
+
+@router.post("/validation", response_model=BrokerValidationResponse)
+@policy("broker:claim")
+def validate_entity_submission(
+    *,
+    payload: BrokerValidationRequest,
+    current_user: User = Depends(get_current_active_user),
+    db: Session = Depends(get_db),
+) -> BrokerValidationResponse:
+    row = _find_latest_submission_for_validation(db, payload.entity_type, payload.entity_id)
+    if not row:
+        raise HTTPException(status_code=404, detail="Submission entity not found")
+
+    _, tax_id = _lookup_taxonomy_for_entity(db, payload.entity_type, payload.entity_id)
+    claimed_entity = _build_contract_entity(
+        db, payload.entity_type, payload.entity_id, tax_id or "", row
+    )
+    return _validate_contract_entity(claimed_entity, payload.overrides)
+
+
+@router.post("/reports/{attempt_id}", response_model=BrokerReportResponse)
+@policy("broker:claim")
+def report_submission_outcomes(
+    *,
+    attempt_id: UUID,
+    payload: BrokerReportRequest,
+    current_user: User = Depends(get_current_active_user),
+    db: Session = Depends(get_db),
+) -> BrokerReportResponse:
+    if not payload.results:
+        raise HTTPException(status_code=400, detail="results must contain at least one record")
+
+    for result in payload.results:
+        row = _find_submission_for_attempt(db, result.entity_type, result.entity_id, attempt_id)
+        if not row:
+            raise HTTPException(status_code=404, detail="Submission attempt item not found")
+        if row.status != "submitting":
+            raise HTTPException(status_code=409, detail="Submission is not in submitting state")
+
+        row.status = _map_report_state_to_submission_status(result.status)
+
+        # Build response payload from provided fields or use full response_payload if provided
+        if result.response_payload:
+            row.response_payload = result.response_payload
+        else:
+            row.response_payload = {
+                "receipt_path": result.receipt_path,
+                "message": result.message,
+                "errors": result.errors,
+            }
+
+        # Handle accessions
+        if result.accession:
+            row.accession = result.accession
+            # Register both primary and secondary accessions in accession_registry
+            _register_submission_accession(
+                db, result.entity_type, row, result.accession, result.secondary_accession
+            )
+
+        # Store secondary accession (public accession) in biosample_accession field for samples
+        if result.secondary_accession and hasattr(row, "biosample_accession"):
+            row.biosample_accession = result.secondary_accession
+
+        if row.status != "submitting":
+            row.attempt_id = None
+            row.lock_acquired_at = None
+            row.lock_expires_at = None
+            row.finalised_attempt_id = attempt_id
+            db.add(
+                SubmissionEvent(
+                    attempt_id=attempt_id,
+                    entity_type="read"
+                    if _coerce_entity_type(result.entity_type) == BrokerEntityType.RUN
+                    else _coerce_entity_type(result.entity_type).value,
+                    submission_id=row.id,
+                    action="accepted" if row.status == "accepted" else "rejected",
+                    accession=result.accession,
+                    details=row.response_payload,
+                )
+            )
+
+            if row.status == "rejected":
+                _create_new_draft_submission_after_rejection(
+                    db,
+                    entity_type=_coerce_entity_type(result.entity_type),
+                    row=row,
+                )
+
+    try:
+        db.commit()
+    except IntegrityError as exc:
+        db.rollback()
+        # This is an expected class of failure when accession_registry contains conflicting rows
+        # (e.g. the accession already exists for a different entity so the registry insert is skipped,
+        # then a FK on the submission table fails). Avoid emitting a full stack trace in logs.
+        logger.warning(
+            "Report outcomes failed due to integrity error (attempt_id=%s): %s",
+            attempt_id,
+            str(getattr(exc, "orig", exc)),
+        )
+        raise HTTPException(
+            status_code=409,
+            detail=(
+                "Report failed due to database integrity constraints. "
+                "A common cause is an accession already existing in accession_registry for a different entity "
+                "(so the registry insert is skipped/blocked), which then violates the submission table FK. "
+                "Check accession_registry for conflicting rows for the reported accession(s)."
+            ),
+        ) from exc
+
+    return BrokerReportResponse(attempt_id=attempt_id, accepted=True, message="reported")
 
 
 # ---------- Endpoints ----------

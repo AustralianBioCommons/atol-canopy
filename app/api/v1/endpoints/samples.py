@@ -14,6 +14,7 @@ from app.core.pagination import Pagination, apply_pagination, pagination_params
 from app.core.policy import policy
 from app.models.experiment import Experiment
 from app.models.organism import Organism
+from app.models.project import Project
 from app.models.sample import Sample, SampleSubmission
 from app.models.user import User
 from app.schemas.bulk_import import BulkImportResponse, BulkSampleImport
@@ -29,6 +30,20 @@ from app.schemas.sample import SampleSubmission as SampleSubmissionSchema
 from app.utils.mapping import to_float
 
 router = APIRouter()
+
+
+def _get_genomic_data_project_id(db: Session, organism_key: str) -> UUID:
+    """Get the genomic_data project ID for an organism."""
+    project = (
+        db.query(Project)
+        .filter(Project.organism_key == organism_key, Project.project_type == "genomic_data")
+        .first()
+    )
+    if not project:
+        raise HTTPException(
+            status_code=404, detail=f"No genomic_data project found for organism {organism_key}"
+        )
+    return project.id
 
 
 @router.get("/", response_model=List[SampleSchema])
@@ -108,13 +123,16 @@ def create_sample(
     sample_id = uuid.uuid4()
 
     # Compute required NOT NULL fields and fallbacks
-    lifestage = sample_in.lifestage or "unknown"
-    sex = sample_in.sex or "unknown"
-    organism_part = sample_in.organism_part or "unknown"
-    region_and_locality = getattr(sample_in, "region_and_locality", None) or "unknown"
-    country_or_sea = getattr(sample_in, "country_or_sea", None) or "unknown"
-    habitat = sample_in.habitat or "unknown"
-    collection_date_val = getattr(sample_in, "collection_date", None) or None
+    lifestage = sample_in.get("lifestage") or "unknown"
+    sex = sample_in.get("sex") or "unknown"
+    organism_part = sample_in.get("organism_part") or "unknown"
+    region_and_locality = sample_in.get("region_and_locality") or "unknown"
+    country_or_sea = sample_in.get("country_or_sea") or "unknown"
+    habitat = sample_in.get("habitat") or "unknown"
+    collection_date_val = sample_in.get("collection_date") or "unknown"
+    collected_by = sample_in.get("collected_by") or "unknown"
+    collecting_institution = sample_in.get("collecting_institution") or "unknown"
+
     # Accept raw string and allow missing collection_date
 
     # Build kwargs dynamically so we don't pass None for DB server_default columns
@@ -182,15 +200,15 @@ def create_sample(
         state_or_region=sample_in.state_or_region,
         country_or_sea=country_or_sea,
         indigenous_location=sample_in.indigenous_location,
-        latitude=to_float(sample_in.decimal_latitude),
-        longitude=to_float(sample_in.decimal_longitude),
+        latitude=to_float(sample_in.latitude),
+        longitude=to_float(sample_in.longitude),
         elevation=to_float(sample_in.elevation),
         depth=to_float(sample_in.depth),
         habitat=habitat,
-        collection_method=sample_in.description_of_collection_method,
+        collected_by=collected_by,
+        collecting_institution=collecting_institution,
+        collection_method=sample_in.collection_method,
         collection_date=collection_date_val,
-        collected_by=sample_in.collected_by,
-        collecting_institute=sample_in.collector_institute,
         collection_permit=sample_in.collection_permit,
         data_context=sample_in.data_context,
         bioplatforms_project_id=sample_in.bioplatforms_project_id,
@@ -230,12 +248,16 @@ def create_sample(
         if atol_key in sample_data:
             prepared_payload[ena_key] = sample_data[atol_key]
 
+    # Get project_id for this organism
+    project_id = _get_genomic_data_project_id(db, sample.organism_key)
+
     sample_submission = SampleSubmission(
         sample_id=sample_id,
         authority=sample_in.authority,
         entity_type_const="sample",
         prepared_payload=prepared_payload,
         status=SubmissionStatus.DRAFT,
+        project_id=project_id,
     )
     db.add(sample_submission)
     db.commit()
@@ -271,16 +293,21 @@ def _create_sample_with_submission(
     lifestage = sample_data.get("lifestage") or "unknown"
     sex = sample_data.get("sex") or "unknown"
     organism_part = sample_data.get("organism_part") or "unknown"
-    region_and_locality = (
-        sample_data.get("region_and_locality")
-        or sample_data.get("collection_location")
-        or "unknown"
-    )
+
+    region_and_locality = getattr(sample_data, "region_and_locality", None) or "unknown"
+    country_or_sea = getattr(sample_data, "country_or_sea", None) or "unknown"
+    habitat = sample_data.get("habitat") or "unknown"
+    collection_date_val = getattr(sample_data, "collection_date", None) or None
+
+    region_and_locality = sample_data.get("region_and_locality") or "unknown"
+
     country_or_sea = sample_data.get("country_or_sea") or "unknown"
     habitat = sample_data.get("habitat") or "unknown"
     collection_date_val = sample_data.get("date_of_collection") or sample_data.get(
         "collection_date"
     )
+    collected_by = sample_data.get("collected_by") or "unknown"
+    collecting_institution = sample_data.get("collecting_institution") or "unknown"
 
     sample_kwargs = dict(
         id=sample_id,
@@ -301,6 +328,8 @@ def _create_sample_with_submission(
         habitat=habitat,
         collection_method=sample_data.get("description_of_collection_method")
         or sample_data.get("collection_method"),
+        collected_by=collected_by,
+        collecting_institution=collecting_institution,
         collection_date=collection_date_val,
         collection_permit=sample_data.get("collection_permit"),
         data_context=sample_data.get("data_context"),
@@ -314,8 +343,8 @@ def _create_sample_with_submission(
         preservation_temperature=sample_data.get("preservation_temperature"),
         project_name=sample_data.get("project_name"),
         biosample_accession=sample_data.get("biosample_accession"),
-        latitude=to_float(sample_data.get("decimal_latitude")),
-        longitude=to_float(sample_data.get("decimal_longitude")),
+        latitude=to_float(sample_data.get("latitude")),
+        longitude=to_float(sample_data.get("longitude")),
         elevation=to_float(sample_data.get("elevation")),
         depth=to_float(sample_data.get("depth")),
         # Parent-child relationship fields
@@ -342,6 +371,9 @@ def _create_sample_with_submission(
             if atol_key in sample_data:
                 prepared_payload[ena_key] = sample_data[atol_key]
 
+    # Get project_id for this organism
+    project_id = _get_genomic_data_project_id(db, organism_key)
+
     # Create sample_submission record
     sample_submission = SampleSubmission(
         id=uuid.uuid4(),
@@ -349,6 +381,7 @@ def _create_sample_with_submission(
         authority="ENA",
         entity_type_const="sample",
         prepared_payload=prepared_payload,
+        project_id=project_id,
     )
 
     return sample, sample_submission
@@ -423,6 +456,7 @@ def bulk_import_specimen_samples(
                 )
                 skipped_count += 1
                 continue
+            sample_data["organism_part"] = "WHOLE ORGANISM"
 
             # Create specimen sample (bpa_sample_id is optional for specimens)
             sample, sample_submission = _create_sample_with_submission(
@@ -656,12 +690,14 @@ def update_sample(
         new_sample_submission = None
         latest_sample_submission = {}
         if not sample_submission:
+            project_id = _get_genomic_data_project_id(db, sample.organism_key)
             new_sample_submission = SampleSubmission(
                 sample_id=sample_id,
-                authority=sample_submission.authority,
+                authority="ENA",
                 entity_type_const="sample",
                 prepared_payload=prepared_payload,
                 status="draft",
+                project_id=project_id,
             )
             db.add(new_sample_submission)
         else:
@@ -678,6 +714,7 @@ def update_sample(
             ):
                 # leave the old record for logs and create a new record
                 # retain accessions if they exist (accessions may not exist if status is 'rejected' and the sample has not successfully been submitted in the past)
+                project_id = _get_genomic_data_project_id(db, sample.organism_key)
                 new_sample_submission = SampleSubmission(
                     sample_id=sample_id,
                     authority=sample_submission.authority,
@@ -687,6 +724,7 @@ def update_sample(
                     accession=sample_submission.accession,
                     biosample_accession=sample_submission.biosample_accession,
                     status="draft",
+                    project_id=project_id,
                 )
                 db.add(new_sample_submission)
 
@@ -695,6 +733,7 @@ def update_sample(
                 # retain accessions
                 setattr(latest_sample_submission, "status", "replaced")
                 db.add(latest_sample_submission)
+                project_id = _get_genomic_data_project_id(db, sample.organism_key)
                 new_sample_submission = SampleSubmission(
                     sample_id=sample_id,
                     authority=sample_submission.authority,
@@ -704,6 +743,7 @@ def update_sample(
                     accession=sample_submission.accession,
                     biosample_accession=sample_submission.biosample_accession,
                     status="draft",
+                    project_id=project_id,
                 )
                 db.add(new_sample_submission)
             elif (
@@ -821,16 +861,10 @@ def bulk_import_samples(
             lifestage = sample_data.get("lifestage") or "unknown"
             sex = sample_data.get("sex") or "unknown"
             organism_part = sample_data.get("organism_part") or "unknown"
-            region_and_locality = (
-                sample_data.get("region_and_locality")
-                or sample_data.get("collection_location")
-                or "unknown"
-            )
+            region_and_locality = sample_data.get("region_and_locality") or "unknown"
             country_or_sea = sample_data.get("country_or_sea") or "unknown"
             habitat = sample_data.get("habitat") or "unknown"
-            collection_date_val = sample_data.get("date_of_collection") or sample_data.get(
-                "collection_date"
-            )
+            collection_date_val = sample_data.get("collection_date") or "unknown"
             # Accept raw string and allow missing collection_date
 
             # Determine sample kind - default to specimen for bulk imports
@@ -878,8 +912,8 @@ def bulk_import_samples(
                 collection_permit=sample_data.get("collection_permit"),
                 data_context=sample_data.get("data_context"),
                 bioplatforms_project_id=sample_data.get("bioplatforms_project_id"),
-                latitude=to_float(sample_data.get("decimal_latitude")),
-                longitude=to_float(sample_data.get("decimal_longitude")),
+                latitude=to_float(sample_data.get("latitude")),
+                longitude=to_float(sample_data.get("longitude")),
                 elevation=to_float(sample_data.get("elevation")),
                 depth=to_float(sample_data.get("depth")),
                 # Parent-child relationship fields
@@ -904,6 +938,9 @@ def bulk_import_samples(
                 if atol_key in sample_data:
                     prepared_payload[ena_key] = sample_data[atol_key]
 
+            # Get project_id for this organism
+            project_id = _get_genomic_data_project_id(db, organism_key)
+
             # Create sample_submission record
             sample_submission = SampleSubmission(
                 id=uuid.uuid4(),
@@ -911,6 +948,7 @@ def bulk_import_samples(
                 authority="ENA",
                 entity_type_const="sample",
                 prepared_payload=prepared_payload,
+                project_id=project_id,
             )
             db.add(sample_submission)
 
