@@ -107,7 +107,7 @@ class ClaimByEntityResponse(BaseModel):
     """Response from claiming entities by ID."""
 
     attempt_id: UUID
-    organism_keys: List[str] = Field(
+    taxon_ids: List[str] = Field(
         default_factory=list, description="Organism keys involved in this claim"
     )
     samples: List[ClaimedEntity] = Field(default_factory=list)
@@ -959,10 +959,10 @@ def claim_batch_entities(
 
     # Check if all entities belong to the same organism
     unique_tax_ids = set(taxon_id for _, _, _, _, taxon_id in rows_with_metadata)
-    unique_organism_keys = set(org_key for _, _, _, org_key, _ in rows_with_metadata)
+    unique_taxon_ids = set(org_key for _, _, _, org_key, _ in rows_with_metadata)
 
     # Use the first taxon_id for the attempt (or None if multi-organism)
-    taxon_id = rows_with_metadata[0][3] if len(unique_organism_keys) == 1 else None
+    taxon_id = rows_with_metadata[0][3] if len(unique_taxon_ids) == 1 else None
     tax_id_str = str(rows_with_metadata[0][4]) if len(unique_tax_ids) == 1 else None
 
     # Create a single attempt for all entities
@@ -1150,7 +1150,7 @@ def claim_by_entity_ids(
     claimed_experiments: List[ClaimedEntity] = []
     claimed_reads: List[ClaimedEntity] = []
     claimed_projects: List[ClaimedEntity] = []
-    organism_keys_set: set[str] = set()
+    taxon_ids_set: set[str] = set()
     sample_rows: List[SampleSubmission] = []
     exp_rows: List[ExperimentSubmission] = []
 
@@ -1203,10 +1203,10 @@ def claim_by_entity_ids(
         # Get organism keys from samples
         if sample_rows:
             sample_entity_ids = [r.sample_id for r in sample_rows]
-            organism_keys = (
+            taxon_ids = (
                 db.query(Sample.taxon_id).filter(Sample.id.in_(sample_entity_ids)).distinct().all()
             )
-            organism_keys_set.update(ok for (ok,) in organism_keys)
+            taxon_ids_set.update(ok for (ok,) in taxon_ids)
 
         for row in sample_rows:
             claimed_samples.append(
@@ -1273,13 +1273,13 @@ def claim_by_entity_ids(
 
         # Get organism keys from experiments via samples
         if sample_id_by_experiment_id:
-            organism_keys = (
+            taxon_ids = (
                 db.query(Sample.taxon_id)
                 .filter(Sample.id.in_(sample_id_by_experiment_id.values()))
                 .distinct()
                 .all()
             )
-            organism_keys_set.update(ok for (ok,) in organism_keys)
+            taxon_ids_set.update(ok for (ok,) in taxon_ids)
 
         # Map of claimed sample submissions in this attempt
         claimed_sample_by_sample_id: Dict[UUID, SampleSubmission] = {
@@ -1384,14 +1384,14 @@ def claim_by_entity_ids(
 
         # Get organism keys from qc_reads via experiments and samples
         if read_exp_ids:
-            organism_keys = (
+            taxon_ids = (
                 db.query(Sample.taxon_id)
                 .join(Experiment, Sample.id == Experiment.sample_id)
                 .filter(Experiment.id.in_(read_exp_ids))
                 .distinct()
                 .all()
             )
-            organism_keys_set.update(ok for (ok,) in organism_keys)
+            taxon_ids_set.update(ok for (ok,) in taxon_ids)
 
         # Map of claimed experiment submissions
         claimed_exp_by_experiment_id: Dict[UUID, ExperimentSubmission] = {
@@ -1486,10 +1486,8 @@ def claim_by_entity_ids(
         # Get organism keys from projects
         if proj_rows:
             proj_ids = [r.project_id for r in proj_rows]
-            organism_keys = (
-                db.query(Project.taxon_id).filter(Project.id.in_(proj_ids)).distinct().all()
-            )
-            organism_keys_set.update(ok for (ok,) in organism_keys)
+            taxon_ids = db.query(Project.taxon_id).filter(Project.id.in_(proj_ids)).distinct().all()
+            taxon_ids_set.update(ok for (ok,) in taxon_ids)
 
             # Enrich relationships for project items
             proj_meta = (
@@ -1533,7 +1531,7 @@ def claim_by_entity_ids(
 
     return ClaimByEntityResponse(
         attempt_id=attempt_id,
-        organism_keys=sorted(list(organism_keys_set)),
+        taxon_ids=sorted(list(taxon_ids_set)),
         samples=claimed_samples,
         experiments=claimed_experiments,
         reads=claimed_reads,
