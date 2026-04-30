@@ -202,7 +202,7 @@ def test_get_assembly_manifest_success(monkeypatch):
         platform="PACBIO_SMRT",
         library_strategy="WGS",
         bpa_package_id="pkg-exp-1",
-        base_url=None,
+        bioplatforms_base_url=None,
     )
     read = SimpleNamespace(
         id="read-1",
@@ -372,7 +372,7 @@ def test_create_assembly_intent_allows_empty_body(monkeypatch):
             platform="PACBIO_SMRT",
             library_strategy="WGS",
             bpa_package_id="pkg-e1",
-            base_url=None,
+            bioplatforms_base_url=None,
         )
     ]
 

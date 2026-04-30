@@ -162,27 +162,27 @@ class TestGetDetectedPlatforms:
 
 
 def _make_pacbio_experiment(
-    exp_id="exp1", bpa_package_id="pkg-001", sample_id="sample-uuid-1", base_url=None
+    exp_id="exp1", bpa_package_id="pkg-001", sample_id="sample-uuid-1", bioplatforms_base_url=None
 ):
     return Mock(
         id=exp_id,
         platform="PACBIO_SMRT",
         library_strategy="WGS",
         bpa_package_id=bpa_package_id,
-        base_url=base_url,
+        bioplatforms_base_url=bioplatforms_base_url,
         sample_id=sample_id,
     )
 
 
 def _make_hic_experiment(
-    exp_id="exp2", bpa_package_id="pkg-002", sample_id="sample-uuid-2", base_url=None
+    exp_id="exp2", bpa_package_id="pkg-002", sample_id="sample-uuid-2", bioplatforms_base_url=None
 ):
     return Mock(
         id=exp_id,
         platform="ILLUMINA",
         library_strategy="Hi-C",
         bpa_package_id=bpa_package_id,
-        base_url=base_url,
+        bioplatforms_base_url=bioplatforms_base_url,
         sample_id=sample_id,
     )
 
@@ -306,7 +306,7 @@ class TestGenerateAssemblyManifest:
                 platform="ILLUMINA",
                 library_strategy="WGS",
                 bpa_package_id="pkg-wgs",
-                base_url=None,
+                bioplatforms_base_url=None,
                 sample_id="s1",
             )
         ]
@@ -337,7 +337,7 @@ class TestGenerateAssemblyManifest:
                 platform="UNKNOWN",
                 library_strategy="WGS",
                 bpa_package_id="pkg-x",
-                base_url=None,
+                bioplatforms_base_url=None,
                 sample_id="s1",
             )
         ]
@@ -370,7 +370,7 @@ class TestGenerateAssemblyManifest:
                 platform="PACBIO_SMRT",
                 library_strategy="WGS",
                 bpa_package_id="pkg-001",
-                base_url=None,
+                bioplatforms_base_url=None,
             )
         ]
         reads = [
@@ -401,10 +401,12 @@ class TestGenerateAssemblyManifest:
         assert pkg["bpa_sample_id"] == "102.100.100/9000"
         assert pkg["specimen_id"] == "SPEC-001"
 
-    def test_base_url_included_when_set(self):
-        """Test that base_url appears in the manifest when set on the experiment."""
+    def test_bioplatforms_base_url_included_when_set(self):
+        """Test that bioplatforms_base_url appears in the manifest when set on the experiment."""
         organism = Mock(scientific_name="Test Species", taxon_id=12345)
-        experiments = [_make_pacbio_experiment(base_url="https://base.example.com/pkg-001")]
+        experiments = [
+            _make_pacbio_experiment(bioplatforms_base_url="https://base.example.com/pkg-001")
+        ]
         reads = [
             Mock(
                 id="r1",
@@ -421,12 +423,12 @@ class TestGenerateAssemblyManifest:
         data = yaml.safe_load(result)
 
         pkg = data["reads"]["PACBIO_SMRT"]["pkg-001"]
-        assert pkg["base_url"] == "https://base.example.com/pkg-001"
+        assert pkg["bioplatforms_base_url"] == "https://base.example.com/pkg-001"
 
-    def test_base_url_omitted_when_none(self):
-        """Test that base_url is absent from the manifest when not set."""
+    def test_bioplatforms_base_url_omitted_when_none(self):
+        """Test that bioplatforms_base_url is absent from the manifest when not set."""
         organism = Mock(scientific_name="Test Species", taxon_id=12345)
-        experiments = [_make_pacbio_experiment(base_url=None)]
+        experiments = [_make_pacbio_experiment(bioplatforms_base_url=None)]
         reads = [
             Mock(
                 id="r1",
@@ -443,7 +445,7 @@ class TestGenerateAssemblyManifest:
         data = yaml.safe_load(result)
 
         pkg = data["reads"]["PACBIO_SMRT"]["pkg-001"]
-        assert "base_url" not in pkg
+        assert "bioplatforms_base_url" not in pkg
 
     def test_reads_without_experiment_id_skipped(self):
         """Test that reads without experiment_id are skipped."""
