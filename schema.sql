@@ -505,6 +505,10 @@ CREATE INDEX IF NOT EXISTS idx_submission_attempt_lock_expires_at ON submission_
 -- ==========================================
 -- Submission events (append-only audit trail)
 -- ==========================================
+-- Note: Each submission creates multiple rows (claimed -> released/accepted/rejected)
+-- This provides full audit history but means ~2x rows per submission.
+-- TODO: If table size becomes an issue, consider switching to single-row-per-submission
+-- with UPDATE instead of INSERT for state transitions.
 
 CREATE TABLE submission_event (
     id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
