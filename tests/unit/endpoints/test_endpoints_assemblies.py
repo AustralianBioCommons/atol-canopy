@@ -204,6 +204,8 @@ def test_get_assembly_manifest_success(monkeypatch):
         sample_id="550e8400-e29b-41d4-a716-446655440000",
         platform="PACBIO_SMRT",
         library_strategy="WGS",
+        bpa_package_id="pkg-exp-1",
+        base_url=None,
     )
     read = SimpleNamespace(
         id="read-1",
@@ -374,6 +376,8 @@ def test_create_assembly_intent_allows_empty_body(monkeypatch):
             sample_id=selected_sample.id,
             platform="PACBIO_SMRT",
             library_strategy="WGS",
+            bpa_package_id="pkg-e1",
+            base_url=None,
         )
     ]
 
@@ -423,11 +427,13 @@ def test_create_assembly_intent_allows_empty_body(monkeypatch):
     resp = client.post("/api/v1/assemblies/intent/172942")
 
     assert resp.status_code == 200
-    body = resp.json()
+    import yaml as _yaml
+
+    body = _yaml.safe_load(resp.content)
     assert body["assembly_run_id"] == str(run_id)
     assert body["version"] == 1
     assert body["status"] == "reserved"
-    assert "manifest_yaml" in body
+    assert "manifest" in body
 
 
 def test_cancel_assembly_intent_success(monkeypatch):
