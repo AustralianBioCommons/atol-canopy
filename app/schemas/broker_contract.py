@@ -34,7 +34,7 @@ class BrokerClaimEntity(BaseModel):
 
     type: BrokerEntityType
     id: UUID
-    tax_id: str
+    taxon_id: str
     scientific_name: Optional[str] = None
     payload: Optional[Dict[str, Any]] = None
     prerequisites: Optional[BrokerPrerequisites] = None
@@ -43,12 +43,12 @@ class BrokerClaimEntity(BaseModel):
 
 
 class BrokerReadyClaimRequest(BaseModel):
-    tax_id: str
+    taxon_id: str
 
 
 class BrokerReadyClaimResponse(BaseModel):
     attempt_id: Optional[UUID]
-    tax_id: str
+    taxon_id: str
     scope: str = "full"
     entities: List[BrokerClaimEntity] = Field(default_factory=list)
 
@@ -60,7 +60,7 @@ class BrokerTargetedClaimRequest(BaseModel):
 
 class BrokerTargetedClaimResponse(BaseModel):
     attempt_id: UUID
-    tax_id: str
+    taxon_id: str
     entities: List[BrokerClaimEntity] = Field(default_factory=list)
 
 
@@ -73,7 +73,7 @@ class BrokerBatchClaimRequest(BaseModel):
 
 class BrokerBatchClaimResponse(BaseModel):
     attempt_id: UUID
-    tax_id: Optional[str] = None  # None if multi-organism batch
+    taxon_id: Optional[str] = None  # None if multi-organism batch
     entities: List[BrokerClaimEntity] = Field(default_factory=list)
 
 
@@ -115,7 +115,7 @@ class BrokerReportRecord(BaseModel):
 
 
 class BrokerReportRequest(BaseModel):
-    tax_id: Optional[str | int] = None
+    taxon_id: Optional[str | int] = None
     results: List[BrokerReportRecord] = Field(default_factory=list)
 
 

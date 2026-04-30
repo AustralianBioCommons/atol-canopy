@@ -80,15 +80,13 @@ class ExperimentService(BaseService[Experiment, ExperimentCreate, ExperimentUpda
         project = (
             db.query(Project)
             .filter(
-                Project.organism_key == sample.organism_key,
+                Project.taxon_id == sample.taxon_id,
                 Project.project_type == "genomic_data",
             )
             .first()
         )
         if not project:
-            raise RuntimeError(
-                f"No genomic_data project found for organism_key '{sample.organism_key}'"
-            )
+            raise RuntimeError(f"No genomic_data project found for taxon_id '{sample.taxon_id}'")
 
         # Auto-map fields from Pydantic schema to Experiment columns using shared mapper
         exp_data = experiment_in.model_dump(exclude_unset=True)
@@ -368,20 +366,18 @@ class ExperimentService(BaseService[Experiment, ExperimentCreate, ExperimentUpda
                 experiment_id = uuid.uuid4()
                 sample_id = sample.id
 
-                organism_key = sample.organism_key
+                taxon_id = sample.taxon_id
 
                 project = (
                     db.query(Project)
                     .filter(
-                        Project.organism_key == organism_key,
+                        Project.taxon_id == taxon_id,
                         Project.project_type == "genomic_data",
                     )
                     .first()
                 )
                 if not project:
-                    raise RuntimeError(
-                        f"No genomic_data project found for organism_key '{organism_key}'"
-                    )
+                    raise RuntimeError(f"No genomic_data project found for taxon_id '{taxon_id}'")
 
                 project_id = project.id
 

@@ -34,11 +34,11 @@ def test_pipeline_inputs_no_samples_returns_empty_files(monkeypatch):
     client = TestClient(app)
 
     # Mock organism_service to return organism object
-    organism = SimpleNamespace(grouping_key="g1", scientific_name="Sci", tax_id=1)
+    organism = SimpleNamespace(scientific_name="Sci", taxon_id=1)
     monkeypatch.setattr(
         assemblies,
         "organism_service",
-        SimpleNamespace(get_by_grouping_key=lambda db, key: organism),
+        SimpleNamespace(get_by_taxon_id=lambda db, taxon_id: organism),
     )
 
     # Active user
@@ -47,7 +47,7 @@ def test_pipeline_inputs_no_samples_returns_empty_files(monkeypatch):
     )
     app.dependency_overrides[assemblies.get_db] = _override_db(_FakeSession())
 
-    resp = client.get("/api/v1/assemblies/pipeline-inputs?organism_grouping_key=g1")
+    resp = client.get("/api/v1/assemblies/pipeline-inputs?taxon_id=1")
     assert resp.status_code == 200
     body = resp.json()
     assert isinstance(body, list) and body
@@ -72,11 +72,9 @@ def test_assemblies_pipeline_inputs_not_found(monkeypatch):
         is_active=True, roles=["admin"], is_superuser=False
     )
     app.dependency_overrides[assemblies.get_db] = _override_db(_FakeSession())
-    monkeypatch.setattr(
-        assemblies.organism_service, "get_by_grouping_key", lambda db, grouping_key: None
-    )
+    monkeypatch.setattr(assemblies.organism_service, "get_by_taxon_id", lambda db, taxon_id: None)
 
-    resp = client.get("/api/v1/assemblies/pipeline-inputs?organism_grouping_key=missing")
+    resp = client.get("/api/v1/assemblies/pipeline-inputs?taxon_id=999999")
     assert resp.status_code == 404
 
 
@@ -92,7 +90,7 @@ def test_create_assembly_from_experiments_success(monkeypatch):
     # Create a real Assembly object for proper serialization
     mock_assembly = Assembly(
         id=uuid4(),
-        organism_key="test_organism",
+        taxon_id=172942,
         sample_id=uuid4(),
         assembly_name="Test Assembly",
         assembly_type="clone or isolate",
@@ -114,7 +112,7 @@ def test_create_assembly_from_experiments_success(monkeypatch):
     monkeypatch.setattr(
         assemblies.assembly_service,
         "create_from_experiments",
-        lambda db, tax_id, assembly_in: (mock_assembly, platform_info),
+        lambda db, taxon_id, assembly_in: (mock_assembly, platform_info),
     )
 
     app.dependency_overrides[assemblies.get_current_active_user] = lambda: SimpleNamespace(
@@ -139,7 +137,7 @@ def test_create_assembly_from_experiments_success(monkeypatch):
     body = resp.json()
     # Response is now just the Assembly schema
     assert "id" in body
-    assert body["organism_key"] == "test_organism"
+    assert body["taxon_id"] == 172942
     assert body["data_types"] == "PACBIO_SMRT"
     assert body["assembly_name"] == "Test Assembly"
 
@@ -149,7 +147,7 @@ def test_create_assembly_from_experiments_not_found(monkeypatch):
     client = TestClient(app)
 
     def mock_create_raises(*args, **kwargs):
-        raise ValueError("Organism with tax_id 999999 not found")
+        raise ValueError("Organism with taxon_id 999999 not found")
 
     monkeypatch.setattr(
         assemblies.assembly_service,
@@ -188,13 +186,12 @@ def test_get_assembly_manifest_success(monkeypatch):
 
     # Mock database queries
     organism = SimpleNamespace(
-        grouping_key="test_organism",
         scientific_name="Test Species",
-        tax_id=172942,
+        taxon_id=172942,
     )
     sample = SimpleNamespace(
         id="550e8400-e29b-41d4-a716-446655440000",
-        organism_key="test_organism",
+        taxon_id=172942,
         kind="specimen",
         bpa_sample_id="102.100.100/9000",
         specimen_id="SPEC-001",
@@ -218,7 +215,7 @@ def test_get_assembly_manifest_success(monkeypatch):
     )
     assembly_run = SimpleNamespace(
         id="run-1",
-        organism_key="test_organism",
+        taxon_id=172942,
         sample_id="550e8400-e29b-41d4-a716-446655440000",
         tol_id="tol-123",
         version=1,
@@ -313,17 +310,16 @@ def test_create_assembly_intent_invalid_data_types_returns_app_error(monkeypatch
     client = TestClient(app)
 
     organism = SimpleNamespace(
-        grouping_key="test_organism",
         scientific_name="Test Species",
-        tax_id=172942,
+        taxon_id=172942,
     )
     reads = [SimpleNamespace(id="r1", experiment_id="e1")]
     experiments = [SimpleNamespace(id="e1", platform="UNKNOWN", library_strategy="UNKNOWN")]
 
     monkeypatch.setattr(
         assemblies,
-        "_get_manifest_inputs_by_tax_id",
-        lambda db, tax_id: (
+        "_get_manifest_inputs_by_taxon_id",
+        lambda db, taxon_id: (
             organism,
             SimpleNamespace(id="550e8400-e29b-41d4-a716-446655440000"),
             reads,
@@ -353,9 +349,8 @@ def test_create_assembly_intent_allows_empty_body(monkeypatch):
     client = TestClient(app)
 
     organism = SimpleNamespace(
-        grouping_key="test_organism",
         scientific_name="Test Species",
-        tax_id=172942,
+        taxon_id=172942,
     )
     selected_sample = SimpleNamespace(id="550e8400-e29b-41d4-a716-446655440000")
     run_id = uuid4()
@@ -383,8 +378,8 @@ def test_create_assembly_intent_allows_empty_body(monkeypatch):
 
     monkeypatch.setattr(
         assemblies,
-        "_get_manifest_inputs_by_tax_id",
-        lambda db, tax_id: (organism, selected_sample, reads, experiments),
+        "_get_manifest_inputs_by_taxon_id",
+        lambda db, taxon_id: (organism, selected_sample, reads, experiments),
     )
     monkeypatch.setattr(assemblies.assembly_service, "get_next_version", lambda *_, **__: 1)
 
@@ -439,12 +434,12 @@ def test_create_assembly_intent_allows_empty_body(monkeypatch):
 def test_cancel_assembly_intent_success(monkeypatch):
     client = TestClient(app)
 
-    organism = SimpleNamespace(grouping_key="test_organism", tax_id=172942)
+    organism = SimpleNamespace(taxon_id=172942)
     selected_sample_id = "550e8400-e29b-41d4-a716-446655440000"
     run_id = uuid4()
     run = SimpleNamespace(
         id=run_id,
-        organism_key="test_organism",
+        taxon_id=172942,
         sample_id=selected_sample_id,
         version=2,
         status="reserved",
@@ -452,8 +447,8 @@ def test_cancel_assembly_intent_success(monkeypatch):
 
     monkeypatch.setattr(
         assemblies,
-        "_get_optimal_sample_id_for_tax_id",
-        lambda db, tax_id, organism_key=None: selected_sample_id,
+        "_get_optimal_sample_id_for_taxon_id",
+        lambda db, taxon_id, organism_taxon_id=None: selected_sample_id,
     )
 
     class _Q:
@@ -507,13 +502,13 @@ def test_cancel_assembly_intent_success(monkeypatch):
 def test_cancel_assembly_intent_not_found(monkeypatch):
     client = TestClient(app)
 
-    organism = SimpleNamespace(grouping_key="test_organism", tax_id=172942)
+    organism = SimpleNamespace(taxon_id=172942)
     selected_sample_id = "550e8400-e29b-41d4-a716-446655440000"
 
     monkeypatch.setattr(
         assemblies,
-        "_get_optimal_sample_id_for_tax_id",
-        lambda db, tax_id, organism_key=None: selected_sample_id,
+        "_get_optimal_sample_id_for_taxon_id",
+        lambda db, taxon_id, organism_taxon_id=None: selected_sample_id,
     )
 
     class _Q:

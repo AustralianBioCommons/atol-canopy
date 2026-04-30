@@ -1,6 +1,6 @@
 import uuid
 
-from sqlalchemy import Column, DateTime, ForeignKey, String, Text, func
+from sqlalchemy import Column, DateTime, ForeignKey, Integer, String, Text, func
 from sqlalchemy.dialects.postgresql import JSONB, UUID
 
 from app.db.session import Base
@@ -10,9 +10,7 @@ class SubmissionAttempt(Base):
     __tablename__ = "submission_attempt"
 
     id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
-    organism_key = Column(
-        Text, ForeignKey("organism.grouping_key", ondelete="RESTRICT"), nullable=True
-    )
+    taxon_id = Column(Integer, ForeignKey("organism.taxon_id", ondelete="RESTRICT"), nullable=True)
     campaign_label = Column(Text, nullable=True)
     status = Column(String, nullable=False, default="processing")
     lock_acquired_at = Column(DateTime(timezone=True), nullable=False, server_default=func.now())

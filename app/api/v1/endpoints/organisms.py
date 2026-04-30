@@ -39,12 +39,12 @@ def read_organisms(
     return query.all()
 
 
-@router.get("/{grouping_key}/experiments")
+@router.get("/{taxon_id}/experiments")
 @policy("organisms:read_sensitive")
 def get_experiments_for_organism(
     *,
     db: Session = Depends(get_db),
-    grouping_key: str,
+    taxon_id: int,
     includeReads: bool = Query(False, description="Include reads for each experiment"),
     current_user: User = Depends(get_current_active_user),
 ) -> Any:
@@ -52,32 +52,32 @@ def get_experiments_for_organism(
     Return all experiments for the organism, and optionally all reads for each experiment when includeReads is true.
     """
     data = organism_service.get_experiments_for_organism(
-        db, grouping_key=grouping_key, include_reads=includeReads
+        db, taxon_id=taxon_id, include_reads=includeReads
     )
     if data is None:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
-            detail=f"Organism with grouping key '{grouping_key}' not found",
+            detail=f"Organism with taxon_id '{taxon_id}' not found",
         )
     return data
 
 
-@router.get("/submissions/{grouping_key}", response_model=OrganismSubmissionJsonResponse)
+@router.get("/submissions/{taxon_id}", response_model=OrganismSubmissionJsonResponse)
 @policy("organisms:read_sensitive")
 def get_organism_prepared_payload(
     *,
     db: Session = Depends(get_db),
-    grouping_key: str,
+    taxon_id: int,
     current_user: User = Depends(get_current_active_user),
 ) -> Any:
     """
-    Get all prepared_payload data for samples, experiments, and reads related to a specific organism.grouping_key.
+    Get all prepared_payload data for samples, experiments, and reads related to a specific organism.
     """
-    data = organism_service.get_organism_prepared_payload(db, grouping_key=grouping_key)
+    data = organism_service.get_organism_prepared_payload(db, taxon_id=taxon_id)
     if data is None:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
-            detail=f"Organism with grouping key '{grouping_key}' not found",
+            detail=f"Organism with taxon_id '{taxon_id}' not found",
         )
     return data
 
@@ -100,55 +100,53 @@ def create_organism(
     return organism
 
 
-@router.get("/{grouping_key}", response_model=OrganismSchema)
+@router.get("/{taxon_id}", response_model=OrganismSchema)
 def read_organism(
     *,
     db: Session = Depends(get_db),
-    grouping_key: str,
+    taxon_id: int,
     current_user: User = Depends(get_current_active_user),
 ) -> Any:
     """
-    Get organism by grouping_key.
+    Get organism by taxon_id.
     """
     # All users can read organism details
-    organism = organism_service.get_by_grouping_key(db, grouping_key)
+    organism = organism_service.get_by_taxon_id(db, taxon_id)
     if not organism:
         raise HTTPException(status_code=404, detail="Organism not found")
     return organism
 
 
-@router.patch("/{grouping_key}", response_model=OrganismSchema)
+@router.patch("/{taxon_id}", response_model=OrganismSchema)
 @policy("organisms:update")
 def update_organism(
     *,
     db: Session = Depends(get_db),
-    grouping_key: str,
+    taxon_id: int,
     organism_in: OrganismUpdate,
     current_user: User = Depends(get_current_active_user),
 ) -> Any:
     """
     Update an organism.
     """
-    organism = organism_service.update_organism(
-        db, grouping_key=grouping_key, organism_in=organism_in
-    )
+    organism = organism_service.update_organism(db, taxon_id=taxon_id, organism_in=organism_in)
     if not organism:
         raise HTTPException(status_code=404, detail="Organism not found")
     return organism
 
 
-@router.delete("/{grouping_key}", response_model=OrganismSchema)
+@router.delete("/{taxon_id}", response_model=OrganismSchema)
 @policy("organisms:delete")
 def delete_organism(
     *,
     db: Session = Depends(get_db),
-    grouping_key: str,
+    taxon_id: int,
     current_user: User = Depends(get_current_active_user),
 ) -> Any:
     """
     Delete an organism.
     """
-    organism = organism_service.delete_organism(db, grouping_key=grouping_key)
+    organism = organism_service.delete_organism(db, taxon_id=taxon_id)
     if not organism:
         raise HTTPException(status_code=404, detail="Organism not found")
     return organism
@@ -165,10 +163,10 @@ def bulk_import_organisms(
     current_user: User = Depends(get_current_active_user),
 ) -> Any:
     """
-    Bulk import organisms from a dictionary keyed by organism_grouping_key.
+    Bulk import organisms from a dictionary keyed by taxon_id.
 
     The request body should directly match the format of the JSON file in data/unique_organisms.json,
-    which is a dictionary keyed by organism_grouping_key without a wrapping 'organisms' key.
+    which is a dictionary keyed by taxon_id without a wrapping 'organisms' key.
     """
     result = organism_service.bulk_import_organisms(db, organisms_data=organisms_data)
     return result

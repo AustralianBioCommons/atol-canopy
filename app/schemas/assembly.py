@@ -32,7 +32,7 @@ class AssemblyFileType(str, Enum):
 class AssemblyBase(BaseModel):
     """Base Assembly schema with common attributes."""
 
-    organism_key: str
+    taxon_id: int
     sample_id: UUID
     project_id: Optional[UUID] = None
     assembly_name: str
@@ -54,9 +54,9 @@ class AssemblyCreate(AssemblyBase):
     pass
 
 
-# Schema for creating assembly from experiments (organism_key derived from tax_id)
+# Schema for creating assembly from experiments (taxon_id derived from route parameter)
 class AssemblyCreateFromExperiments(BaseModel):
-    """Schema for creating assembly from experiments - organism_key is auto-filled from tax_id."""
+    """Schema for creating assembly from experiments - taxon_id is auto-filled from the path."""
 
     sample_id: UUID
     project_id: Optional[UUID] = None
@@ -97,7 +97,7 @@ class AssemblyIntentCancel(BaseModel):
 class AssemblyUpdate(BaseModel):
     """Schema for updating an existing assembly."""
 
-    organism_key: Optional[str] = None
+    taxon_id: Optional[int] = None
     sample_id: Optional[UUID] = None
     project_id: Optional[UUID] = None
     assembly_name: Optional[str] = None
@@ -119,7 +119,7 @@ class AssemblyInDBBase(AssemblyBase):
     created_at: datetime
     updated_at: datetime
 
-    model_config = ConfigDict(from_attributes=True)
+    model_config = ConfigDict(from_attributes=True, populate_by_name=True)
 
 
 # Schema for returning assembly information
@@ -184,7 +184,7 @@ class AssemblySubmissionInDBBase(AssemblySubmissionBase):
     created_at: datetime
     updated_at: datetime
 
-    model_config = ConfigDict(from_attributes=True)
+    model_config = ConfigDict(from_attributes=True, populate_by_name=True)
 
 
 # Schema for returning assembly submission information

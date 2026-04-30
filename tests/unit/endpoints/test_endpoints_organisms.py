@@ -49,8 +49,7 @@ def test_organisms_list_and_not_found(monkeypatch):
 
     now = datetime.now(timezone.utc)
     base_org = {
-        "grouping_key": "g1",
-        "tax_id": 1,
+        "taxon_id": 1,
         "scientific_name": "Sci",
         "common_name": "Com",
         "common_name_source": None,
@@ -75,14 +74,14 @@ def test_organisms_list_and_not_found(monkeypatch):
     monkeypatch.setattr(
         organisms,
         "organism_service",
-        SimpleNamespace(get_by_grouping_key=lambda db, grouping_key: None),
+        SimpleNamespace(get_by_taxon_id=lambda db, taxon_id: None),
     )
 
     resp = client.get("/api/v1/organisms")
     assert resp.status_code == 200
-    assert resp.json()[0]["grouping_key"] == "g1"
+    assert resp.json()[0]["taxon_id"] == 1
 
-    resp = client.get("/api/v1/organisms/missing")
+    resp = client.get("/api/v1/organisms/999999")
     assert resp.status_code == 404
 
 
@@ -96,7 +95,6 @@ def test_create_organism(monkeypatch):
     fake_service = SimpleNamespace(
         create_organism=lambda db, organism_in: {
             **organism_in.model_dump(),
-            "grouping_key": "g1",
             "common_name_source": None,
             "bpa_json": None,
             "taxonomy_lineage_json": None,
@@ -106,8 +104,7 @@ def test_create_organism(monkeypatch):
     )
     monkeypatch.setattr(organisms, "organism_service", fake_service)
     payload = {
-        "grouping_key": "g1",
-        "tax_id": 1,
+        "taxon_id": 1,
         "scientific_name": "Sci",
         "common_name": "Com",
     }
@@ -115,7 +112,7 @@ def test_create_organism(monkeypatch):
     resp = client.post("/api/v1/organisms", json=payload)
     assert resp.status_code == 200
     body = resp.json()
-    assert body["grouping_key"] == "g1"
+    assert body["taxon_id"] == 1
 
 
 def test_create_organism_without_scientific_name(monkeypatch):
@@ -128,7 +125,6 @@ def test_create_organism_without_scientific_name(monkeypatch):
     fake_service = SimpleNamespace(
         create_organism=lambda db, organism_in: {
             **organism_in.model_dump(),
-            "grouping_key": "g1",
             "common_name_source": None,
             "bpa_json": None,
             "taxonomy_lineage_json": None,
@@ -138,13 +134,12 @@ def test_create_organism_without_scientific_name(monkeypatch):
     )
     monkeypatch.setattr(organisms, "organism_service", fake_service)
     payload = {
-        "grouping_key": "g1",
-        "tax_id": 1,
+        "taxon_id": 1,
         "common_name": "Com",
     }
 
     resp = client.post("/api/v1/organisms", json=payload)
     assert resp.status_code == 200
     body = resp.json()
-    assert body["grouping_key"] == "g1"
+    assert body["taxon_id"] == 1
     assert body["scientific_name"] is None

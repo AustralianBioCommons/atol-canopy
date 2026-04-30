@@ -59,15 +59,15 @@ class ClaimedEntity(BaseModel):
 
 
 class OrganismInfo(BaseModel):
-    organism_key: str
+    taxon_id: str
     scientific_name: Optional[str] = None
-    tax_id: Optional[int] = None
+    taxon_id: Optional[int] = None
     culture_or_strain_id: Optional[str] = None
 
 
 class ClaimResponse(BaseModel):
     attempt_id: UUID
-    organism_key: str
+    taxon_id: str
     organism: Optional[OrganismInfo] = None
     samples: List[ClaimedEntity] = Field(default_factory=list)
     experiments: List[ClaimedEntity] = Field(default_factory=list)
@@ -76,7 +76,7 @@ class ClaimResponse(BaseModel):
 
 
 class ClaimRequest(BaseModel):
-    # Optional explicit selection by submission IDs; if provided, organism_key is not enforced
+    # Optional explicit selection by submission IDs; if provided, taxon_id is not enforced
     sample_submission_ids: Optional[List[UUID]] = None
     experiment_submission_ids: Optional[List[UUID]] = None
     qc_read_submission_ids: Optional[List[UUID]] = None
@@ -147,7 +147,7 @@ def _normalise_tax_id_value(value: str | int) -> int:
     try:
         return int(str(value))
     except ValueError as exc:
-        raise HTTPException(status_code=422, detail="tax_id must be an integer value") from exc
+        raise HTTPException(status_code=422, detail="taxon_id must be an integer value") from exc
 
 
 def _coerce_entity_type(entity_type: BrokerEntityType | str) -> BrokerEntityType:
@@ -169,12 +169,12 @@ def _first_present_value(*values: Any) -> Optional[str]:
     return None
 
 
-def _lookup_scientific_name(db: Session, *, tax_id: str | int) -> Optional[str]:
+def _lookup_scientific_name(db: Session, *, taxon_id: str | int) -> Optional[str]:
     try:
-        tax_id_int = int(tax_id)
+        tax_id_int = int(taxon_id)
     except Exception:
         return None
-    return db.query(Organism.scientific_name).filter(Organism.tax_id == tax_id_int).scalar()
+    return db.query(Organism.scientific_name).filter(Organism.taxon_id == tax_id_int).scalar()
 
 
 def _create_new_draft_submission_after_rejection(
@@ -245,15 +245,15 @@ def _create_new_draft_submission_after_rejection(
 
 
 def _derive_claim_title(
-    db: Session, *, entity_type: BrokerEntityType, entity_id: UUID, tax_id: str | int
+    db: Session, *, entity_type: BrokerEntityType, entity_id: UUID, taxon_id: str | int
 ) -> Optional[str]:
     try:
-        tax_id_int = int(tax_id)
+        tax_id_int = int(taxon_id)
     except Exception:
         return None
 
     scientific_name = (
-        db.query(Organism.scientific_name).filter(Organism.tax_id == tax_id_int).scalar()
+        db.query(Organism.scientific_name).filter(Organism.taxon_id == tax_id_int).scalar()
     )
     if not scientific_name:
         return None
@@ -370,7 +370,7 @@ def _extract_run_files(prepared_payload: Dict[str, Any]) -> Optional[List[Broker
 
 
 def _build_contract_entity(
-    db: Session, entity_type: BrokerEntityType | str, entity_id: UUID, tax_id: str | int, row: Any
+    db: Session, entity_type: BrokerEntityType | str, entity_id: UUID, taxon_id: str | int, row: Any
 ) -> BrokerClaimEntity:
     entity_type = _coerce_entity_type(entity_type)
     prepared_payload = _as_payload(getattr(row, "prepared_payload", None))
@@ -378,17 +378,19 @@ def _build_contract_entity(
     if entity_type != BrokerEntityType.PROJECT:
         prerequisites = _extract_broker_prerequisites(db, entity_type, prepared_payload, row)
     files = _extract_run_files(prepared_payload) if entity_type == BrokerEntityType.RUN else None
-    scientific_name = _lookup_scientific_name(db, tax_id=tax_id)
+    scientific_name = _lookup_scientific_name(db, taxon_id=taxon_id)
 
     if entity_type in (BrokerEntityType.EXPERIMENT, BrokerEntityType.SAMPLE):
-        title = _derive_claim_title(db, entity_type=entity_type, entity_id=entity_id, tax_id=tax_id)
+        title = _derive_claim_title(
+            db, entity_type=entity_type, entity_id=entity_id, taxon_id=taxon_id
+        )
         if title is not None:
             prepared_payload["title"] = title
 
     return BrokerClaimEntity(
         type=entity_type,
         id=entity_id,
-        tax_id=str(tax_id),
+        taxon_id=str(taxon_id),
         scientific_name=scientific_name,
         payload=prepared_payload or None,
         prerequisites=prerequisites if _prerequisites_to_dict(prerequisites) else None,
@@ -419,11 +421,11 @@ def _claim_submission_row(
 
 
 def _create_contract_attempt(
-    db: Session, *, organism_key: Optional[str], lease_minutes: int = 30
+    db: Session, *, taxon_id: Optional[str], lease_minutes: int = 30
 ) -> SubmissionAttempt:
     now = datetime.now(timezone.utc)
     attempt = SubmissionAttempt(
-        organism_key=organism_key,
+        taxon_id=taxon_id,
         status="processing",
         lock_acquired_at=now,
         lock_expires_at=now + timedelta(minutes=lease_minutes),
@@ -433,17 +435,17 @@ def _create_contract_attempt(
     return attempt
 
 
-def _get_organism_by_tax_id(db: Session, tax_id: int) -> Optional[Organism]:
-    return db.query(Organism).filter(Organism.tax_id == tax_id).first()
+def _get_organism_by_taxon_id(db: Session, taxon_id: int) -> Optional[Organism]:
+    return db.query(Organism).filter(Organism.taxon_id == taxon_id).first()
 
 
-def _query_ready_project_submissions(db: Session, tax_id: int) -> List[ProjectSubmission]:
+def _query_ready_project_submissions(db: Session, taxon_id: int) -> List[ProjectSubmission]:
     return (
         db.query(ProjectSubmission)
         .join(Project, ProjectSubmission.project_id == Project.id)
-        .join(Organism, Project.organism_key == Organism.grouping_key)
+        .join(Organism, Project.taxon_id == Organism.taxon_id)
         .filter(
-            Organism.tax_id == tax_id,
+            Organism.taxon_id == taxon_id,
             ProjectSubmission.status.in_(CLAIMABLE_SUBMISSION_STATES),
         )
         .order_by(ProjectSubmission.created_at.desc())
@@ -452,13 +454,13 @@ def _query_ready_project_submissions(db: Session, tax_id: int) -> List[ProjectSu
     )
 
 
-def _query_ready_sample_submissions(db: Session, tax_id: int) -> List[SampleSubmission]:
+def _query_ready_sample_submissions(db: Session, taxon_id: int) -> List[SampleSubmission]:
     return (
         db.query(SampleSubmission)
         .join(Sample, SampleSubmission.sample_id == Sample.id)
-        .join(Organism, Sample.organism_key == Organism.grouping_key)
+        .join(Organism, Sample.taxon_id == Organism.taxon_id)
         .filter(
-            Organism.tax_id == tax_id,
+            Organism.taxon_id == taxon_id,
             SampleSubmission.status.in_(CLAIMABLE_SUBMISSION_STATES),
         )
         .order_by(SampleSubmission.created_at.desc())
@@ -467,14 +469,14 @@ def _query_ready_sample_submissions(db: Session, tax_id: int) -> List[SampleSubm
     )
 
 
-def _query_ready_experiment_submissions(db: Session, tax_id: int) -> List[ExperimentSubmission]:
+def _query_ready_experiment_submissions(db: Session, taxon_id: int) -> List[ExperimentSubmission]:
     return (
         db.query(ExperimentSubmission)
         .join(Experiment, ExperimentSubmission.experiment_id == Experiment.id)
         .join(Sample, Experiment.sample_id == Sample.id)
-        .join(Organism, Sample.organism_key == Organism.grouping_key)
+        .join(Organism, Sample.taxon_id == Organism.taxon_id)
         .filter(
-            Organism.tax_id == tax_id,
+            Organism.taxon_id == taxon_id,
             ExperimentSubmission.status.in_(CLAIMABLE_SUBMISSION_STATES),
         )
         .order_by(ExperimentSubmission.created_at.desc())
@@ -483,15 +485,15 @@ def _query_ready_experiment_submissions(db: Session, tax_id: int) -> List[Experi
     )
 
 
-def _query_ready_run_submissions(db: Session, tax_id: int) -> List[QcReadSubmission]:
+def _query_ready_run_submissions(db: Session, taxon_id: int) -> List[QcReadSubmission]:
     return (
         db.query(QcReadSubmission)
         .join(QcRead, QcReadSubmission.qc_read_id == QcRead.id)
         .join(Experiment, QcRead.experiment_id == Experiment.id)
         .join(Sample, Experiment.sample_id == Sample.id)
-        .join(Organism, Sample.organism_key == Organism.grouping_key)
+        .join(Organism, Sample.taxon_id == Organism.taxon_id)
         .filter(
-            Organism.tax_id == tax_id,
+            Organism.taxon_id == taxon_id,
             QcReadSubmission.status.in_(CLAIMABLE_SUBMISSION_STATES),
         )
         .order_by(QcReadSubmission.created_at.desc())
@@ -600,33 +602,33 @@ def _lookup_taxonomy_for_entity(
     entity_type = _coerce_entity_type(entity_type)
     if entity_type == BrokerEntityType.PROJECT:
         row = (
-            db.query(Project.organism_key, Organism.tax_id)
-            .join(Organism, Project.organism_key == Organism.grouping_key)
+            db.query(Project.taxon_id, Organism.taxon_id)
+            .join(Organism, Project.taxon_id == Organism.taxon_id)
             .filter(Project.id == entity_id)
             .first()
         )
     elif entity_type == BrokerEntityType.SAMPLE:
         row = (
-            db.query(Sample.organism_key, Organism.tax_id)
-            .join(Organism, Sample.organism_key == Organism.grouping_key)
+            db.query(Sample.taxon_id, Organism.taxon_id)
+            .join(Organism, Sample.taxon_id == Organism.taxon_id)
             .filter(Sample.id == entity_id)
             .first()
         )
     elif entity_type == BrokerEntityType.EXPERIMENT:
         row = (
-            db.query(Sample.organism_key, Organism.tax_id)
+            db.query(Sample.taxon_id, Organism.taxon_id)
             .join(Experiment, Experiment.sample_id == Sample.id)
-            .join(Organism, Sample.organism_key == Organism.grouping_key)
+            .join(Organism, Sample.taxon_id == Organism.taxon_id)
             .filter(Experiment.id == entity_id)
             .first()
         )
     else:
         # RUN entity_id is a qc_read_id; traverse qc_read → experiment → sample → organism
         row = (
-            db.query(Sample.organism_key, Organism.tax_id)
+            db.query(Sample.taxon_id, Organism.taxon_id)
             .join(Experiment, Experiment.sample_id == Sample.id)
             .join(QcRead, QcRead.experiment_id == Experiment.id)
-            .join(Organism, Sample.organism_key == Organism.grouping_key)
+            .join(Organism, Sample.taxon_id == Organism.taxon_id)
             .filter(QcRead.id == entity_id)
             .first()
         )
@@ -810,58 +812,59 @@ def claim_ready_entities(
 ) -> BrokerReadyClaimResponse:
     expire_stale_leases(db)
 
-    tax_id = _normalise_tax_id_value(payload.tax_id)
-    organism = _get_organism_by_tax_id(db, tax_id)
+    taxon_id = _normalise_tax_id_value(payload.taxon_id)
+    organism = _get_organism_by_taxon_id(db, taxon_id)
     if not organism:
-        raise HTTPException(status_code=404, detail=f"Organism with tax_id {tax_id} not found")
-    organism_key = organism.grouping_key
+        raise HTTPException(status_code=404, detail=f"Organism with taxon_id {taxon_id} not found")
 
-    project_rows = _latest_per_entity(_query_ready_project_submissions(db, tax_id), "project_id")
-    sample_rows = _latest_per_entity(_query_ready_sample_submissions(db, tax_id), "sample_id")
+    project_rows = _latest_per_entity(_query_ready_project_submissions(db, taxon_id), "project_id")
+    sample_rows = _latest_per_entity(_query_ready_sample_submissions(db, taxon_id), "sample_id")
     experiment_rows = _latest_per_entity(
-        _query_ready_experiment_submissions(db, tax_id), "experiment_id"
+        _query_ready_experiment_submissions(db, taxon_id), "experiment_id"
     )
-    run_rows = _latest_per_entity(_query_ready_run_submissions(db, tax_id), "qc_read_id")
+    run_rows = _latest_per_entity(_query_ready_run_submissions(db, taxon_id), "qc_read_id")
 
     if not any([project_rows, sample_rows, experiment_rows, run_rows]):
         # Return empty response when organism exists but has no claimable entities
         return BrokerReadyClaimResponse(
             attempt_id=None,
-            tax_id=str(tax_id),
+            taxon_id=str(taxon_id),
             scope="full",
             entities=[],
         )
 
-    attempt = _create_contract_attempt(db, organism_key=organism_key)
+    attempt = _create_contract_attempt(db, taxon_id=taxon_id)
     now = datetime.now(timezone.utc)
 
     entities: List[BrokerClaimEntity] = []
     for row in project_rows:
         _claim_submission_row(db, attempt=attempt, row=row, entity_type="project", now=now)
         entities.append(
-            _build_contract_entity(db, BrokerEntityType.PROJECT, row.project_id, tax_id, row)
+            _build_contract_entity(db, BrokerEntityType.PROJECT, row.project_id, taxon_id, row)
         )
     for row in sample_rows:
         _claim_submission_row(db, attempt=attempt, row=row, entity_type="sample", now=now)
         entities.append(
-            _build_contract_entity(db, BrokerEntityType.SAMPLE, row.sample_id, tax_id, row)
+            _build_contract_entity(db, BrokerEntityType.SAMPLE, row.sample_id, taxon_id, row)
         )
     for row in experiment_rows:
         _claim_submission_row(db, attempt=attempt, row=row, entity_type="experiment", now=now)
         entities.append(
-            _build_contract_entity(db, BrokerEntityType.EXPERIMENT, row.experiment_id, tax_id, row)
+            _build_contract_entity(
+                db, BrokerEntityType.EXPERIMENT, row.experiment_id, taxon_id, row
+            )
         )
     for row in run_rows:
         _claim_submission_row(db, attempt=attempt, row=row, entity_type="qc_read", now=now)
         entities.append(
-            _build_contract_entity(db, BrokerEntityType.RUN, row.qc_read_id, tax_id, row)
+            _build_contract_entity(db, BrokerEntityType.RUN, row.qc_read_id, taxon_id, row)
         )
 
     db.commit()
 
     return BrokerReadyClaimResponse(
         attempt_id=attempt.id,
-        tax_id=str(tax_id),
+        taxon_id=str(taxon_id),
         scope="full",
         entities=entities,
     )
@@ -881,11 +884,11 @@ def claim_specific_entity(
     if not row:
         raise HTTPException(status_code=404, detail="No claimable submission found for entity")
 
-    organism_key, tax_id = _lookup_taxonomy_for_entity(db, payload.entity_type, payload.entity_id)
-    if tax_id is None:
+    taxon_id, taxon_id = _lookup_taxonomy_for_entity(db, payload.entity_type, payload.entity_id)
+    if taxon_id is None:
         raise HTTPException(status_code=404, detail="Entity not found")
 
-    attempt = _create_contract_attempt(db, organism_key=organism_key)
+    attempt = _create_contract_attempt(db, taxon_id=taxon_id)
     _claim_submission_row(
         db,
         attempt=attempt,
@@ -899,8 +902,10 @@ def claim_specific_entity(
 
     return BrokerTargetedClaimResponse(
         attempt_id=attempt.id,
-        tax_id=str(tax_id),
-        entities=[_build_contract_entity(db, payload.entity_type, payload.entity_id, tax_id, row)],
+        taxon_id=str(taxon_id),
+        entities=[
+            _build_contract_entity(db, payload.entity_type, payload.entity_id, taxon_id, row)
+        ],
     )
 
 
@@ -944,29 +949,29 @@ def claim_batch_entities(
                 detail=f"No claimable submission found for {entity_type.value} {entity_id}",
             )
 
-        organism_key, tax_id = _lookup_taxonomy_for_entity(db, entity_type, entity_id)
-        if tax_id is None:
+        taxon_id, taxon_id = _lookup_taxonomy_for_entity(db, entity_type, entity_id)
+        if taxon_id is None:
             raise HTTPException(
                 status_code=404, detail=f"Entity not found: {entity_type.value} {entity_id}"
             )
 
-        rows_with_metadata.append((row, entity_type, entity_id, organism_key, tax_id))
+        rows_with_metadata.append((row, entity_type, entity_id, taxon_id, taxon_id))
 
     # Check if all entities belong to the same organism
-    unique_tax_ids = set(tax_id for _, _, _, _, tax_id in rows_with_metadata)
+    unique_tax_ids = set(taxon_id for _, _, _, _, taxon_id in rows_with_metadata)
     unique_organism_keys = set(org_key for _, _, _, org_key, _ in rows_with_metadata)
 
-    # Use the first organism_key for the attempt (or None if multi-organism)
-    organism_key = rows_with_metadata[0][3] if len(unique_organism_keys) == 1 else None
+    # Use the first taxon_id for the attempt (or None if multi-organism)
+    taxon_id = rows_with_metadata[0][3] if len(unique_organism_keys) == 1 else None
     tax_id_str = str(rows_with_metadata[0][4]) if len(unique_tax_ids) == 1 else None
 
     # Create a single attempt for all entities
-    attempt = _create_contract_attempt(db, organism_key=organism_key)
+    attempt = _create_contract_attempt(db, taxon_id=taxon_id)
     now = datetime.now(timezone.utc)
 
     # Claim all submissions and build response entities
     entities: List[BrokerClaimEntity] = []
-    for row, entity_type, entity_id, _, tax_id in rows_with_metadata:
+    for row, entity_type, entity_id, _, taxon_id in rows_with_metadata:
         _claim_submission_row(
             db,
             attempt=attempt,
@@ -974,13 +979,13 @@ def claim_batch_entities(
             entity_type="qc_read" if entity_type == BrokerEntityType.RUN else entity_type.value,
             now=now,
         )
-        entities.append(_build_contract_entity(db, entity_type, entity_id, tax_id, row))
+        entities.append(_build_contract_entity(db, entity_type, entity_id, taxon_id, row))
 
     db.commit()
 
     return BrokerBatchClaimResponse(
         attempt_id=attempt.id,
-        tax_id=tax_id_str,
+        taxon_id=tax_id_str,
         entities=entities,
     )
 
@@ -997,9 +1002,9 @@ def validate_entity_submission(
     if not row:
         raise HTTPException(status_code=404, detail="Submission entity not found")
 
-    _, tax_id = _lookup_taxonomy_for_entity(db, payload.entity_type, payload.entity_id)
+    _, taxon_id = _lookup_taxonomy_for_entity(db, payload.entity_type, payload.entity_id)
     claimed_entity = _build_contract_entity(
-        db, payload.entity_type, payload.entity_id, tax_id or "", row
+        db, payload.entity_type, payload.entity_id, taxon_id or "", row
     )
     return _validate_contract_entity(claimed_entity, payload.overrides)
 
@@ -1099,7 +1104,7 @@ def report_submission_outcomes(
 
 # ---------- Endpoints ----------
 # NOTE: More specific routes must come before parameterized routes in FastAPI
-# Otherwise /claim would match /organisms/{organism_key}/claim with organism_key="claim"
+# Otherwise /claim would match /organisms/{taxon_id}/claim with taxon_id="claim"
 
 
 @router.post("/claim", response_model=ClaimByEntityResponse)
@@ -1112,7 +1117,7 @@ def claim_by_entity_ids(
 ) -> ClaimByEntityResponse:
     """Claim specific samples, experiments, and reads by their entity IDs.
 
-    This endpoint allows claiming specific entities without requiring an organism_key.
+    This endpoint allows claiming specific entities without requiring an taxon_id.
     It will find the latest draft submission for each entity and claim it with a lease.
     """
     # Expire any stale leases before claiming
@@ -1130,9 +1135,9 @@ def claim_by_entity_ids(
     ttl = timedelta(minutes=lease_minutes)
     now = datetime.now(timezone.utc)
 
-    # Create an attempt for this claim (organism_key will be null for multi-organism claims)
+    # Create an attempt for this claim (taxon_id will be null for multi-organism claims)
     attempt = SubmissionAttempt(
-        organism_key=None,
+        taxon_id=None,
         status="processing",
         lock_acquired_at=now,
         lock_expires_at=now + ttl,
@@ -1199,10 +1204,7 @@ def claim_by_entity_ids(
         if sample_rows:
             sample_entity_ids = [r.sample_id for r in sample_rows]
             organism_keys = (
-                db.query(Sample.organism_key)
-                .filter(Sample.id.in_(sample_entity_ids))
-                .distinct()
-                .all()
+                db.query(Sample.taxon_id).filter(Sample.id.in_(sample_entity_ids)).distinct().all()
             )
             organism_keys_set.update(ok for (ok,) in organism_keys)
 
@@ -1272,7 +1274,7 @@ def claim_by_entity_ids(
         # Get organism keys from experiments via samples
         if sample_id_by_experiment_id:
             organism_keys = (
-                db.query(Sample.organism_key)
+                db.query(Sample.taxon_id)
                 .filter(Sample.id.in_(sample_id_by_experiment_id.values()))
                 .distinct()
                 .all()
@@ -1383,7 +1385,7 @@ def claim_by_entity_ids(
         # Get organism keys from qc_reads via experiments and samples
         if read_exp_ids:
             organism_keys = (
-                db.query(Sample.organism_key)
+                db.query(Sample.taxon_id)
                 .join(Experiment, Sample.id == Experiment.sample_id)
                 .filter(Experiment.id.in_(read_exp_ids))
                 .distinct()
@@ -1485,26 +1487,24 @@ def claim_by_entity_ids(
         if proj_rows:
             proj_ids = [r.project_id for r in proj_rows]
             organism_keys = (
-                db.query(Project.organism_key).filter(Project.id.in_(proj_ids)).distinct().all()
+                db.query(Project.taxon_id).filter(Project.id.in_(proj_ids)).distinct().all()
             )
             organism_keys_set.update(ok for (ok,) in organism_keys)
 
             # Enrich relationships for project items
             proj_meta = (
-                db.query(Project.id, Project.organism_key, Project.project_type)
+                db.query(Project.id, Project.taxon_id, Project.project_type)
                 .filter(Project.id.in_(proj_ids))
                 .all()
             )
-            meta_map = {
-                pid: {"organism_key": ok, "project_type": pt} for (pid, ok, pt) in proj_meta
-            }
+            meta_map = {pid: {"taxon_id": ok, "project_type": pt} for (pid, ok, pt) in proj_meta}
         else:
             meta_map = {}
 
         for row in proj_rows:
             pm = meta_map.get(row.project_id, {})
             relationships = {
-                "organism_key": pm.get("organism_key"),
+                "taxon_id": pm.get("taxon_id"),
                 "project_type": pm.get("project_type"),
             }
             claimed_projects.append(
@@ -1541,11 +1541,11 @@ def claim_by_entity_ids(
     )
 
 
-@router.post("/organisms/{organism_key}/claim", response_model=ClaimResponse)
+@router.post("/organisms/{taxon_id}/claim", response_model=ClaimResponse)
 @policy("broker:claim")
 def claim_drafts_for_organism(
     *,
-    organism_key: str = Path(..., description="Organism grouping_key"),
+    taxon_id: str = Path(..., description="Organism taxon_id"),
     per_type_limit: int = Query(100, ge=1, le=1000, description="Max items per type to claim"),
     payload: Optional[ClaimRequest] = Body(default=None),
     current_user: User = Depends(get_current_active_user),
@@ -1564,7 +1564,7 @@ def claim_drafts_for_organism(
     ttl = timedelta(minutes=lease_minutes)
     now = datetime.now(timezone.utc)
     attempt = SubmissionAttempt(
-        organism_key=organism_key,
+        taxon_id=_normalise_tax_id_value(taxon_id),
         status="processing",
         lock_acquired_at=now,
         lock_expires_at=now + ttl,
@@ -1598,7 +1598,7 @@ def claim_drafts_for_organism(
                 .label("rn"),
             )
             .join(Sample, SampleSubmission.sample_id == Sample.id)
-            .filter(Sample.organism_key == organism_key, SampleSubmission.status == "draft")
+            .filter(Sample.taxon_id == taxon_id, SampleSubmission.status == "draft")
         ).subquery()
 
         sample_ids_subq = (
@@ -1657,7 +1657,7 @@ def claim_drafts_for_organism(
             )
             .join(Experiment, ExperimentSubmission.experiment_id == Experiment.id)
             .join(Sample, Experiment.sample_id == Sample.id)
-            .filter(Sample.organism_key == organism_key, ExperimentSubmission.status == "draft")
+            .filter(Sample.taxon_id == taxon_id, ExperimentSubmission.status == "draft")
         ).subquery()
 
         exp_ids_subq = (
@@ -1769,7 +1769,7 @@ def claim_drafts_for_organism(
             .join(QcRead, QcReadSubmission.qc_read_id == QcRead.id)
             .join(Experiment, QcRead.experiment_id == Experiment.id)
             .join(Sample, Experiment.sample_id == Sample.id)
-            .filter(Sample.organism_key == organism_key, QcReadSubmission.status == "draft")
+            .filter(Sample.taxon_id == taxon_id, QcReadSubmission.status == "draft")
         ).subquery()
 
         qc_read_ids_subq = (
@@ -1866,7 +1866,7 @@ def claim_drafts_for_organism(
                 .label("rn"),
             )
             .join(Project, ProjectSubmission.project_id == Project.id)
-            .filter(Project.organism_key == organism_key, ProjectSubmission.status == "draft")
+            .filter(Project.taxon_id == taxon_id, ProjectSubmission.status == "draft")
         ).subquery()
 
         proj_ids_subq = (
@@ -1897,18 +1897,18 @@ def claim_drafts_for_organism(
         # enrich relationships for project items
         proj_ids = [r.project_id for r in proj_rows]
         proj_meta = (
-            db.query(Project.id, Project.organism_key, Project.project_type)
+            db.query(Project.id, Project.taxon_id, Project.project_type)
             .filter(Project.id.in_(proj_ids))
             .all()
         )
-        meta_map = {pid: {"organism_key": ok, "project_type": pt} for (pid, ok, pt) in proj_meta}
+        meta_map = {pid: {"taxon_id": ok, "project_type": pt} for (pid, ok, pt) in proj_meta}
     else:
         meta_map = {}
 
     for row in proj_rows:
         pm = meta_map.get(row.project_id, {})
         relationships = {
-            "organism_key": pm.get("organism_key"),
+            "taxon_id": pm.get("taxon_id"),
             "project_type": pm.get("project_type"),
         }
         claimed_projects.append(
@@ -1936,7 +1936,7 @@ def claim_drafts_for_organism(
         )
 
     # Enrich response with organism info
-    org_row = db.query(Organism).filter(Organism.grouping_key == organism_key).first()
+    org_row = db.query(Organism).filter(Organism.taxon_id == int(taxon_id)).first()
     org_info = None
     if org_row:
         culture_id = None
@@ -1946,15 +1946,14 @@ def claim_drafts_for_organism(
         except Exception:
             culture_id = None
         org_info = OrganismInfo(
-            organism_key=organism_key,
+            taxon_id=taxon_id,
             scientific_name=org_row.scientific_name,
-            tax_id=org_row.tax_id,
             culture_or_strain_id=culture_id,
         )
 
     return ClaimResponse(
         attempt_id=attempt_id,
-        organism_key=organism_key,
+        taxon_id=taxon_id,
         organism=org_info,
         samples=claimed_samples,
         experiments=claimed_experiments,
@@ -2924,17 +2923,17 @@ def _get_attempt_items_with_relationships(
     if projects:
         proj_ids = [r.project_id for r in projects]
         proj_meta = (
-            db.query(Project.id, Project.organism_key, Project.project_type)
+            db.query(Project.id, Project.taxon_id, Project.project_type)
             .filter(Project.id.in_(proj_ids))
             .all()
         )
         meta_map: Dict[UUID, Dict[str, Any]] = {
-            pid: {"organism_key": ok, "project_type": pt} for (pid, ok, pt) in proj_meta
+            pid: {"taxon_id": ok, "project_type": pt} for (pid, ok, pt) in proj_meta
         }
         for row in projects:
             meta = meta_map.get(row.project_id, {})
             rel = {
-                "organism_key": meta.get("organism_key"),
+                "taxon_id": meta.get("taxon_id"),
                 "project_type": meta.get("project_type"),
             }
             proj_entity_list.append(
@@ -2982,7 +2981,7 @@ def list_attempts(
         results.append(
             {
                 "attempt_id": str(a.id),
-                "organism_key": a.organism_key,
+                "taxon_id": a.taxon_id,
                 "campaign_label": a.campaign_label,
                 "status": status,
                 "lock_expires_at": a.lock_expires_at,
@@ -3008,7 +3007,7 @@ def get_attempt(
     status = _derive_attempt_status(counts, a.lock_expires_at)
     result: Dict[str, Any] = {
         "attempt_id": str(a.id),
-        "organism_key": a.organism_key,
+        "taxon_id": a.taxon_id,
         "campaign_label": a.campaign_label,
         "status": status,
         "lock_expires_at": a.lock_expires_at,
@@ -3019,7 +3018,7 @@ def get_attempt(
     if include_items:
         items = _get_attempt_items_with_relationships(db, attempt_id)
         # serialize pydantic models
-        result["items"] = {k: [e.dict() for e in v] for k, v in items.items()}
+        result["items"] = {k: [e.model_dump() for e in v] for k, v in items.items()}
     return result
 
 
@@ -3030,20 +3029,20 @@ def get_attempt_items(
     db: Session = Depends(get_db),
 ) -> Dict[str, Any]:
     items = _get_attempt_items_with_relationships(db, attempt_id)
-    return {k: [e.dict() for e in v] for k, v in items.items()}
+    return {k: [e.model_dump() for e in v] for k, v in items.items()}
 
 
-@router.get("/organisms/{organism_key}/summary")
+@router.get("/organisms/{taxon_id}/summary")
 def organism_summary(
     *,
-    organism_key: str,
+    taxon_id: str,
     db: Session = Depends(get_db),
     recent_attempts: int = Query(5, ge=1, le=50),
 ) -> Dict[str, Any]:
     # latest attempts for this organism
     attempts = (
         db.query(SubmissionAttempt)
-        .filter(SubmissionAttempt.organism_key == organism_key)
+        .filter(SubmissionAttempt.taxon_id == taxon_id)
         .order_by(SubmissionAttempt.created_at.desc())
         .limit(recent_attempts)
         .all()
@@ -3060,11 +3059,11 @@ def organism_summary(
             }
         )
     # counts across organism (properly scoped via joins)
-    # Samples: join to Sample for organism_key
+    # Samples: join to Sample for taxon_id
     s_rows = (
         db.query(SampleSubmission.status, func.count())
         .join(Sample, SampleSubmission.sample_id == Sample.id)
-        .filter(Sample.organism_key == organism_key)
+        .filter(Sample.taxon_id == taxon_id)
         .group_by(SampleSubmission.status)
         .all()
     )
@@ -3077,7 +3076,7 @@ def organism_summary(
         db.query(ExperimentSubmission.status, func.count())
         .join(Experiment, ExperimentSubmission.experiment_id == Experiment.id)
         .join(Sample, Experiment.sample_id == Sample.id)
-        .filter(Sample.organism_key == organism_key)
+        .filter(Sample.taxon_id == taxon_id)
         .group_by(ExperimentSubmission.status)
         .all()
     )
@@ -3091,7 +3090,7 @@ def organism_summary(
         .join(QcRead, QcReadSubmission.qc_read_id == QcRead.id)
         .join(Experiment, QcRead.experiment_id == Experiment.id)
         .join(Sample, Experiment.sample_id == Sample.id)
-        .filter(Sample.organism_key == organism_key)
+        .filter(Sample.taxon_id == taxon_id)
         .group_by(QcReadSubmission.status)
         .all()
     )
@@ -3105,9 +3104,7 @@ def organism_summary(
         "reads": r_counts,
     }
     # Active attempts for this organism
-    attempts = (
-        db.query(SubmissionAttempt).filter(SubmissionAttempt.organism_key == organism_key).all()
-    )
+    attempts = db.query(SubmissionAttempt).filter(SubmissionAttempt.taxon_id == taxon_id).all()
     active = []
     now = datetime.now()
     for a in attempts:
@@ -3115,7 +3112,7 @@ def organism_summary(
         if _derive_attempt_status(a_counts, a.lock_expires_at) == "active":
             active.append({"attempt_id": str(a.id), "lock_expires_at": a.lock_expires_at})
     return {
-        "organism_key": organism_key,
+        "taxon_id": taxon_id,
         "latest_attempts": latest,
         "active_attempts": active,
         "counts_by_entity": counts_by_entity,

@@ -32,16 +32,20 @@ from app.utils.mapping import to_float
 router = APIRouter()
 
 
-def _get_genomic_data_project_id(db: Session, organism_key: str) -> UUID:
+def _organism_taxon_id(organism: Any) -> int:
+    return organism.taxon_id if hasattr(organism, "taxon_id") else organism.tax_id
+
+
+def _get_genomic_data_project_id(db: Session, taxon_id: int) -> UUID:
     """Get the genomic_data project ID for an organism."""
     project = (
         db.query(Project)
-        .filter(Project.organism_key == organism_key, Project.project_type == "genomic_data")
+        .filter(Project.taxon_id == taxon_id, Project.project_type == "genomic_data")
         .first()
     )
     if not project:
         raise HTTPException(
-            status_code=404, detail=f"No genomic_data project found for organism {organism_key}"
+            status_code=404, detail=f"No genomic_data project found for taxon_id {taxon_id}"
         )
     return project.id
 
@@ -50,7 +54,7 @@ def _get_genomic_data_project_id(db: Session, organism_key: str) -> UUID:
 def read_samples(
     db: Session = Depends(get_db),
     pagination: Pagination = Depends(pagination_params),
-    organism_key: Optional[str] = Query(None, description="Filter by organism key"),
+    taxon_id: Optional[int] = Query(None, description="Filter by organism taxon ID"),
     current_user: User = Depends(get_current_active_user),
 ) -> Any:
     """
@@ -58,41 +62,42 @@ def read_samples(
     """
     # All users can read samples
     query = db.query(Sample)
-    if organism_key:
-        query = query.filter(Sample.organism_key == organism_key)
+    if taxon_id:
+        query = query.filter(Sample.taxon_id == taxon_id)
 
     samples = apply_pagination(query, pagination).all()
     return samples
 
 
-@router.get("/by-specimen/{tax_id}/{specimen_id}", response_model=SampleSchema)
+@router.get("/by-specimen/{taxon_id}/{specimen_id}", response_model=SampleSchema)
 def get_specimen_by_taxid_and_specimen_id(
     *,
     db: Session = Depends(get_db),
-    tax_id: int,
+    taxon_id: int,
     specimen_id: str,
     current_user: User = Depends(get_current_active_user),
 ) -> Any:
     """
-    Lookup a specimen sample by tax_id and specimen_id.
+    Lookup a specimen sample by taxon_id and specimen_id.
 
-    This finds the unique specimen sample for a given organism (by tax_id)
+    This finds the unique specimen sample for a given organism (by taxon_id)
     and specimen_id combination.
     """
     # All users can read samples
 
-    # First, find the organism by tax_id
-    organism = db.query(Organism).filter(Organism.tax_id == tax_id).first()
+    # First, find the organism by taxon_id
+    organism = db.query(Organism).filter(Organism.taxon_id == taxon_id).first()
     if not organism:
         raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND, detail=f"Organism with tax_id {tax_id} not found"
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Organism with taxon_id {taxon_id} not found",
         )
 
     # Then find the specimen sample
     sample = (
         db.query(Sample)
         .filter(
-            Sample.organism_key == organism.grouping_key,
+            Sample.taxon_id == organism.taxon_id,
             Sample.specimen_id == specimen_id,
             Sample.kind == SampleKind.SPECIMEN,
         )
@@ -102,7 +107,7 @@ def get_specimen_by_taxid_and_specimen_id(
     if not sample:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
-            detail=f"Specimen sample not found for tax_id {tax_id} and specimen_id '{specimen_id}'",
+            detail=f"Specimen sample not found for taxon_id {taxon_id} and specimen_id '{specimen_id}'",
         )
 
     return sample
@@ -152,12 +157,12 @@ def create_sample(
             detail="Specimen samples cannot have a parent sample",
         )
 
-    # Check for duplicate specimen: one specimen per (organism_key, specimen_id)
+    # Check for duplicate specimen: one specimen per (taxon_id, specimen_id)
     if kind == SampleKind.SPECIMEN and sample_in.specimen_id:
         existing_specimen = (
             db.query(Sample)
             .filter(
-                Sample.organism_key == sample_in.organism_key,
+                Sample.taxon_id == sample_in.taxon_id,
                 Sample.specimen_id == sample_in.specimen_id,
                 Sample.kind == SampleKind.SPECIMEN,
             )
@@ -166,7 +171,7 @@ def create_sample(
         if existing_specimen:
             raise HTTPException(
                 status_code=status.HTTP_409_CONFLICT,
-                detail=f"Specimen sample already exists for organism_key '{sample_in.organism_key}' "
+                detail=f"Specimen sample already exists for taxon_id '{sample_in.taxon_id}' "
                 f"and specimen_id '{sample_in.specimen_id}' (sample_id: {existing_specimen.id})",
             )
 
@@ -186,7 +191,7 @@ def create_sample(
 
     sample_kwargs = dict(
         id=sample_id,
-        organism_key=sample_in.organism_key,
+        taxon_id=sample_in.taxon_id,
         bpa_sample_id=sample_in.bpa_sample_id,
         specimen_id=sample_in.specimen_id,
         identified_by=sample_in.identified_by,
@@ -249,7 +254,7 @@ def create_sample(
             prepared_payload[ena_key] = sample_data[atol_key]
 
     # Get project_id for this organism
-    project_id = _get_genomic_data_project_id(db, sample.organism_key)
+    project_id = _get_genomic_data_project_id(db, sample.taxon_id)
 
     sample_submission = SampleSubmission(
         sample_id=sample_id,
@@ -271,7 +276,7 @@ def _create_sample_with_submission(
     db: Session,
     bpa_sample_id: Optional[str],
     sample_data: Dict[str, Any],
-    organism_key: str,
+    taxon_id: int,
     kind: SampleKind,
     derived_from_sample_id: Optional[UUID] = None,
     ena_atol_map: Optional[Dict] = None,
@@ -311,7 +316,7 @@ def _create_sample_with_submission(
 
     sample_kwargs = dict(
         id=sample_id,
-        organism_key=organism_key,
+        taxon_id=taxon_id,
         bpa_sample_id=bpa_sample_id,
         specimen_id=sample_data.get("specimen_id"),
         specimen_id_description=sample_data.get("specimen_id_description"),
@@ -372,7 +377,7 @@ def _create_sample_with_submission(
                 prepared_payload[ena_key] = sample_data[atol_key]
 
     # Get project_id for this organism
-    project_id = _get_genomic_data_project_id(db, organism_key)
+    project_id = _get_genomic_data_project_id(db, taxon_id)
 
     # Create sample_submission record
     sample_submission = SampleSubmission(
@@ -399,8 +404,8 @@ def bulk_import_specimen_samples(
     Bulk import specimen samples (kind='specimen').
 
     Expected format: Dictionary keyed by sample_key (a concat of taxon_id and specimen_id).
-    Each sample must have organism_grouping_key and specimen_id.
-    Enforces uniqueness constraint: one specimen per (organism_key, specimen_id).
+    Each sample must have taxon_id and specimen_id.
+    Enforces uniqueness constraint: one specimen per (taxon_id, specimen_id).
     """
     # Load the ENA-ATOL mapping file
     ena_atol_map_path = os.path.join(
@@ -418,19 +423,19 @@ def bulk_import_specimen_samples(
     for sample_key, sample_data in samples_data.items():
         try:
             # Get organism reference
-            organism_key = sample_data.get("organism_grouping_key")
-            if not organism_key:
-                errors.append(f"{sample_key}: Missing organism_grouping_key")
+            taxon_id = sample_data.get("taxon_id")
+            if taxon_id is None:
+                errors.append(f"{sample_key}: Missing taxon_id")
                 skipped_count += 1
                 continue
 
-            organism = db.query(Organism).filter(Organism.grouping_key == organism_key).first()
+            organism = db.query(Organism).filter(Organism.taxon_id == int(taxon_id)).first()
             if not organism:
-                errors.append(
-                    f"{sample_key}: Organism not found with grouping_key '{organism_key}'"
-                )
+                errors.append(f"{sample_key}: Organism not found with taxon_id '{taxon_id}'")
                 skipped_count += 1
                 continue
+
+            organism_taxon_id = _organism_taxon_id(organism)
 
             # Validate specimen_id is present
             specimen_id = sample_data.get("specimen_id")
@@ -443,7 +448,7 @@ def bulk_import_specimen_samples(
             existing_specimen = (
                 db.query(Sample)
                 .filter(
-                    Sample.organism_key == organism_key,
+                    Sample.taxon_id == organism_taxon_id,
                     Sample.specimen_id == specimen_id,
                     Sample.kind == SampleKind.SPECIMEN,
                 )
@@ -451,7 +456,7 @@ def bulk_import_specimen_samples(
             )
             if existing_specimen:
                 errors.append(
-                    f"{sample_key}: Specimen already exists for organism_key '{organism_key}' "
+                    f"{sample_key}: Specimen already exists for taxon_id '{organism_taxon_id}' "
                     f"and specimen_id '{specimen_id}'"
                 )
                 skipped_count += 1
@@ -463,7 +468,7 @@ def bulk_import_specimen_samples(
                 db=db,
                 bpa_sample_id=sample_data.get("bpa_sample_id"),  # Optional for specimens
                 sample_data=sample_data,
-                organism_key=organism_key,
+                taxon_id=organism_taxon_id,
                 kind=SampleKind.SPECIMEN,
                 derived_from_sample_id=None,
                 ena_atol_map=ena_atol_map,
@@ -502,10 +507,10 @@ def bulk_import_derived_samples(
 
     Expected format: Dictionary keyed by bpa_sample_id.
     Each sample must have:
-    - organism_grouping_key or tax_id (to find organism)
+    - taxon_id (to find organism)
     - specimen_id (to lookup parent specimen sample)
 
-    The parent specimen is looked up by (tax_id, specimen_id) or (organism_key, specimen_id).
+    The parent specimen is looked up by (taxon_id, specimen_id) or (taxon_id, specimen_id).
     """
     # Load the ENA-ATOL mapping file
     ena_atol_map_path = os.path.join(
@@ -535,24 +540,17 @@ def bulk_import_derived_samples(
                 skipped_count += 1
                 continue
 
-            # Get organism reference - try organism_grouping_key first, then tax_id
-            organism_key = sample_data.get("organism_grouping_key")
+            taxon_id = sample_data.get("taxon_id")
             organism = None
-
-            if organism_key:
-                organism = db.query(Organism).filter(Organism.grouping_key == organism_key).first()
-            elif sample_data.get("tax_id"):
-                tax_id = sample_data.get("tax_id")
-                organism = db.query(Organism).filter(Organism.tax_id == tax_id).first()
-                if organism:
-                    organism_key = organism.grouping_key
+            if taxon_id is not None:
+                organism = db.query(Organism).filter(Organism.taxon_id == int(taxon_id)).first()
 
             if not organism:
-                errors.append(
-                    f"{sample_key}: Organism not found (provide organism_grouping_key or tax_id)"
-                )
+                errors.append(f"{sample_key}: Organism not found (provide taxon_id)")
                 skipped_count += 1
                 continue
+
+            organism_taxon_id = _organism_taxon_id(organism)
 
             # Validate specimen_id is present (needed to find parent)
             specimen_id = sample_data.get("specimen_id")
@@ -561,11 +559,11 @@ def bulk_import_derived_samples(
                 skipped_count += 1
                 continue
 
-            # Lookup parent specimen by (organism_key, specimen_id)
+            # Lookup parent specimen by (taxon_id, specimen_id)
             parent_specimen = (
                 db.query(Sample)
                 .filter(
-                    Sample.organism_key == organism_key,
+                    Sample.taxon_id == organism_taxon_id,
                     Sample.specimen_id == specimen_id,
                     Sample.kind == SampleKind.SPECIMEN,
                 )
@@ -574,7 +572,7 @@ def bulk_import_derived_samples(
 
             if not parent_specimen:
                 errors.append(
-                    f"{sample_key}: Parent specimen not found for organism_key '{organism_key}' "
+                    f"{sample_key}: Parent specimen not found for taxon_id '{organism_taxon_id}' "
                     f"and specimen_id '{specimen_id}'"
                 )
                 skipped_count += 1
@@ -585,7 +583,7 @@ def bulk_import_derived_samples(
                 db=db,
                 bpa_sample_id=bpa_sample_id,
                 sample_data=sample_data,
-                organism_key=organism_key,
+                taxon_id=organism_taxon_id,
                 kind=SampleKind.DERIVED,
                 derived_from_sample_id=parent_specimen.id,
                 ena_atol_map=ena_atol_map,
@@ -690,7 +688,7 @@ def update_sample(
         new_sample_submission = None
         latest_sample_submission = {}
         if not sample_submission:
-            project_id = _get_genomic_data_project_id(db, sample.organism_key)
+            project_id = _get_genomic_data_project_id(db, sample.taxon_id)
             new_sample_submission = SampleSubmission(
                 sample_id=sample_id,
                 authority="ENA",
@@ -714,7 +712,7 @@ def update_sample(
             ):
                 # leave the old record for logs and create a new record
                 # retain accessions if they exist (accessions may not exist if status is 'rejected' and the sample has not successfully been submitted in the past)
-                project_id = _get_genomic_data_project_id(db, sample.organism_key)
+                project_id = _get_genomic_data_project_id(db, sample.taxon_id)
                 new_sample_submission = SampleSubmission(
                     sample_id=sample_id,
                     authority=sample_submission.authority,
@@ -733,7 +731,7 @@ def update_sample(
                 # retain accessions
                 setattr(latest_sample_submission, "status", "replaced")
                 db.add(latest_sample_submission)
-                project_id = _get_genomic_data_project_id(db, sample.organism_key)
+                project_id = _get_genomic_data_project_id(db, sample.taxon_id)
                 new_sample_submission = SampleSubmission(
                     sample_id=sample_id,
                     authority=sample_submission.authority,
@@ -759,7 +757,7 @@ def update_sample(
         # initiate new bpa_json object to the previous bpa_json object
         """
         new_bpa_json = sample.bpa_json
-        setattr(sample, "organism_key", sample_in.organism_key)
+        setattr(sample, "taxon_id", sample_in.taxon_id)
         setattr(sample, "bpa_sample_id", sample_in.bpa_sample_id)
         for field, value in sample_data.items():
             new_bpa_json[field] = value
@@ -840,19 +838,20 @@ def bulk_import_samples(
             continue
 
         # Get organism reference from sample data
-        organism_key = None
-        if "organism_grouping_key" in sample_data:
-            organism_key = sample_data["organism_grouping_key"]
-            # Look up the organism by grouping key
-            organism = db.query(Organism).filter(Organism.grouping_key == organism_key).first()
+        taxon_id = None
+        if "taxon_id" in sample_data:
+            organism = (
+                db.query(Organism).filter(Organism.taxon_id == sample_data["taxon_id"]).first()
+            )
         else:
             print(f"Organism not found for sample {bpa_sample_id}, Skipping")
             skipped_count += 1
             continue
         if not organism:
-            print(f"Organism not found with grouping_key {organism_key}, Skipping")
+            print(f"Organism not found with taxon_id {sample_data['taxon_id']}, Skipping")
             skipped_count += 1
             continue
+        taxon_id = organism.taxon_id
         try:
             # Create new sample
             sample_id = uuid.uuid4()
@@ -872,13 +871,13 @@ def bulk_import_samples(
             if isinstance(kind, str):
                 kind = SampleKind(kind)
 
-            # Check for duplicate specimen: one specimen per (organism_key, specimen_id)
+            # Check for duplicate specimen: one specimen per (taxon_id, specimen_id)
             specimen_id_val = sample_data.get("specimen_id")
             if kind == SampleKind.SPECIMEN and specimen_id_val:
                 existing_specimen = (
                     db.query(Sample)
                     .filter(
-                        Sample.organism_key == organism_key,
+                        Sample.taxon_id == taxon_id,
                         Sample.specimen_id == specimen_id_val,
                         Sample.kind == SampleKind.SPECIMEN,
                     )
@@ -886,7 +885,7 @@ def bulk_import_samples(
                 )
                 if existing_specimen:
                     print(
-                        f"Specimen sample already exists for organism_key '{organism_key}' "
+                        f"Specimen sample already exists for taxon_id '{taxon_id}' "
                         f"and specimen_id '{specimen_id_val}', skipping"
                     )
                     skipped_count += 1
@@ -894,7 +893,7 @@ def bulk_import_samples(
 
             sample_kwargs = dict(
                 id=sample_id,
-                organism_key=organism_key,
+                taxon_id=taxon_id,
                 bpa_sample_id=bpa_sample_id,
                 specimen_id=sample_data.get("specimen_id"),
                 identified_by=sample_data.get("identified_by"),
@@ -939,7 +938,7 @@ def bulk_import_samples(
                     prepared_payload[ena_key] = sample_data[atol_key]
 
             # Get project_id for this organism
-            project_id = _get_genomic_data_project_id(db, organism_key)
+            project_id = _get_genomic_data_project_id(db, taxon_id)
 
             # Create sample_submission record
             sample_submission = SampleSubmission(

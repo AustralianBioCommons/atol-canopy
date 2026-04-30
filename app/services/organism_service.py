@@ -22,13 +22,9 @@ class OrganismService(BaseService[Organism, OrganismCreate, OrganismUpdate]):
         """Get organism by scientific name."""
         return db.query(Organism).filter(Organism.scientific_name == scientific_name).first()
 
-    def get_by_tax_id(self, db: Session, tax_id: str) -> Optional[Organism]:
+    def get_by_taxon_id(self, db: Session, taxon_id: int) -> Optional[Organism]:
         """Get organism by taxon ID."""
-        return db.query(Organism).filter(Organism.tax_id == tax_id).first()
-
-    def get_by_grouping_key(self, db: Session, grouping_key: str) -> Optional[Organism]:
-        """Get organism by grouping_key."""
-        return db.query(Organism).filter(Organism.grouping_key == grouping_key).first()
+        return db.query(Organism).filter(Organism.taxon_id == taxon_id).first()
 
     def get_multi_with_filters(
         self,
@@ -37,17 +33,14 @@ class OrganismService(BaseService[Organism, OrganismCreate, OrganismUpdate]):
         skip: int = 0,
         limit: int = 100,
         scientific_name: Optional[str] = None,
-        tax_id: Optional[str] = None,
-        grouping_key: Optional[str] = None,
+        taxon_id: Optional[int] = None,
     ) -> List[Organism]:
         """Get organisms with filters."""
         query = db.query(Organism)
         if scientific_name:
             query = query.filter(Organism.scientific_name.ilike(f"%{scientific_name}%"))
-        if tax_id:
-            query = query.filter(Organism.tax_id == tax_id)
-        if grouping_key:
-            query = query.filter(Organism.grouping_key == grouping_key)
+        if taxon_id is not None:
+            query = query.filter(Organism.taxon_id == taxon_id)
         return query.offset(skip).limit(limit).all()
 
     # ---------- New business operations (moved from endpoints) ----------
@@ -65,19 +58,19 @@ class OrganismService(BaseService[Organism, OrganismCreate, OrganismUpdate]):
         self,
         db: Session,
         *,
-        grouping_key: str,
+        taxon_id: int,
         include_reads: bool = False,
     ) -> Optional[Dict[str, Any]]:
         """Return all experiments for the organism, and optionally all reads for each experiment.
 
         Returns None if the organism cannot be found.
         """
-        organism = db.query(Organism).filter(Organism.grouping_key == grouping_key).first()
+        organism = db.query(Organism).filter(Organism.taxon_id == taxon_id).first()
         if not organism:
             return None
 
         # Find all samples for this organism
-        samples = db.query(Sample.id).filter(Sample.organism_key == grouping_key).all()
+        samples = db.query(Sample.id).filter(Sample.taxon_id == taxon_id).all()
         sample_ids = [sid for (sid,) in samples]
 
         # Load experiments (eager load reads when requested)
@@ -91,7 +84,7 @@ class OrganismService(BaseService[Organism, OrganismCreate, OrganismUpdate]):
         # Build response
         if not include_reads:
             exp_list = [self._sa_obj_to_dict(e) for e in experiments]
-            return {"grouping_key": grouping_key, "experiments": exp_list}
+            return {"taxon_id": taxon_id, "experiments": exp_list}
 
         # include_reads = True
         reads_by_exp: Dict[str, List[Dict[str, Any]]] = {}
@@ -107,7 +100,7 @@ class OrganismService(BaseService[Organism, OrganismCreate, OrganismUpdate]):
             exp_with_reads.append(item)
 
         return {
-            "grouping_key": grouping_key,
+            "taxon_id": taxon_id,
             "experiments": exp_with_reads,
         }
 
@@ -115,19 +108,18 @@ class OrganismService(BaseService[Organism, OrganismCreate, OrganismUpdate]):
         self,
         db: Session,
         *,
-        grouping_key: str,
+        taxon_id: int,
     ) -> Optional[OrganismSubmissionJsonResponse]:
-        """Get all prepared_payload data for samples, experiments, and reads for a grouping_key.
+        """Get all prepared_payload data for samples, experiments, and reads for a taxon_id.
 
         Returns None if the organism cannot be found.
         """
-        organism = db.query(Organism).filter(Organism.grouping_key == grouping_key).first()
+        organism = db.query(Organism).filter(Organism.taxon_id == taxon_id).first()
         if not organism:
             return None
 
         response = OrganismSubmissionJsonResponse(
-            grouping_key=organism.grouping_key,
-            tax_id=organism.tax_id,
+            taxon_id=organism.taxon_id,
             scientific_name=organism.scientific_name,
             samples=[],
             experiments=[],
@@ -135,7 +127,7 @@ class OrganismService(BaseService[Organism, OrganismCreate, OrganismUpdate]):
         )
 
         # Samples
-        samples = db.query(Sample).filter(Sample.organism_key == organism.grouping_key).all()
+        samples = db.query(Sample).filter(Sample.taxon_id == organism.taxon_id).all()
         sample_ids = [sample.id for sample in samples]
 
         if sample_ids:
@@ -174,10 +166,9 @@ class OrganismService(BaseService[Organism, OrganismCreate, OrganismUpdate]):
 
     def create_organism(self, db: Session, *, organism_in: OrganismCreate) -> Organism:
         """Create a new organism and draft projects + submissions."""
-        organism_label = organism_in.scientific_name or organism_in.grouping_key
+        organism_label = organism_in.scientific_name or str(organism_in.taxon_id)
         organism = Organism(
-            grouping_key=organism_in.grouping_key,
-            tax_id=organism_in.tax_id,
+            taxon_id=organism_in.taxon_id,
             scientific_name=organism_in.scientific_name,
             common_name=organism_in.common_name,
             common_name_source=organism_in.common_name_source,
@@ -193,12 +184,12 @@ class OrganismService(BaseService[Organism, OrganismCreate, OrganismUpdate]):
             busco_dataset_name=organism_in.busco_dataset_name,
             augustus_dataset_name=organism_in.augustus_dataset_name,
             taxonomy_lineage_json=organism_in.taxonomy_lineage_json,
-            bpa_json=organism_in.dict(exclude_unset=True),
+            bpa_json=organism_in.model_dump(exclude_unset=True),
         )
         db.add(organism)
         try:
             root_project = Project(
-                organism_key=organism.grouping_key,
+                taxon_id=organism.taxon_id,
                 project_type="root",
                 study_type="Whole Genome Sequencing",
                 project_accession=None,
@@ -215,7 +206,7 @@ class OrganismService(BaseService[Organism, OrganismCreate, OrganismUpdate]):
                 authority="ENA",
             )
             genomic_data_project = Project(
-                organism_key=organism.grouping_key,
+                taxon_id=organism.taxon_id,
                 project_type="genomic_data",
                 study_type="Whole Genome Sequencing",
                 project_accession=None,
@@ -236,7 +227,7 @@ class OrganismService(BaseService[Organism, OrganismCreate, OrganismUpdate]):
             db.flush()  # Ensure project IDs
 
             root_payload = {
-                "organism_key": root_project.organism_key,
+                "taxon_id": root_project.taxon_id,
                 "project_type": root_project.project_type,
                 "study_type": root_project.study_type,
                 "alias": root_project.alias,
@@ -246,7 +237,7 @@ class OrganismService(BaseService[Organism, OrganismCreate, OrganismUpdate]):
                 "study_attributes": root_project.study_attributes,
             }
             genomic_payload = {
-                "organism_key": genomic_data_project.organism_key,
+                "taxon_id": genomic_data_project.taxon_id,
                 "project_type": genomic_data_project.project_type,
                 "study_type": genomic_data_project.study_type,
                 "alias": genomic_data_project.alias,
@@ -273,11 +264,11 @@ class OrganismService(BaseService[Organism, OrganismCreate, OrganismUpdate]):
         self,
         db: Session,
         *,
-        grouping_key: str,
+        taxon_id: int,
         organism_in: OrganismUpdate,
     ) -> Optional[Organism]:
-        """Update an organism by grouping_key, mirroring previous behavior."""
-        organism = db.query(Organism).filter(Organism.grouping_key == grouping_key).first()
+        """Update an organism by taxon_id."""
+        organism = db.query(Organism).filter(Organism.taxon_id == taxon_id).first()
         if not organism:
             return None
         non_bpa_fields = [
@@ -290,7 +281,7 @@ class OrganismService(BaseService[Organism, OrganismCreate, OrganismUpdate]):
             "tax_string",
         ]
         new_bpa_json: Dict[str, Any] = organism.bpa_json or {}
-        update_data = organism_in.dict(exclude_unset=True)
+        update_data = organism_in.model_dump(exclude_unset=True)
         for field, value in update_data.items():
             setattr(organism, field, value)
             if field in non_bpa_fields:
@@ -304,9 +295,9 @@ class OrganismService(BaseService[Organism, OrganismCreate, OrganismUpdate]):
         db.refresh(organism)
         return organism
 
-    def delete_organism(self, db: Session, *, grouping_key: str) -> Optional[Organism]:
-        """Delete an organism by grouping_key."""
-        organism = db.query(Organism).filter(Organism.grouping_key == grouping_key).first()
+    def delete_organism(self, db: Session, *, taxon_id: int) -> Optional[Organism]:
+        """Delete an organism by taxon_id."""
+        organism = db.query(Organism).filter(Organism.taxon_id == taxon_id).first()
         if not organism:
             return None
         db.delete(organism)
@@ -319,46 +310,32 @@ class OrganismService(BaseService[Organism, OrganismCreate, OrganismUpdate]):
         *,
         organisms_data: Dict[str, Dict[str, Any]],
     ) -> BulkImportResponse:
-        """Bulk import organisms from a dictionary keyed by organism_grouping_key."""
+        """Bulk import organisms from a dictionary keyed by taxon_id."""
         created_count = 0
         skipped_count = 0
         errors = []
 
-        for organism_grouping_key, organism_data in organisms_data.items():
+        for taxon_key, organism_data in organisms_data.items():
             try:
-                # Extract tax_id from the organism data
-                if "taxon_id" in organism_data:
-                    tax_id = organism_data["taxon_id"]
-                else:
-                    errors.append(f"{organism_grouping_key}: Missing required field 'taxon_id'")
+                taxon_id = organism_data.get("taxon_id", taxon_key)
+                if taxon_id is None:
+                    errors.append(f"{taxon_key}: Missing required field 'taxon_id'")
                     skipped_count += 1
                     continue
+                taxon_id = int(taxon_id)
 
-                if "organism_grouping_key" not in organism_data:
-                    errors.append(
-                        f"{organism_grouping_key}: Missing required field 'organism_grouping_key'"
-                    )
-                    skipped_count += 1
-                    continue
-
-                # Check if organism already exists by grouping key
-                existing = (
-                    db.query(Organism)
-                    .filter(Organism.grouping_key == organism_grouping_key)
-                    .first()
-                )
+                existing = db.query(Organism).filter(Organism.taxon_id == taxon_id).first()
                 if existing:
-                    errors.append(f"{organism_grouping_key}: Organism already exists")
+                    errors.append(f"{taxon_key}: Organism already exists")
                     skipped_count += 1
                     continue
 
                 scientific_name = organism_data.get("scientific_name")
-                organism_label = scientific_name or organism_grouping_key
+                organism_label = scientific_name or str(taxon_id)
 
                 # Create organism and projects
                 organism = Organism(
-                    grouping_key=organism_grouping_key,
-                    tax_id=tax_id,
+                    taxon_id=taxon_id,
                     scientific_name=scientific_name,
                     genus=organism_data.get("genus"),
                     species=organism_data.get("species"),
@@ -374,7 +351,7 @@ class OrganismService(BaseService[Organism, OrganismCreate, OrganismUpdate]):
                     bpa_json=organism_data,
                 )
                 root_project = Project(
-                    organism_key=organism.grouping_key,
+                    taxon_id=organism.taxon_id,
                     project_type="root",
                     study_type="Whole Genome Sequencing",
                     project_accession=None,
@@ -391,7 +368,7 @@ class OrganismService(BaseService[Organism, OrganismCreate, OrganismUpdate]):
                     authority="ENA",
                 )
                 genomic_data_project = Project(
-                    organism_key=organism.grouping_key,
+                    taxon_id=organism.taxon_id,
                     project_type="genomic_data",
                     study_type="Whole Genome Sequencing",
                     project_accession=None,
@@ -412,7 +389,7 @@ class OrganismService(BaseService[Organism, OrganismCreate, OrganismUpdate]):
                 db.flush()
 
                 root_payload = {
-                    "organism_key": root_project.organism_key,
+                    "taxon_id": root_project.taxon_id,
                     "project_type": root_project.project_type,
                     "study_type": root_project.study_type,
                     "alias": root_project.alias,
@@ -422,7 +399,7 @@ class OrganismService(BaseService[Organism, OrganismCreate, OrganismUpdate]):
                     "study_attributes": root_project.study_attributes,
                 }
                 genomic_payload = {
-                    "organism_key": genomic_data_project.organism_key,
+                    "taxon_id": genomic_data_project.taxon_id,
                     "project_type": genomic_data_project.project_type,
                     "study_type": genomic_data_project.study_type,
                     "alias": genomic_data_project.alias,
@@ -440,7 +417,7 @@ class OrganismService(BaseService[Organism, OrganismCreate, OrganismUpdate]):
                 db.commit()
                 created_count += 1
             except Exception as e:
-                errors.append(f"{organism_grouping_key}: {str(e)}")
+                errors.append(f"{taxon_key}: {str(e)}")
                 db.rollback()
                 skipped_count += 1
 

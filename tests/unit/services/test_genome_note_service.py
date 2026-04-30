@@ -26,7 +26,7 @@ def sample_genome_note():
     """Create a sample genome note for testing."""
     return GenomeNote(
         id=uuid.uuid4(),
-        organism_key="test_organism",
+        taxon_id="test_organism",
         assembly_id=uuid.uuid4(),
         version=1,
         title="Test Genome Note",
@@ -112,7 +112,7 @@ class TestPublishGenomeNote:
 
         existing_published = GenomeNote(
             id=uuid.uuid4(),
-            organism_key=sample_genome_note.organism_key,
+            taxon_id=sample_genome_note.taxon_id,
             assembly_id=uuid.uuid4(),
             version=2,
             title="Existing Published Note",
@@ -146,7 +146,7 @@ class TestUnpublishGenomeNote:
         """Test successful unpublishing of a genome note."""
         published_note = GenomeNote(
             id=uuid.uuid4(),
-            organism_key="test_organism",
+            taxon_id="test_organism",
             assembly_id=uuid.uuid4(),
             version=1,
             title="Published Note",
@@ -186,7 +186,7 @@ class TestGetPublishedByOrganism:
         """Test retrieving published genome note for an organism."""
         published_note = GenomeNote(
             id=uuid.uuid4(),
-            organism_key="test_organism",
+            taxon_id="test_organism",
             assembly_id=uuid.uuid4(),
             version=2,
             title="Published Note",
@@ -225,7 +225,7 @@ class TestGetVersionsByOrganism:
         notes = [
             GenomeNote(
                 id=uuid.uuid4(),
-                organism_key="test_organism",
+                taxon_id="test_organism",
                 assembly_id=uuid.uuid4(),
                 version=3,
                 title="Version 3",
@@ -237,7 +237,7 @@ class TestGetVersionsByOrganism:
             ),
             GenomeNote(
                 id=uuid.uuid4(),
-                organism_key="test_organism",
+                taxon_id="test_organism",
                 assembly_id=uuid.uuid4(),
                 version=2,
                 title="Version 2",
@@ -249,7 +249,7 @@ class TestGetVersionsByOrganism:
             ),
             GenomeNote(
                 id=uuid.uuid4(),
-                organism_key="test_organism",
+                taxon_id="test_organism",
                 assembly_id=uuid.uuid4(),
                 version=1,
                 title="Version 1",
@@ -286,12 +286,12 @@ class TestGetVersionsByOrganism:
 class TestGetByFilters:
     """Tests for basic filter helpers."""
 
-    def test_get_by_organism_key(self, mock_db, genome_note_service, sample_genome_note):
+    def test_get_by_taxon_id(self, mock_db, genome_note_service, sample_genome_note):
         mock_query = Mock()
         mock_query.filter.return_value.all.return_value = [sample_genome_note]
         mock_db.query.return_value = mock_query
 
-        result = genome_note_service.get_by_organism_key(mock_db, "test_organism")
+        result = genome_note_service.get_by_taxon_id(mock_db, sample_genome_note.taxon_id)
 
         assert result == [sample_genome_note]
 
@@ -333,7 +333,7 @@ class TestGetByFilters:
             mock_db,
             skip=0,
             limit=10,
-            organism_key="test_organism",
+            taxon_id="test_organism",
             assembly_id=sample_genome_note.assembly_id,
             is_published=False,
             title="Test",

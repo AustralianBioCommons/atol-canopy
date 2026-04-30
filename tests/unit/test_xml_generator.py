@@ -31,7 +31,7 @@ from app.utils.xml_generator import generate_experiment_xml, generate_sample_xml
 
 class DummyOrganism:
     def __init__(self):
-        self.tax_id = 9606
+        self.taxon_id = 9606
         self.scientific_name = "Homo sapiens"
         self.common_name = "Human"
 

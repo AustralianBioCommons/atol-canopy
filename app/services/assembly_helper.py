@@ -135,7 +135,7 @@ def generate_assembly_manifest(
         YAML string formatted as assembly manifest
     """
     logger.info(
-        f"Generating manifest for organism: {organism.scientific_name} (tax_id: {organism.tax_id})"
+        f"Generating manifest for organism: {organism.scientific_name} (taxon_id: {organism.taxon_id})"
     )
     logger.info(f"Total experiments: {len(experiments)}, Total reads: {len(reads)}")
 
@@ -230,7 +230,7 @@ def generate_assembly_manifest(
     # Build manifest structure
     manifest = {
         "scientific_name": organism.scientific_name,
-        "taxon_id": organism.tax_id,
+        "taxon_id": organism.taxon_id,
         "tolid": tol_id,
         "version": version,
         "reads": {},

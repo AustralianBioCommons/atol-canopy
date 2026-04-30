@@ -62,10 +62,8 @@ CREATE TABLE refresh_token (
 
 -- Main organism table
 CREATE TABLE organism (
-    grouping_key TEXT PRIMARY KEY,
-    tax_id int UNIQUE NOT NULL,
+    taxon_id int PRIMARY KEY,
     -- We need to check that the scientific name = the tax id level, because we have a bunch of tax_ids that are the same for organisms which should have a more granular taxid level
-    -- Optional: can be null when only grouping_key/tax_id are available
     scientific_name TEXT,
     genus TEXT,
     species TEXT,
@@ -129,7 +127,7 @@ CREATE UNIQUE INDEX uq_registry_full
 -- Main project table
 CREATE TABLE project (
     id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
-    organism_key TEXT NOT NULL REFERENCES organism(grouping_key) ON DELETE CASCADE,
+    taxon_id INT NOT NULL REFERENCES organism(taxon_id) ON DELETE CASCADE,
     project_type project_type NOT NULL,
     project_accession TEXT UNIQUE,
     study_type TEXT NOT NULL,
@@ -148,7 +146,7 @@ CREATE TABLE project (
 );
 
 CREATE UNIQUE INDEX uq_one_project_type_per_organism
-  ON project (organism_key, project_type);
+  ON project (taxon_id, project_type);
 
 -- Project submission table
 CREATE TABLE IF NOT EXISTS project_submission (
@@ -201,7 +199,7 @@ CREATE INDEX IF NOT EXISTS idx_project_submission_lock_expires_at ON project_sub
 -- Main sample table
 CREATE TABLE sample (
     id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
-    organism_key TEXT NOT NULL REFERENCES organism(grouping_key) ON DELETE CASCADE,
+    taxon_id INT NOT NULL REFERENCES organism(taxon_id) ON DELETE CASCADE,
     bpa_sample_id TEXT,
     specimen_id TEXT,
     specimen_id_description TEXT,
@@ -304,9 +302,9 @@ CREATE INDEX IF NOT EXISTS idx_sample_submission_project_id ON sample_submission
 -- Support parent/child lookups for derived samples
 CREATE INDEX IF NOT EXISTS idx_sample_derived_from_sample_id ON sample(derived_from_sample_id);
 
--- Enforce uniqueness: one specimen sample per (organism_key, specimen_id)
+-- Enforce uniqueness: one specimen sample per (taxon_id, specimen_id)
 CREATE UNIQUE INDEX IF NOT EXISTS uq_specimen_per_organism_specimen_id
-  ON sample (organism_key, specimen_id)
+  ON sample (taxon_id, specimen_id)
   WHERE kind = 'specimen' AND specimen_id IS NOT NULL;
 
 -- Enforce uniqueness: bpa_sample_id must be unique for derived samples
@@ -314,9 +312,9 @@ CREATE UNIQUE INDEX IF NOT EXISTS uq_derived_bpa_sample_id
   ON sample (bpa_sample_id)
   WHERE kind = 'derived' AND bpa_sample_id IS NOT NULL;
 
--- Index for efficient lookup by organism_key + specimen_id
+-- Index for efficient lookup by taxon_id + specimen_id
 CREATE INDEX IF NOT EXISTS idx_sample_organism_specimen_lookup
-  ON sample (organism_key, specimen_id)
+  ON sample (taxon_id, specimen_id)
   WHERE specimen_id IS NOT NULL;
 
 -- UNIQUE (sample_id, authority) WHERE status = 'accepted' AND accession IS NOT NULL
@@ -489,7 +487,7 @@ CREATE INDEX IF NOT EXISTS idx_read_submission_lock_expires_at ON read_submissio
 
 CREATE TABLE submission_attempt (
     id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
-    organism_key TEXT REFERENCES organism(grouping_key),
+    taxon_id INT REFERENCES organism(taxon_id),
     campaign_label TEXT,
     -- TODO make ENUM
     status TEXT NOT NULL DEFAULT 'processing',
@@ -531,7 +529,7 @@ CREATE INDEX IF NOT EXISTS idx_submission_event_entity ON submission_event (enti
 -- Main assembly table
 CREATE TABLE assembly (
     id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
-    organism_key TEXT REFERENCES organism(grouping_key) NOT NULL,
+    taxon_id INT REFERENCES organism(taxon_id) NOT NULL,
     sample_id UUID REFERENCES sample(id) NOT NULL,
     project_id UUID REFERENCES project(id),
 
@@ -546,7 +544,7 @@ CREATE TABLE assembly (
     moleculetype molecule_type NOT NULL DEFAULT 'genomic DNA',
     description TEXT,
 
-    -- Auto-incremented version per (data_types, organism_key, sample_id)
+    -- Auto-incremented version per (data_types, taxon_id, sample_id)
     version INTEGER NOT NULL DEFAULT 1,
 
     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
@@ -555,7 +553,7 @@ CREATE TABLE assembly (
 
 CREATE TABLE assembly_run (
     id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
-    organism_key TEXT REFERENCES organism(grouping_key) NOT NULL,
+    taxon_id INT REFERENCES organism(taxon_id) NOT NULL,
     sample_id UUID REFERENCES sample(id) NOT NULL,
     data_types assembly_data_types NOT NULL,
     version INTEGER NOT NULL,
@@ -585,7 +583,7 @@ CREATE INDEX idx_assembly_file_assembly_id ON assembly_file(assembly_id);
 CREATE INDEX idx_assembly_file_type ON assembly_file(assembly_id, file_type);
 
 -- Index for version lookups
-CREATE INDEX idx_assembly_version_key ON assembly(data_types, organism_key, sample_id, version);
+CREATE INDEX idx_assembly_version_key ON assembly(data_types, taxon_id, sample_id, version);
 
 
 -- Assembly submission table (simplified - no broker integration)
@@ -633,7 +631,7 @@ CREATE TABLE assembly_read (
 -- Each organism can have multiple draft versions but only one published version
 CREATE TABLE genome_note (
     id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
-    organism_key TEXT NOT NULL REFERENCES organism(grouping_key) ON DELETE CASCADE,
+    taxon_id INT NOT NULL REFERENCES organism(taxon_id) ON DELETE CASCADE,
     assembly_id UUID NOT NULL REFERENCES assembly(id) ON DELETE CASCADE,
 
     -- Versioning: auto-increment per organism
@@ -651,18 +649,18 @@ CREATE TABLE genome_note (
     updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
 
     -- Ensure version uniqueness per organism
-    UNIQUE (organism_key, version)
+    UNIQUE (taxon_id, version)
 );
 
 -- Ensure only one published note per organism
 CREATE UNIQUE INDEX uq_genome_note_one_published_per_organism
-    ON genome_note (organism_key)
+    ON genome_note (taxon_id)
     WHERE is_published = TRUE;
 
 -- Indexes for efficient lookups
-CREATE INDEX idx_genome_note_organism_key ON genome_note(organism_key);
+CREATE INDEX idx_genome_note_taxon_id ON genome_note(taxon_id);
 CREATE INDEX idx_genome_note_assembly_id ON genome_note(assembly_id);
-CREATE INDEX idx_genome_note_published ON genome_note(organism_key, is_published)
+CREATE INDEX idx_genome_note_published ON genome_note(taxon_id, is_published)
     WHERE is_published = TRUE;
 
 -- ==========================================
@@ -678,8 +676,7 @@ CREATE TABLE bpa_initiative (
 );
 
 -- Create indexes for common query patterns
-CREATE INDEX idx_tax_id ON organism(tax_id);
-CREATE INDEX idx_sample_organism_key ON sample(organism_key);
+CREATE INDEX idx_sample_taxon_id ON sample(taxon_id);
 CREATE INDEX idx_experiment_sample_id ON experiment(sample_id);
 CREATE INDEX idx_assembly_sample_id ON assembly(sample_id);
-CREATE INDEX idx_assembly_organism_key ON assembly(organism_key);
+CREATE INDEX idx_assembly_taxon_id ON assembly(taxon_id);

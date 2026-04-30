@@ -113,7 +113,7 @@ def test_bulk_import_experiments_success(client, mock_db, mock_user):
     sample = Sample(
         id=uuid.uuid4(),
         bpa_sample_id="102.100.100/12345",
-        organism_key="Test_organism_123",
+        taxon_id=123,
     )
     mock_db._query_results["sample"] = sample
     mock_db._samples_by_id["102.100.100/12345"] = sample
@@ -299,7 +299,7 @@ def test_bulk_import_experiments_missing_bpa_library_id(client, mock_db, mock_us
     sample = Sample(
         id=uuid.uuid4(),
         bpa_sample_id="102.100.100/12345",
-        organism_key="Test_organism_123",
+        taxon_id=123,
     )
     mock_db._query_results["sample"] = sample
     mock_db._samples_by_id["102.100.100/12345"] = sample
@@ -333,7 +333,7 @@ def test_bulk_import_experiments_read_missing_bpa_resource_id(client, mock_db, m
     sample = Sample(
         id=uuid.uuid4(),
         bpa_sample_id="102.100.100/12345",
-        organism_key="Test_organism_123",
+        taxon_id=123,
     )
     mock_db._query_results["sample"] = sample
     mock_db._samples_by_id["102.100.100/12345"] = sample
@@ -371,7 +371,7 @@ def test_bulk_import_experiments_multiple_with_mixed_results(client, mock_db, mo
     sample = Sample(
         id=uuid.uuid4(),
         bpa_sample_id="102.100.100/12345",
-        organism_key="Test_organism_123",
+        taxon_id=123,
     )
     mock_db._query_results["sample"] = sample
     mock_db._samples_by_id["102.100.100/12345"] = sample  # Add to lookup dictionary

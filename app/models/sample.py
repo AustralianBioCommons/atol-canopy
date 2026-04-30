@@ -28,8 +28,8 @@ class Sample(Base):
     __tablename__ = "sample"
 
     id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
-    organism_key = Column(
-        "organism_key", ForeignKey("organism.grouping_key", ondelete="CASCADE"), nullable=False
+    taxon_id = Column(
+        "taxon_id", ForeignKey("organism.taxon_id", ondelete="CASCADE"), nullable=False
     )
     bpa_sample_id = Column(Text, nullable=True)
     specimen_id = Column(Text, nullable=True)

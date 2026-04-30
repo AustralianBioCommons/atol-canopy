@@ -15,9 +15,7 @@ class Organism(Base):
 
     __tablename__ = "organism"
 
-    # In the new schema, grouping_key is the primary key
-    grouping_key = Column(Text, primary_key=True)
-    tax_id = Column(Integer, unique=True, nullable=False)
+    taxon_id = Column(Integer, primary_key=True)
     scientific_name = Column(Text, nullable=True)
     common_name = Column(Text, nullable=True)
     common_name_source = Column(Text, nullable=True)

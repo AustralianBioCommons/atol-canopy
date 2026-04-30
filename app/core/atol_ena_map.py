@@ -1,6 +1,6 @@
 # BioSample checklist
 {
-    "organism.taxon_id": "tax_id",
+    "organism.taxon_id": "taxon_id",
     "organism.culture_or_strain_id": "culture_or_strain_id",
     "specimen_voucer": "specimen_voucher",
     "identified_by": "identified_by",
@@ -39,7 +39,6 @@
     "organism.authority",
     "organism.common_name",
     "organism.atol_scientific_name",
-    "organism.organism_grouping_key",
     "organism.tax_string",
     "infraspecific_epithet",
     "voucher_institution",

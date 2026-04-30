@@ -72,8 +72,7 @@ class QcReadSubmissionJson(BaseModel):
 class OrganismSubmissionJsonResponse(BaseModel):
     """Schema for returning all prepared_payload data related to an organism"""
 
-    grouping_key: str
-    tax_id: int
+    taxon_id: int
     scientific_name: Optional[str] = None
     samples: List[SampleSubmissionJson] = []
     experiments: List[ExperimentSubmissionJson] = []

@@ -8,12 +8,10 @@ class BulkOrganismImport(BaseModel):
 
     The API expects a dictionary with an 'organisms' key containing organism data.
     However, the data/unique_organisms.json file is directly a dictionary of organism data
-    keyed by organism_grouping_key without a wrapping 'organisms' key.
+    keyed by taxon_id without a wrapping 'organisms' key.
     """
 
-    organisms: Dict[
-        str, Dict[str, Any]
-    ]  # Dictionary of organism data keyed by organism_grouping_key
+    organisms: Dict[str, Dict[str, Any]]  # Dictionary of organism data keyed by taxon_id
 
 
 class BulkSampleImport(BaseModel):

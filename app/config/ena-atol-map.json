@@ -1,7 +1,7 @@
 {
   "sample": {
     "scientific_name": "organism.scientific_name",
-    "tax_id": "organism.taxon_id",
+    "taxon_id": "organism.taxon_id",
     "culture_or_strain_id": "organism.culture_or_strain_id",
     "specimen_voucher": "specimen_voucher",
     "identified_by": "identified_by",

@@ -63,7 +63,7 @@ def generate_sample_xml(
     sample_name = ET.SubElement(sample, "SAMPLE_NAME")
 
     taxon_id = ET.SubElement(sample_name, "TAXON_ID")
-    taxon_id.text = str(organism.tax_id)
+    taxon_id.text = str(organism.taxon_id if hasattr(organism, "taxon_id") else organism.tax_id)
 
     scientific_name = ET.SubElement(sample_name, "SCIENTIFIC_NAME")
     scientific_name.text = organism.scientific_name

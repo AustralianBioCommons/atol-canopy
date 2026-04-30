@@ -3,7 +3,7 @@ from enum import Enum
 from typing import Dict, Optional
 from uuid import UUID
 
-from pydantic import BaseModel, ConfigDict
+from pydantic import BaseModel, ConfigDict, model_validator
 
 # Enum for submission status
 from app.schemas.common import SubmissionStatus
@@ -13,8 +13,7 @@ from app.schemas.common import SubmissionStatus
 class OrganismBase(BaseModel):
     """Base Organism schema with common attributes."""
 
-    grouping_key: str
-    tax_id: int
+    taxon_id: int
     scientific_name: Optional[str] = None
     common_name: Optional[str] = None
     common_name_source: Optional[str] = None
@@ -31,6 +30,14 @@ class OrganismBase(BaseModel):
     augustus_dataset_name: Optional[str] = None
     bpa_json: Optional[Dict] = None
     taxonomy_lineage_json: Optional[Dict] = None
+
+    @model_validator(mode="before")
+    @classmethod
+    def _coerce_legacy_keys(cls, data):
+        if isinstance(data, dict) and "taxon_id" not in data and "tax_id" in data:
+            data = dict(data)
+            data["taxon_id"] = data.pop("tax_id")
+        return data
 
 
 # Schema for creating a new organism
@@ -69,7 +76,7 @@ class OrganismInDBBase(OrganismBase):
     created_at: datetime
     updated_at: datetime
 
-    model_config = ConfigDict(from_attributes=True)
+    model_config = ConfigDict(from_attributes=True, populate_by_name=True)
 
 
 # Schema for returning organism information

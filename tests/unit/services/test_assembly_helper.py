@@ -192,7 +192,7 @@ class TestGenerateAssemblyManifest:
 
     def test_pacbio_reads_filtered_by_extension(self):
         """Test that only .ccs.bam and hifi_reads.bam files are included for PacBio."""
-        organism = Mock(scientific_name="Test Species", tax_id=12345)
+        organism = Mock(scientific_name="Test Species", taxon_id=12345)
         experiments = [_make_pacbio_experiment()]
         reads = [
             Mock(
@@ -239,7 +239,7 @@ class TestGenerateAssemblyManifest:
 
     def test_hic_reads_include_metadata(self):
         """Test that Hi-C reads include lane_number and are split by r1/r2."""
-        organism = Mock(scientific_name="Test Species", tax_id=12345)
+        organism = Mock(scientific_name="Test Species", taxon_id=12345)
         experiments = [_make_hic_experiment()]
         reads = [
             Mock(
@@ -265,7 +265,7 @@ class TestGenerateAssemblyManifest:
 
     def test_hic_reads_split_into_r1_r2(self):
         """Test that Hi-C reads with read_number 1 and 2 are split into r1 and r2."""
-        organism = Mock(scientific_name="Test Species", tax_id=12345)
+        organism = Mock(scientific_name="Test Species", taxon_id=12345)
         experiments = [_make_hic_experiment()]
         reads = [
             Mock(
@@ -299,7 +299,7 @@ class TestGenerateAssemblyManifest:
 
     def test_wgs_treated_as_hic(self):
         """Test that ILLUMINA + WGS is treated as Hi-C."""
-        organism = Mock(scientific_name="Test Species", tax_id=12345)
+        organism = Mock(scientific_name="Test Species", taxon_id=12345)
         experiments = [
             Mock(
                 id="exp1",
@@ -330,7 +330,7 @@ class TestGenerateAssemblyManifest:
 
     def test_empty_reads_dict(self):
         """Test that empty reads result in empty reads dict."""
-        organism = Mock(scientific_name="Test Species", tax_id=12345)
+        organism = Mock(scientific_name="Test Species", taxon_id=12345)
         experiments = [
             Mock(
                 id="exp1",
@@ -349,7 +349,7 @@ class TestGenerateAssemblyManifest:
 
     def test_organism_metadata_included(self):
         """Test that organism metadata is included in manifest."""
-        organism = Mock(scientific_name="Saiphos equalis", tax_id=172942)
+        organism = Mock(scientific_name="Saiphos equalis", taxon_id=172942)
         experiments = []
         reads = []
 
@@ -362,7 +362,7 @@ class TestGenerateAssemblyManifest:
 
     def test_sample_metadata_included_at_package_level(self):
         """Test that sample metadata appears at the bpa_package_id level."""
-        organism = Mock(scientific_name="Saiphos equalis", tax_id=172942)
+        organism = Mock(scientific_name="Saiphos equalis", taxon_id=172942)
         experiments = [
             Mock(
                 id="exp1",
@@ -403,7 +403,7 @@ class TestGenerateAssemblyManifest:
 
     def test_base_url_included_when_set(self):
         """Test that base_url appears in the manifest when set on the experiment."""
-        organism = Mock(scientific_name="Test Species", tax_id=12345)
+        organism = Mock(scientific_name="Test Species", taxon_id=12345)
         experiments = [_make_pacbio_experiment(base_url="https://base.example.com/pkg-001")]
         reads = [
             Mock(
@@ -425,7 +425,7 @@ class TestGenerateAssemblyManifest:
 
     def test_base_url_omitted_when_none(self):
         """Test that base_url is absent from the manifest when not set."""
-        organism = Mock(scientific_name="Test Species", tax_id=12345)
+        organism = Mock(scientific_name="Test Species", taxon_id=12345)
         experiments = [_make_pacbio_experiment(base_url=None)]
         reads = [
             Mock(
@@ -447,7 +447,7 @@ class TestGenerateAssemblyManifest:
 
     def test_reads_without_experiment_id_skipped(self):
         """Test that reads without experiment_id are skipped."""
-        organism = Mock(scientific_name="Test Species", tax_id=12345)
+        organism = Mock(scientific_name="Test Species", taxon_id=12345)
         experiments = [_make_pacbio_experiment()]
         reads = [
             Mock(
@@ -467,7 +467,7 @@ class TestGenerateAssemblyManifest:
 
     def test_multiple_platform_types(self):
         """Test manifest with both PacBio and Hi-C packages."""
-        organism = Mock(scientific_name="Test Species", tax_id=12345)
+        organism = Mock(scientific_name="Test Species", taxon_id=12345)
         experiments = [
             _make_pacbio_experiment(exp_id="exp1", bpa_package_id="pkg-pacbio"),
             _make_hic_experiment(exp_id="exp2", bpa_package_id="pkg-hic"),
@@ -503,7 +503,7 @@ class TestGenerateAssemblyManifest:
 
     def test_multiple_reads_same_package(self):
         """Test that multiple reads under the same experiment are grouped together."""
-        organism = Mock(scientific_name="Test Species", tax_id=12345)
+        organism = Mock(scientific_name="Test Species", taxon_id=12345)
         experiments = [_make_pacbio_experiment()]
         reads = [
             Mock(
