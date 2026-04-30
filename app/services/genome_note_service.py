@@ -13,9 +13,9 @@ from app.services.base_service import BaseService
 class GenomeNoteService(BaseService[GenomeNote, GenomeNoteCreate, GenomeNoteUpdate]):
     """Service for GenomeNote operations with version management."""
 
-    def get_by_organism_key(self, db: Session, organism_key: str) -> List[GenomeNote]:
+    def get_by_taxon_id(self, db: Session, taxon_id: int) -> List[GenomeNote]:
         """Get all genome notes for an organism."""
-        return db.query(GenomeNote).filter(GenomeNote.organism_key == organism_key).all()
+        return db.query(GenomeNote).filter(GenomeNote.taxon_id == taxon_id).all()
 
     def get_by_assembly_id(self, db: Session, assembly_id: UUID) -> List[GenomeNote]:
         """Get genome notes by assembly ID."""
@@ -29,30 +29,28 @@ class GenomeNoteService(BaseService[GenomeNote, GenomeNoteCreate, GenomeNoteUpda
         """Get all published genome notes."""
         return db.query(GenomeNote).filter(GenomeNote.is_published == True).all()
 
-    def get_published_by_organism(self, db: Session, organism_key: str) -> Optional[GenomeNote]:
+    def get_published_by_organism(self, db: Session, taxon_id: int) -> Optional[GenomeNote]:
         """Get the published genome note for a specific organism."""
         return (
             db.query(GenomeNote)
-            .filter(GenomeNote.organism_key == organism_key)
+            .filter(GenomeNote.taxon_id == taxon_id)
             .filter(GenomeNote.is_published == True)
             .first()
         )
 
-    def get_versions_by_organism(self, db: Session, organism_key: str) -> List[GenomeNote]:
+    def get_versions_by_organism(self, db: Session, taxon_id: int) -> List[GenomeNote]:
         """Get all versions of genome notes for an organism, ordered by version descending."""
         return (
             db.query(GenomeNote)
-            .filter(GenomeNote.organism_key == organism_key)
+            .filter(GenomeNote.taxon_id == taxon_id)
             .order_by(GenomeNote.version.desc())
             .all()
         )
 
-    def get_next_version(self, db: Session, organism_key: str) -> int:
+    def get_next_version(self, db: Session, taxon_id: int) -> int:
         """Calculate the next version number for an organism's genome notes."""
         max_version = (
-            db.query(func.max(GenomeNote.version))
-            .filter(GenomeNote.organism_key == organism_key)
-            .scalar()
+            db.query(func.max(GenomeNote.version)).filter(GenomeNote.taxon_id == taxon_id).scalar()
         )
         return (max_version or 0) + 1
 
@@ -70,14 +68,14 @@ class GenomeNoteService(BaseService[GenomeNote, GenomeNoteCreate, GenomeNoteUpda
         # Check if organism already has a published note
         existing_published = (
             db.query(GenomeNote)
-            .filter(GenomeNote.organism_key == note.organism_key)
+            .filter(GenomeNote.taxon_id == note.taxon_id)
             .filter(GenomeNote.is_published == True)
             .first()
         )
 
         if existing_published:
             raise ValueError(
-                f"Organism '{note.organism_key}' already has a published genome note "
+                f"Organism '{note.taxon_id}' already has a published genome note "
                 f"(version {existing_published.version}). Please unpublish it first."
             )
 
@@ -106,15 +104,15 @@ class GenomeNoteService(BaseService[GenomeNote, GenomeNoteCreate, GenomeNoteUpda
         *,
         skip: int = 0,
         limit: int = 100,
-        organism_key: Optional[str] = None,
+        taxon_id: Optional[int] = None,
         assembly_id: Optional[UUID] = None,
         is_published: Optional[bool] = None,
         title: Optional[str] = None,
     ) -> List[GenomeNote]:
         """Get genome notes with filters."""
         query = db.query(GenomeNote)
-        if organism_key:
-            query = query.filter(GenomeNote.organism_key == organism_key)
+        if taxon_id is not None:
+            query = query.filter(GenomeNote.taxon_id == taxon_id)
         if assembly_id:
             query = query.filter(GenomeNote.assembly_id == assembly_id)
         if is_published is not None:

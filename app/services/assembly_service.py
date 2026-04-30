@@ -33,14 +33,14 @@ class AssemblyService(BaseService[Assembly, AssemblyCreate, AssemblyUpdate]):
         """Create assembly with auto-incremented version.
 
         Version is automatically incremented based on existing assemblies
-        for the same (data_types, organism_key, sample_id) combination.
+        for the same (data_types, taxon_id, sample_id) combination.
         """
         # Find the highest version number for this combination
         max_version = (
             db.query(func.max(Assembly.version))
             .filter(
                 Assembly.data_types == obj_in.data_types,
-                Assembly.organism_key == obj_in.organism_key,
+                Assembly.taxon_id == obj_in.taxon_id,
                 Assembly.sample_id == obj_in.sample_id,
             )
             .scalar()
@@ -63,9 +63,9 @@ class AssemblyService(BaseService[Assembly, AssemblyCreate, AssemblyUpdate]):
         """Get assemblies by project ID."""
         return db.query(Assembly).filter(Assembly.project_id == project_id).all()
 
-    def get_by_organism_key(self, db: Session, organism_key: str) -> List[Assembly]:
-        """Get assemblies by organism key."""
-        return db.query(Assembly).filter(Assembly.organism_key == organism_key).all()
+    def get_by_taxon_id(self, db: Session, taxon_id: int) -> List[Assembly]:
+        """Get assemblies by organism taxon ID."""
+        return db.query(Assembly).filter(Assembly.taxon_id == taxon_id).all()
 
     def get_multi_with_filters(
         self,
@@ -74,7 +74,7 @@ class AssemblyService(BaseService[Assembly, AssemblyCreate, AssemblyUpdate]):
         skip: int = 0,
         limit: int = 100,
         project_id: Optional[UUID] = None,
-        organism_key: Optional[str] = None,
+        taxon_id: Optional[int] = None,
         assembly_name: Optional[str] = None,
         assembly_type: Optional[str] = None,
     ) -> List[Assembly]:
@@ -82,8 +82,8 @@ class AssemblyService(BaseService[Assembly, AssemblyCreate, AssemblyUpdate]):
         query = db.query(Assembly)
         if project_id:
             query = query.filter(Assembly.project_id == project_id)
-        if organism_key:
-            query = query.filter(Assembly.organism_key == organism_key)
+        if taxon_id is not None:
+            query = query.filter(Assembly.taxon_id == taxon_id)
         if assembly_name:
             query = query.filter(Assembly.assembly_name == assembly_name)
         if assembly_type:
@@ -94,18 +94,18 @@ class AssemblyService(BaseService[Assembly, AssemblyCreate, AssemblyUpdate]):
         self,
         db: Session,
         *,
-        tax_id: int,
+        taxon_id: int,
         assembly_in,  # AssemblyCreateFromExperiments
     ) -> tuple[Assembly, dict]:
-        """Create assembly based on experiments for a given tax_id.
+        """Create assembly based on experiments for a given taxon_id.
 
         Automatically determines data_types by analyzing all experiments
-        related to the organism (via tax_id).
+        related to the organism (via taxon_id).
 
         Args:
             db: Database session
-            tax_id: Taxonomy ID of the organism
-            assembly_in: Assembly creation data (organism_key and data_types auto-determined)
+            taxon_id: Taxonomy ID of the organism
+            assembly_in: Assembly creation data (data_types auto-determined)
 
         Returns:
             Tuple of (created Assembly, platform detection info)
@@ -113,26 +113,22 @@ class AssemblyService(BaseService[Assembly, AssemblyCreate, AssemblyUpdate]):
         Raises:
             ValueError: If organism not found, no experiments found, or no valid platforms detected
         """
-        # 1. Get organism by tax_id
-        organism = db.query(Organism).filter(Organism.tax_id == tax_id).first()
+        # 1. Get organism by taxon_id
+        organism = db.query(Organism).filter(Organism.taxon_id == taxon_id).first()
         if not organism:
-            raise ValueError(f"Organism with tax_id {tax_id} not found")
+            raise ValueError(f"Organism with taxon_id {taxon_id} not found")
 
         # 2. Get all samples for this organism
-        samples = db.query(Sample).filter(Sample.organism_key == organism.grouping_key).all()
+        samples = db.query(Sample).filter(Sample.taxon_id == organism.taxon_id).all()
         if not samples:
-            raise ValueError(
-                f"No samples found for organism {organism.grouping_key} (tax_id: {tax_id})"
-            )
+            raise ValueError(f"No samples found for organism taxon_id {organism.taxon_id}")
 
         # 3. Get all experiments for these samples
         sample_ids = [sample.id for sample in samples]
         experiments = db.query(Experiment).filter(Experiment.sample_id.in_(sample_ids)).all()
 
         if not experiments:
-            raise ValueError(
-                f"No experiments found for organism {organism.grouping_key} (tax_id: {tax_id})"
-            )
+            raise ValueError(f"No experiments found for organism taxon_id {organism.taxon_id}")
 
         # 4. Determine data_types from experiments (unless explicitly provided)
         platform_info = get_detected_platforms(experiments)
@@ -142,8 +138,8 @@ class AssemblyService(BaseService[Assembly, AssemblyCreate, AssemblyUpdate]):
             data_types = determine_assembly_data_types(experiments)
             obj_in_data["data_types"] = data_types
 
-        # 5. Add organism_key from tax_id lookup
-        obj_in_data["organism_key"] = organism.grouping_key
+        # 5. Add taxon_id from lookup
+        obj_in_data["taxon_id"] = organism.taxon_id
 
         # 6. Create assembly using standard create method (handles versioning)
         assembly_create = AssemblyCreate(**obj_in_data)
@@ -155,7 +151,7 @@ class AssemblyService(BaseService[Assembly, AssemblyCreate, AssemblyUpdate]):
         self,
         db: Session,
         *,
-        organism_key: str,
+        taxon_id: int,
         sample_id: UUID,
         data_types: str,
     ) -> int:
@@ -163,7 +159,7 @@ class AssemblyService(BaseService[Assembly, AssemblyCreate, AssemblyUpdate]):
             db.query(func.max(Assembly.version))
             .filter(
                 Assembly.data_types == data_types,
-                Assembly.organism_key == organism_key,
+                Assembly.taxon_id == taxon_id,
                 Assembly.sample_id == sample_id,
             )
             .scalar()
@@ -172,7 +168,7 @@ class AssemblyService(BaseService[Assembly, AssemblyCreate, AssemblyUpdate]):
             db.query(func.max(AssemblyRun.version))
             .filter(
                 AssemblyRun.data_types == data_types,
-                AssemblyRun.organism_key == organism_key,
+                AssemblyRun.taxon_id == taxon_id,
                 AssemblyRun.sample_id == sample_id,
             )
             .scalar()

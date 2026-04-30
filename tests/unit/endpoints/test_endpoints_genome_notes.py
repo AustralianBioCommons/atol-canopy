@@ -79,7 +79,7 @@ class TestGetGenomeNote:
 
         fake_note = SimpleNamespace(
             id=note_id,
-            organism_key="test_organism",
+            taxon_id=1,
             assembly_id=assembly_id,
             version=1,
             title="Test Note",
@@ -94,7 +94,7 @@ class TestGetGenomeNote:
         resp = client.get(f"/api/v1/genome-notes/{note_id}")
         assert resp.status_code == 200
         assert resp.json()["version"] == 1
-        assert resp.json()["organism_key"] == "test_organism"
+        assert resp.json()["taxon_id"] == 1
 
 
 class TestListGenomeNotes:
@@ -121,7 +121,7 @@ class TestListGenomeNotes:
         fake_notes = [
             {
                 "id": str(uuid.uuid4()),
-                "organism_key": "organism_1",
+                "taxon_id": 1,
                 "assembly_id": str(uuid.uuid4()),
                 "version": 2,
                 "title": "Note 1",
@@ -133,7 +133,7 @@ class TestListGenomeNotes:
             },
             {
                 "id": str(uuid.uuid4()),
-                "organism_key": "organism_2",
+                "taxon_id": 2,
                 "assembly_id": str(uuid.uuid4()),
                 "version": 1,
                 "title": "Note 2",
@@ -168,11 +168,11 @@ class TestCreateGenomeNote:
         monkeypatch.setattr(
             genome_notes,
             "genome_note_service",
-            SimpleNamespace(get_next_version=lambda db, organism_key: 1),
+            SimpleNamespace(get_next_version=lambda db, taxon_id: 1),
         )
 
         payload = {
-            "organism_key": "test_organism",
+            "taxon_id": 1,
             "assembly_id": str(assembly_id),
             "title": "New Genome Note",
             "note_url": "https://example.com/new-note",
@@ -195,11 +195,11 @@ class TestCreateGenomeNote:
         monkeypatch.setattr(
             genome_notes,
             "genome_note_service",
-            SimpleNamespace(get_next_version=lambda db, organism_key: 3),
+            SimpleNamespace(get_next_version=lambda db, taxon_id: 3),
         )
 
         payload = {
-            "organism_key": "existing_organism",
+            "taxon_id": 1,
             "assembly_id": str(assembly_id),
             "title": "Version 3",
             "note_url": "https://example.com/v3",
@@ -220,7 +220,7 @@ class TestUpdateGenomeNote:
         now = datetime.now(timezone.utc)
         fake_note = SimpleNamespace(
             id=note_id,
-            organism_key="test_organism",
+            taxon_id=1,
             assembly_id=uuid.uuid4(),
             version=1,
             title="Original Title",
@@ -261,7 +261,7 @@ class TestDeleteGenomeNote:
         now = datetime.now(timezone.utc)
         fake_note = SimpleNamespace(
             id=note_id,
-            organism_key="test_organism",
+            taxon_id=1,
             assembly_id=uuid.uuid4(),
             version=1,
             title="Original Title",
@@ -301,7 +301,7 @@ class TestPublishGenomeNote:
         def fake_publish(db, note_id):
             return {
                 "id": str(note_id),
-                "organism_key": "test_organism",
+                "taxon_id": 1,
                 "assembly_id": str(uuid.uuid4()),
                 "version": 1,
                 "title": "Published Note",
@@ -371,7 +371,7 @@ class TestUnpublishGenomeNote:
         def fake_unpublish(db, note_id):
             return {
                 "id": str(note_id),
-                "organism_key": "test_organism",
+                "taxon_id": 1,
                 "assembly_id": str(uuid.uuid4()),
                 "version": 1,
                 "title": "Unpublished Note",
@@ -408,7 +408,7 @@ class TestUnpublishGenomeNote:
 
 
 class TestGetPublishedByOrganism:
-    """Tests for GET /genome-notes/organism/{organism_key}/published"""
+    """Tests for GET /genome-notes/organism/{taxon_id}/published"""
 
     def test_get_published_by_organism_found(self, monkeypatch):
         client = TestClient(app)
@@ -419,7 +419,7 @@ class TestGetPublishedByOrganism:
 
         fake_note = {
             "id": str(uuid.uuid4()),
-            "organism_key": "test_organism",
+            "taxon_id": 1,
             "assembly_id": str(uuid.uuid4()),
             "version": 2,
             "title": "Published Note",
@@ -430,10 +430,10 @@ class TestGetPublishedByOrganism:
             "updated_at": now.isoformat(),
         }
 
-        fake_service = SimpleNamespace(get_published_by_organism=lambda db, organism_key: fake_note)
+        fake_service = SimpleNamespace(get_published_by_organism=lambda db, taxon_id: fake_note)
         monkeypatch.setattr(genome_notes, "genome_note_service", fake_service)
 
-        resp = client.get("/api/v1/genome-notes/organism/test_organism/published")
+        resp = client.get("/api/v1/genome-notes/organism/1/published")
         assert resp.status_code == 200
         assert resp.json()["is_published"] is True
         assert resp.json()["version"] == 2
@@ -443,15 +443,15 @@ class TestGetPublishedByOrganism:
         app.dependency_overrides[genome_notes.get_current_active_user] = _override_user
         app.dependency_overrides[genome_notes.get_db] = _override_db(_FakeSession())
 
-        fake_service = SimpleNamespace(get_published_by_organism=lambda db, organism_key: None)
+        fake_service = SimpleNamespace(get_published_by_organism=lambda db, taxon_id: None)
         monkeypatch.setattr(genome_notes, "genome_note_service", fake_service)
 
-        resp = client.get("/api/v1/genome-notes/organism/test_organism/published")
+        resp = client.get("/api/v1/genome-notes/organism/1/published")
         assert resp.status_code == 404
 
 
 class TestGetVersionsByOrganism:
-    """Tests for GET /genome-notes/organism/{organism_key}/versions"""
+    """Tests for GET /genome-notes/organism/{taxon_id}/versions"""
 
     def test_get_versions_by_organism(self, monkeypatch):
         client = TestClient(app)
@@ -463,7 +463,7 @@ class TestGetVersionsByOrganism:
         fake_notes = [
             {
                 "id": str(uuid.uuid4()),
-                "organism_key": "test_organism",
+                "taxon_id": 1,
                 "assembly_id": str(uuid.uuid4()),
                 "version": 3,
                 "title": "Version 3",
@@ -475,7 +475,7 @@ class TestGetVersionsByOrganism:
             },
             {
                 "id": str(uuid.uuid4()),
-                "organism_key": "test_organism",
+                "taxon_id": 1,
                 "assembly_id": str(uuid.uuid4()),
                 "version": 2,
                 "title": "Version 2",
@@ -487,7 +487,7 @@ class TestGetVersionsByOrganism:
             },
             {
                 "id": str(uuid.uuid4()),
-                "organism_key": "test_organism",
+                "taxon_id": 1,
                 "assembly_id": str(uuid.uuid4()),
                 "version": 1,
                 "title": "Version 1",
@@ -499,10 +499,10 @@ class TestGetVersionsByOrganism:
             },
         ]
 
-        fake_service = SimpleNamespace(get_versions_by_organism=lambda db, organism_key: fake_notes)
+        fake_service = SimpleNamespace(get_versions_by_organism=lambda db, taxon_id: fake_notes)
         monkeypatch.setattr(genome_notes, "genome_note_service", fake_service)
 
-        resp = client.get("/api/v1/genome-notes/organism/test_organism/versions")
+        resp = client.get("/api/v1/genome-notes/organism/1/versions")
         assert resp.status_code == 200
         assert len(resp.json()) == 3
         assert resp.json()[0]["version"] == 3
@@ -514,9 +514,9 @@ class TestGetVersionsByOrganism:
         app.dependency_overrides[genome_notes.get_current_active_user] = _override_user
         app.dependency_overrides[genome_notes.get_db] = _override_db(_FakeSession())
 
-        fake_service = SimpleNamespace(get_versions_by_organism=lambda db, organism_key: [])
+        fake_service = SimpleNamespace(get_versions_by_organism=lambda db, taxon_id: [])
         monkeypatch.setattr(genome_notes, "genome_note_service", fake_service)
 
-        resp = client.get("/api/v1/genome-notes/organism/test_organism/versions")
+        resp = client.get("/api/v1/genome-notes/organism/1/versions")
         assert resp.status_code == 200
         assert resp.json() == []

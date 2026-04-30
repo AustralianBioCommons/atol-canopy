@@ -47,6 +47,11 @@ from app.services.organism_service import organism_service
 
 router = APIRouter()
 
+
+def _organism_taxon_id(organism: Any) -> int:
+    return organism.taxon_id if hasattr(organism, "taxon_id") else organism.tax_id
+
+
 """
 @router.get("/", response_model=List[AssemblySchema])
 def read_assemblies(
@@ -77,40 +82,38 @@ def read_assemblies(
 def get_pipeline_inputs(
     *,
     db: Session = Depends(get_db),
-    organism_grouping_key: str = Query(None, description="Organism grouping key to filter by"),
-    tax_id: str = Query(None, description="Organism tax ID to filter by"),
+    taxon_id: int = Query(None, description="Organism taxon_id to filter by"),
     current_user: User = Depends(get_current_active_user),
 ) -> Any:
     """
-    Get pipeline inputs for an organism by organism_grouping_key.
+    Get pipeline inputs for an organism by taxon_id.
 
     Returns a list of objects with scientific_name and files mapping for each organism.
     Files mapping contains read file names as keys and their bioplatforms_urls as values.
     """
-    print(f"Organism grouping key: {organism_grouping_key}")
-
-    # Check if organism_grouping_key was provided
-    if organism_grouping_key is None:
-        raise HTTPException(
-            status_code=422, detail="organism_grouping_key query parameter is required"
-        )
+    print(f"Organism taxon_id: {taxon_id}")
+    if taxon_id is None:
+        raise HTTPException(status_code=422, detail="taxon_id query parameter is required")
     if db is None:
         raise HTTPException(status_code=422, detail="database session is required")
-    # Get the organism by organism_grouping_key
-    organism = organism_service.get_by_grouping_key(db, organism_grouping_key)
+    organism = organism_service.get_by_taxon_id(db, taxon_id)
     if not organism:
-        print(f"Organism with grouping key '{organism_grouping_key}' not found")
+        print(f"Organism with taxon_id '{taxon_id}' not found")
         raise HTTPException(
-            status_code=404,
-            detail=f"Organism with grouping key '{organism_grouping_key}' not found",
+            status_code=404, detail=f"Organism with taxon_id '{taxon_id}' not found"
         )
 
     # Get all samples for this organism
-    samples = db.query(Sample).filter(Sample.organism_key == organism.grouping_key).all()
+    organism_taxon_id = _organism_taxon_id(organism)
+    samples = db.query(Sample).filter(Sample.taxon_id == organism_taxon_id).all()
     if not samples:
-        print(f"No samples found for organism with grouping key '{organism_grouping_key}'")
+        print(f"No samples found for organism with taxon_id '{taxon_id}'")
         return [
-            {"scientific_name": organism.scientific_name, "tax_id": organism.tax_id, "files": {}}
+            {
+                "scientific_name": organism.scientific_name,
+                "taxon_id": organism_taxon_id,
+                "files": {},
+            }
         ]
 
     # Get all experiments and reads for these samples
@@ -119,7 +122,7 @@ def get_pipeline_inputs(
 
     # Collect all reads for this organism through the sample->experiment->read relationship
     for sample in samples:
-        print(f"Sample {sample.id} found for organism with grouping key '{organism_grouping_key}'")
+        print(f"Sample {sample.id} found for organism with taxon_id '{taxon_id}'")
         # Get experiments for this sample
         experiments = db.query(Experiment).filter(Experiment.sample_id == sample.id).all()
 
@@ -140,7 +143,7 @@ def get_pipeline_inputs(
     result.append(
         {
             "scientific_name": organism.scientific_name,
-            "tax_id": organism.tax_id,
+            "taxon_id": organism_taxon_id,
             "files": files_dict,
         }
     )
@@ -149,102 +152,90 @@ def get_pipeline_inputs(
 
 
 @router.get("/pipeline-inputs-by-tax-id")
-def get_pipeline_inputs_by_tax_id(
+def get_pipeline_inputs_by_taxon_id(
     *,
     db: Session = Depends(get_db),
-    tax_id: str = Query(None, description="Organism tax ID to filter by"),
+    taxon_id: str = Query(None, description="Organism tax ID to filter by"),
     current_user: User = Depends(get_current_active_user),
 ) -> Any:
     """
-    Get pipeline inputs for organisms by tax_id.
+    Get pipeline inputs for organisms by taxon_id.
 
-    Returns a nested structure with tax_id as the top level key, organism_grouping_key as the second level key,
-    and scientific_name and files mapping for each organism.
+    Returns a nested structure with taxon_id as the top level key,
+    and scientific_name and files mapping for that organism.
     Files mapping contains read file names as keys and their bioplatforms_urls as values.
     """
-    print(f"Tax ID: {tax_id}")
+    print(f"Tax ID: {taxon_id}")
 
-    # Check if tax_id was provided
-    if tax_id is None:
-        raise HTTPException(status_code=422, detail="tax_id query parameter is required")
+    # Check if taxon_id was provided
+    if taxon_id is None:
+        raise HTTPException(status_code=422, detail="taxon_id query parameter is required")
 
-    # Get all organisms with this tax_id
-    organisms = organism_service.get_multi_with_filters(db, tax_id=tax_id)
-    if not organisms:
-        print(f"No organisms found with tax ID '{tax_id}'")
-        return {tax_id: {}}
+    # Get all organisms with this taxon_id
+    organism = organism_service.get_by_taxon_id(db, int(taxon_id))
+    if not organism:
+        print(f"No organisms found with tax ID '{taxon_id}'")
+        return {taxon_id: {}}
 
     # Initialize result structure
-    result = {tax_id: {}}
+    result = {taxon_id: {"scientific_name": organism.scientific_name, "files": {}}}
+    organism_taxon_id = _organism_taxon_id(organism)
+    samples = db.query(Sample).filter(Sample.taxon_id == organism_taxon_id).all()
+    if not samples:
+        print(f"No samples found for organism with taxon_id {taxon_id}")
+        return result
 
-    # Process each organism
-    for organism in organisms:
-        print(f"Found organism {organism.grouping_key} with tax ID '{tax_id}'")
-        organism_key = organism.grouping_key
-        result[tax_id][organism_key] = {"scientific_name": organism.scientific_name, "files": {}}
+    for sample in samples:
+        print(f"Sample {sample.id} found for organism {taxon_id}")
+        experiments = db.query(Experiment).filter(Experiment.sample_id == sample.id).all()
 
-        # Get all samples for this organism
-        samples = db.query(Sample).filter(Sample.organism_key == organism.grouping_key).all()
-        if not samples:
-            print(f"No samples found for organism with ID {organism.grouping_key}")
-            continue
+        for experiment in experiments:
+            print(f"Experiment {experiment.id} found for sample {sample.id}")
+            reads = db.query(Read).filter(Read.experiment_id == experiment.id).all()
 
-        # Collect all reads for this organism through the sample->experiment->read relationship
-        for sample in samples:
-            print(f"Sample {sample.id} found for organism {organism.grouping_key}")
-            # Get experiments for this sample
-            experiments = db.query(Experiment).filter(Experiment.sample_id == sample.id).all()
-
-            for experiment in experiments:
-                print(f"Experiment {experiment.id} found for sample {sample.id}")
-                # Get reads for this experiment
-                reads = db.query(Read).filter(Read.experiment_id == experiment.id).all()
-
-                for read in reads:
-                    print(f"Read {read.id} found for experiment {experiment.id}")
-                    if read.file_name and read.bioplatforms_url:
-                        result[tax_id][organism_key]["files"][read.file_name] = (
-                            read.bioplatforms_url
-                        )
+            for read in reads:
+                print(f"Read {read.id} found for experiment {experiment.id}")
+                if read.file_name and read.bioplatforms_url:
+                    result[taxon_id]["files"][read.file_name] = read.bioplatforms_url
 
     return result
 
 
-def _get_manifest_inputs_by_tax_id(db: Session, tax_id: int):
-    organism = db.query(Organism).filter(Organism.tax_id == tax_id).first()
+def _get_manifest_inputs_by_taxon_id(db: Session, taxon_id: int):
+    organism = db.query(Organism).filter(Organism.taxon_id == taxon_id).first()
     if not organism:
-        raise HTTPException(status_code=404, detail=f"Organism with tax_id {tax_id} not found")
+        raise HTTPException(status_code=404, detail=f"Organism with taxon_id {taxon_id} not found")
 
-    selected_sample_id = _get_optimal_sample_id_for_tax_id(
-        db, tax_id, organism_key=organism.grouping_key
+    selected_sample_id = _get_optimal_sample_id_for_taxon_id(
+        db, taxon_id, organism_taxon_id=_organism_taxon_id(organism)
     )
     if not selected_sample_id:
         raise HTTPException(
             status_code=404,
-            detail=f"No specimen sample found for organism {organism.grouping_key} (tax_id: {tax_id})",
+            detail=f"No specimen sample found for taxon_id {taxon_id}",
         )
     sample = db.query(Sample).filter(Sample.id == selected_sample_id).first()
     if not sample:
         raise HTTPException(
             status_code=404,
-            detail=f"Selected specimen sample not found for organism {organism.grouping_key} (tax_id: {tax_id})",
+            detail=f"Selected specimen sample not found for taxon_id {taxon_id}",
         )
 
     sample_ids = [
         row[0]
-        for row in db.query(Sample.id).filter(Sample.organism_key == organism.grouping_key).all()
+        for row in db.query(Sample.id).filter(Sample.taxon_id == _organism_taxon_id(organism)).all()
     ]
     if not sample_ids:
         raise HTTPException(
             status_code=404,
-            detail=f"No samples found for organism {organism.grouping_key} (tax_id: {tax_id})",
+            detail=f"No samples found for taxon_id {taxon_id}",
         )
 
     experiments = db.query(Experiment).filter(Experiment.sample_id.in_(sample_ids)).all()
     if not experiments:
         raise HTTPException(
             status_code=404,
-            detail=f"No experiments found for organism {organism.grouping_key} (tax_id: {tax_id})",
+            detail=f"No experiments found for taxon_id {taxon_id}",
         )
 
     experiment_ids = [exp.id for exp in experiments]
@@ -252,29 +243,34 @@ def _get_manifest_inputs_by_tax_id(db: Session, tax_id: int):
     if not reads:
         raise HTTPException(
             status_code=404,
-            detail=f"No reads found for organism {organism.grouping_key} (tax_id: {tax_id})",
+            detail=f"No reads found for taxon_id {taxon_id}",
         )
 
     return organism, sample, reads, experiments
 
 
-def _get_optimal_sample_id_for_tax_id(
-    db: Session, tax_id: int, organism_key: Optional[str] = None
+def _get_optimal_sample_id_for_taxon_id(
+    db: Session, taxon_id: int, organism_taxon_id: Optional[int] = None
 ) -> UUID | None:
     # TODO: Replace with long-read aware sample selection.
-    if organism_key is None:
-        organism = db.query(Organism).filter(Organism.tax_id == tax_id).first()
+    if organism_taxon_id is None:
+        organism = db.query(Organism).filter(Organism.taxon_id == taxon_id).first()
         if not organism:
             return None
-        organism_key = organism.grouping_key
+        organism_taxon_id = organism.taxon_id
 
     sample = (
         db.query(Sample)
-        .filter(Sample.organism_key == organism_key, Sample.kind == "specimen")
+        .filter(Sample.taxon_id == organism_taxon_id, Sample.kind == "specimen")
         .order_by(Sample.created_at.asc())
         .first()
     )
     return sample.id if sample else None
+
+
+# Backward-compatible aliases retained for tests while the API contract migrates.
+_get_manifest_inputs_by_tax_id = _get_manifest_inputs_by_taxon_id
+_get_optimal_sample_id_for_tax_id = _get_optimal_sample_id_for_taxon_id
 
 
 def _build_sample_metadata_by_id(
@@ -295,16 +291,16 @@ def _build_sample_metadata_by_id(
     }
 
 
-@router.get("/manifest/{tax_id}")
+@router.get("/manifest/{taxon_id}")
 def get_assembly_manifest(
     *,
     db: Session = Depends(get_db),
-    tax_id: int,
+    taxon_id: int,
     version: Optional[int] = Query(None, description="Reserved manifest version to retrieve"),
     current_user: User = Depends(get_current_active_user),
 ) -> Any:
     """
-    Retrieve the latest reserved assembly manifest YAML for an organism by tax_id.
+    Retrieve the latest reserved assembly manifest YAML for an organism by taxon_id.
 
     Returns YAML manifest with:
     - scientific_name and taxon_id from organism
@@ -315,12 +311,12 @@ def get_assembly_manifest(
     Returns:
         YAML string with manifest data
     """
-    organism, selected_sample, reads, experiments = _get_manifest_inputs_by_tax_id(db, tax_id)
+    organism, selected_sample, reads, experiments = _get_manifest_inputs_by_taxon_id(db, taxon_id)
 
     run_query = (
         db.query(AssemblyRun)
         .filter(
-            AssemblyRun.organism_key == organism.grouping_key,
+            AssemblyRun.taxon_id == _organism_taxon_id(organism),
             AssemblyRun.sample_id == selected_sample.id,
         )
         .order_by(AssemblyRun.created_at.desc())
@@ -345,12 +341,12 @@ def get_assembly_manifest(
     return Response(content=yaml_content, media_type="application/x-yaml")
 
 
-@router.post("/intent/{tax_id}")
+@router.post("/intent/{taxon_id}")
 @policy("assemblies:write")
 def create_assembly_intent(
     *,
     db: Session = Depends(get_db),
-    tax_id: int,
+    taxon_id: int,
     intent_in: Optional[AssemblyIntent] = Body(default=None),
     current_user: User = Depends(get_current_active_user),
 ) -> Response:
@@ -360,7 +356,7 @@ def create_assembly_intent(
     Returns:
         YAML response with manifest data including assembly_run_id, version, status, and manifest fields
     """
-    organism, selected_sample, reads, experiments = _get_manifest_inputs_by_tax_id(db, tax_id)
+    organism, selected_sample, reads, experiments = _get_manifest_inputs_by_taxon_id(db, taxon_id)
     try:
         data_types = determine_assembly_data_types(experiments)
     except ValueError as exc:
@@ -369,20 +365,20 @@ def create_assembly_intent(
             code="assembly_intent_invalid_data_types",
             message=str(exc),
             details={
-                "tax_id": tax_id,
+                "taxon_id": taxon_id,
                 "sample_id": str(selected_sample.id),
             },
         ) from exc
 
     next_version = assembly_service.get_next_version(
         db,
-        organism_key=organism.grouping_key,
+        taxon_id=_organism_taxon_id(organism),
         sample_id=selected_sample.id,
         data_types=data_types,
     )
 
     run = AssemblyRun(
-        organism_key=organism.grouping_key,
+        taxon_id=_organism_taxon_id(organism),
         sample_id=selected_sample.id,
         data_types=data_types,
         version=next_version,
@@ -412,34 +408,34 @@ def create_assembly_intent(
     return Response(content=yaml_response, media_type="application/x-yaml")
 
 
-@router.post("/intent/{tax_id}/cancel")
+@router.post("/intent/{taxon_id}/cancel")
 @policy("assemblies:write")
 def cancel_assembly_intent(
     *,
     db: Session = Depends(get_db),
-    tax_id: int,
+    taxon_id: int,
     cancel_in: AssemblyIntentCancel,
     current_user: User = Depends(get_current_active_user),
 ) -> Any:
     """Cancel a reserved assembly intent by ID."""
-    organism = db.query(Organism).filter(Organism.tax_id == tax_id).first()
+    organism = db.query(Organism).filter(Organism.taxon_id == taxon_id).first()
     if not organism:
-        raise HTTPException(status_code=404, detail=f"Organism with tax_id {tax_id} not found")
+        raise HTTPException(status_code=404, detail=f"Organism with taxon_id {taxon_id} not found")
 
-    selected_sample_id = _get_optimal_sample_id_for_tax_id(
-        db, tax_id, organism_key=organism.grouping_key
+    selected_sample_id = _get_optimal_sample_id_for_taxon_id(
+        db, taxon_id, organism_taxon_id=_organism_taxon_id(organism)
     )
     if not selected_sample_id:
         raise HTTPException(
             status_code=404,
-            detail=f"No specimen sample found for organism {organism.grouping_key} (tax_id: {tax_id})",
+            detail=f"No specimen sample found for taxon_id {taxon_id}",
         )
 
     run = (
         db.query(AssemblyRun)
         .filter(
             AssemblyRun.id == cancel_in.assembly_run_id,
-            AssemblyRun.organism_key == organism.grouping_key,
+            AssemblyRun.taxon_id == _organism_taxon_id(organism),
             AssemblyRun.sample_id == selected_sample_id,
             AssemblyRun.status == "reserved",
         )
@@ -465,47 +461,47 @@ def cancel_assembly_intent(
     db.refresh(run)
     return {
         "id": str(run.id),
-        "organism_key": run.organism_key,
+        "taxon_id": run.taxon_id,
         "sample_id": str(run.sample_id),
         "version": run.version,
         "status": run.status,
     }
 
 
-@router.get("/optimal-sample/{tax_id}")
+@router.get("/optimal-sample/{taxon_id}")
 def get_optimal_sample_id(
     *,
     db: Session = Depends(get_db),
-    tax_id: int,
+    taxon_id: int,
     current_user: User = Depends(get_current_active_user),
 ) -> Any:
-    sample_id = _get_optimal_sample_id_for_tax_id(db, tax_id)
+    sample_id = _get_optimal_sample_id_for_taxon_id(db, taxon_id)
     return {"sample_id": str(sample_id) if sample_id else None}
 
 
-@router.post("/from-experiments/{tax_id}", response_model=AssemblySchema)
+@router.post("/from-experiments/{taxon_id}", response_model=AssemblySchema)
 @policy("assemblies:write")
 def create_assembly_from_experiments(
     *,
     db: Session = Depends(get_db),
-    tax_id: int,
+    taxon_id: int,
     assembly_in: AssemblyCreateFromExperiments,
     current_user: User = Depends(get_current_active_user),
 ) -> Any:
     """
-    Create assembly based on all experiments for an organism (by tax_id).
+    Create assembly based on all experiments for an organism (by taxon_id).
 
     Automatically determines data_types by analyzing experiment platforms:
     - PACBIO_SMRT: platform == "PACBIO_SMRT"
     - OXFORD_NANOPORE: platform == "OXFORD_NANOPORE"
     - Hi-C: platform == "ILLUMINA" AND library_strategy == "Hi-C"
 
-    The organism_key is automatically determined from tax_id.
+    The taxon_id is automatically determined from taxon_id.
     The data_types field is auto-detected but can be overridden.
     """
     try:
         assembly, platform_info = assembly_service.create_from_experiments(
-            db, tax_id=tax_id, assembly_in=assembly_in
+            db, taxon_id, assembly_in
         )
         return assembly
     except ValueError as e:

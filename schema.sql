@@ -1,5 +1,7 @@
 -- PostgreSQL schema for biological metadata tracking system
 -- Based on ER diagram and requirements
+-- NOTE: This file is kept in sync with the database after each migration
+-- Regenerate with: docker compose exec db pg_dump -U <user> -d <dbname> --schema-only --no-owner --no-acl
 
 -- Enable UUID extension
 CREATE EXTENSION IF NOT EXISTS "uuid-ossp";
@@ -22,7 +24,7 @@ CREATE TYPE assembly_file_type AS ENUM (
     'STATISTICS',
     'OTHER'
 );
-CREATE TYPE entity_type AS ENUM ('organism', 'sample', 'experiment', 'read', 'assembly', 'project');
+CREATE TYPE entity_type AS ENUM ('organism', 'sample', 'experiment', 'read', 'assembly', 'project', 'qc_read');
 CREATE TYPE project_type AS ENUM ('root', 'genomic_data', 'assembly');
 CREATE TYPE sample_kind AS ENUM ('specimen', 'derived');
 -- ==========================================
@@ -62,10 +64,8 @@ CREATE TABLE refresh_token (
 
 -- Main organism table
 CREATE TABLE organism (
-    grouping_key TEXT PRIMARY KEY,
-    tax_id int UNIQUE NOT NULL,
+    taxon_id int PRIMARY KEY,
     -- We need to check that the scientific name = the tax id level, because we have a bunch of tax_ids that are the same for organisms which should have a more granular taxid level
-    -- Optional: can be null when only grouping_key/tax_id are available
     scientific_name TEXT,
     genus TEXT,
     species TEXT,
@@ -90,16 +90,6 @@ CREATE TABLE organism (
     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
-/*
-    -- BPA organism table
-    CREATE TABLE organism_bpa (
-        id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
-        organism_id UUID REFERENCES organism(id),
-        bpa_json JSONB,
-        created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-        updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
-    );
-*/
 
 -- ==========================================
 -- Accession registry table
@@ -129,7 +119,7 @@ CREATE UNIQUE INDEX uq_registry_full
 -- Main project table
 CREATE TABLE project (
     id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
-    organism_key TEXT NOT NULL REFERENCES organism(grouping_key) ON DELETE CASCADE,
+    taxon_id INT NOT NULL REFERENCES organism(taxon_id) ON DELETE CASCADE,
     project_type project_type NOT NULL,
     project_accession TEXT UNIQUE,
     study_type TEXT NOT NULL,
@@ -148,7 +138,7 @@ CREATE TABLE project (
 );
 
 CREATE UNIQUE INDEX uq_one_project_type_per_organism
-  ON project (organism_key, project_type);
+  ON project (taxon_id, project_type);
 
 -- Project submission table
 CREATE TABLE IF NOT EXISTS project_submission (
@@ -201,7 +191,7 @@ CREATE INDEX IF NOT EXISTS idx_project_submission_lock_expires_at ON project_sub
 -- Main sample table
 CREATE TABLE sample (
     id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
-    organism_key TEXT NOT NULL REFERENCES organism(grouping_key) ON DELETE CASCADE,
+    taxon_id INT NOT NULL REFERENCES organism(taxon_id) ON DELETE CASCADE,
     bpa_sample_id TEXT,
     specimen_id TEXT,
     specimen_id_description TEXT,
@@ -304,9 +294,9 @@ CREATE INDEX IF NOT EXISTS idx_sample_submission_project_id ON sample_submission
 -- Support parent/child lookups for derived samples
 CREATE INDEX IF NOT EXISTS idx_sample_derived_from_sample_id ON sample(derived_from_sample_id);
 
--- Enforce uniqueness: one specimen sample per (organism_key, specimen_id)
+-- Enforce uniqueness: one specimen sample per (taxon_id, specimen_id)
 CREATE UNIQUE INDEX IF NOT EXISTS uq_specimen_per_organism_specimen_id
-  ON sample (organism_key, specimen_id)
+  ON sample (taxon_id, specimen_id)
   WHERE kind = 'specimen' AND specimen_id IS NOT NULL;
 
 -- Enforce uniqueness: bpa_sample_id must be unique for derived samples
@@ -314,9 +304,9 @@ CREATE UNIQUE INDEX IF NOT EXISTS uq_derived_bpa_sample_id
   ON sample (bpa_sample_id)
   WHERE kind = 'derived' AND bpa_sample_id IS NOT NULL;
 
--- Index for efficient lookup by organism_key + specimen_id
+-- Index for efficient lookup by taxon_id + specimen_id
 CREATE INDEX IF NOT EXISTS idx_sample_organism_specimen_lookup
-  ON sample (organism_key, specimen_id)
+  ON sample (taxon_id, specimen_id)
   WHERE specimen_id IS NOT NULL;
 
 -- UNIQUE (sample_id, authority) WHERE status = 'accepted' AND accession IS NOT NULL
@@ -331,6 +321,7 @@ CREATE TABLE experiment (
     sample_id UUID NOT NULL REFERENCES sample(id) ON DELETE CASCADE,
     project_id UUID NOT NULL REFERENCES project(id) ON DELETE CASCADE,
     bpa_package_id TEXT UNIQUE NOT NULL,
+    bioplatforms_base_url TEXT,
     design_description TEXT,
     bpa_library_id TEXT,
     library_strategy TEXT,
@@ -369,6 +360,8 @@ CREATE TABLE experiment_submission (
     authority authority_type NOT NULL DEFAULT 'ENA',
     status submission_status NOT NULL DEFAULT 'draft',
 
+    project_accession TEXT,
+    sample_accession TEXT,
     prepared_payload JSONB,
     response_payload JSONB,
 
@@ -438,58 +431,13 @@ CREATE TABLE read (
     updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
-CREATE TABLE read_submission (
-    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
-    read_id UUID NOT NULL REFERENCES read(id) ON DELETE CASCADE,
-    authority authority_type NOT NULL DEFAULT 'ENA',
-    status submission_status NOT NULL DEFAULT 'draft',
-
-    prepared_payload JSONB NOT NULL,
-    response_payload JSONB,
-
-    experiment_id UUID NOT NULL REFERENCES experiment(id) ON DELETE CASCADE,
-
-    accession TEXT,
-
-    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-    updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-
-    -- attempt linkage
-    attempt_id UUID,
-    finalised_attempt_id UUID,
-
-    -- broker lease/claim fields (attempt-scoped)
-    lock_acquired_at TIMESTAMPTZ,
-    lock_expires_at TIMESTAMPTZ,
-
-    -- constant to help the composite FK
-    entity_type_const entity_type NOT NULL DEFAULT 'read' CHECK (entity_type_const = 'read'),
-
-    -- When accession is present, it must exist in the registry AND map to this same experiment:
-  CONSTRAINT fk_self_accession
-    FOREIGN KEY (accession, authority, entity_type_const, read_id)
-    REFERENCES accession_registry (accession, authority, entity_type, entity_id)
-    DEFERRABLE INITIALLY DEFERRED
-);
-
-CREATE UNIQUE INDEX uq_read_one_accepted
-  ON read_submission (read_id, authority)
-  WHERE status = 'accepted' AND accession IS NOT NULL;
-
--- Broker lease/claim index
--- removed batch index; attempt-only
-CREATE INDEX IF NOT EXISTS idx_read_submission_attempt ON read_submission (attempt_id);
-CREATE INDEX IF NOT EXISTS idx_read_submission_finalised_attempt ON read_submission (finalised_attempt_id);
-CREATE INDEX IF NOT EXISTS idx_read_submission_status ON read_submission (status);
-CREATE INDEX IF NOT EXISTS idx_read_submission_lock_expires_at ON read_submission (lock_expires_at);
-
 -- ==========================================
 -- Broker Attempt table
 -- ==========================================
 
 CREATE TABLE submission_attempt (
     id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
-    organism_key TEXT REFERENCES organism(grouping_key),
+    taxon_id INT REFERENCES organism(taxon_id),
     campaign_label TEXT,
     -- TODO make ENUM
     status TEXT NOT NULL DEFAULT 'processing',
@@ -531,7 +479,7 @@ CREATE INDEX IF NOT EXISTS idx_submission_event_entity ON submission_event (enti
 -- Main assembly table
 CREATE TABLE assembly (
     id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
-    organism_key TEXT REFERENCES organism(grouping_key) NOT NULL,
+    taxon_id INT REFERENCES organism(taxon_id) NOT NULL,
     sample_id UUID REFERENCES sample(id) NOT NULL,
     project_id UUID REFERENCES project(id),
 
@@ -546,7 +494,7 @@ CREATE TABLE assembly (
     moleculetype molecule_type NOT NULL DEFAULT 'genomic DNA',
     description TEXT,
 
-    -- Auto-incremented version per (data_types, organism_key, sample_id)
+    -- Auto-incremented version per (data_types, taxon_id, sample_id)
     version INTEGER NOT NULL DEFAULT 1,
 
     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
@@ -555,7 +503,7 @@ CREATE TABLE assembly (
 
 CREATE TABLE assembly_run (
     id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
-    organism_key TEXT REFERENCES organism(grouping_key) NOT NULL,
+    taxon_id INT REFERENCES organism(taxon_id) NOT NULL,
     sample_id UUID REFERENCES sample(id) NOT NULL,
     data_types assembly_data_types NOT NULL,
     version INTEGER NOT NULL,
@@ -585,7 +533,7 @@ CREATE INDEX idx_assembly_file_assembly_id ON assembly_file(assembly_id);
 CREATE INDEX idx_assembly_file_type ON assembly_file(assembly_id, file_type);
 
 -- Index for version lookups
-CREATE INDEX idx_assembly_version_key ON assembly(data_types, organism_key, sample_id, version);
+CREATE INDEX idx_assembly_version_key ON assembly(data_types, taxon_id, sample_id, version);
 
 
 -- Assembly submission table (simplified - no broker integration)
@@ -633,7 +581,7 @@ CREATE TABLE assembly_read (
 -- Each organism can have multiple draft versions but only one published version
 CREATE TABLE genome_note (
     id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
-    organism_key TEXT NOT NULL REFERENCES organism(grouping_key) ON DELETE CASCADE,
+    taxon_id INT NOT NULL REFERENCES organism(taxon_id) ON DELETE CASCADE,
     assembly_id UUID NOT NULL REFERENCES assembly(id) ON DELETE CASCADE,
 
     -- Versioning: auto-increment per organism
@@ -651,19 +599,95 @@ CREATE TABLE genome_note (
     updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
 
     -- Ensure version uniqueness per organism
-    UNIQUE (organism_key, version)
+    UNIQUE (taxon_id, version)
 );
 
 -- Ensure only one published note per organism
 CREATE UNIQUE INDEX uq_genome_note_one_published_per_organism
-    ON genome_note (organism_key)
+    ON genome_note (taxon_id)
     WHERE is_published = TRUE;
 
 -- Indexes for efficient lookups
-CREATE INDEX idx_genome_note_organism_key ON genome_note(organism_key);
+CREATE INDEX idx_genome_note_taxon_id ON genome_note(taxon_id);
 CREATE INDEX idx_genome_note_assembly_id ON genome_note(assembly_id);
-CREATE INDEX idx_genome_note_published ON genome_note(organism_key, is_published)
+CREATE INDEX idx_genome_note_published ON genome_note(taxon_id, is_published)
     WHERE is_published = TRUE;
+
+-- ==========================================
+-- QC Read tables
+-- ==========================================
+
+CREATE TABLE qc_read (
+    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    experiment_id UUID NOT NULL REFERENCES experiment(id) ON DELETE CASCADE,
+    base_count BIGINT NOT NULL,
+    read_count BIGINT NOT NULL,
+    qc_bases_removed BIGINT NOT NULL,
+    qc_reads_removed BIGINT NOT NULL,
+    mean_gc_content FLOAT NOT NULL,
+    n50_length BIGINT,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+CREATE TABLE qc_read_file (
+    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    qc_read_id UUID NOT NULL REFERENCES qc_read(id) ON DELETE CASCADE,
+    file_type TEXT NOT NULL CHECK (file_type IN ('cram', 'fastq_r1', 'fastq_r2')),
+    storage_backend TEXT NOT NULL,
+    storage_profile TEXT NOT NULL,
+    bucket_name TEXT NOT NULL,
+    path_to_file TEXT NOT NULL,
+    md5_checksum TEXT NOT NULL CHECK (md5_checksum ~ '^[a-f0-9]{32}$'),
+    sha256_checksum TEXT NOT NULL CHECK (sha256_checksum ~ '^[a-f0-9]{64}$'),
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+CREATE TABLE qc_read_submission (
+    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    qc_read_id UUID NOT NULL REFERENCES qc_read(id) ON DELETE CASCADE,
+    experiment_id UUID REFERENCES experiment(id) ON DELETE CASCADE,
+    authority authority_type NOT NULL DEFAULT 'ENA',
+    status submission_status NOT NULL DEFAULT 'draft',
+
+    prepared_payload JSONB NOT NULL,
+    response_payload JSONB,
+
+    accession TEXT,
+
+    -- constant to help the composite FK
+    entity_type_const entity_type NOT NULL DEFAULT 'qc_read' CHECK (entity_type_const = 'qc_read'),
+
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+
+    -- attempt linkage
+    attempt_id UUID,
+    finalised_attempt_id UUID,
+
+    -- broker lease/claim fields
+    lock_acquired_at TIMESTAMPTZ,
+    lock_expires_at TIMESTAMPTZ,
+
+    CONSTRAINT fk_qc_read_submission_accession
+        FOREIGN KEY (accession, authority, entity_type_const, qc_read_id)
+        REFERENCES accession_registry (accession, authority, entity_type, entity_id)
+        DEFERRABLE INITIALLY DEFERRED
+);
+
+-- QC read indexes
+CREATE INDEX idx_qc_read_experiment_id ON qc_read(experiment_id);
+CREATE INDEX idx_qc_read_file_qc_read_id ON qc_read_file(qc_read_id);
+CREATE INDEX idx_qc_read_submission_attempt ON qc_read_submission (attempt_id);
+CREATE INDEX idx_qc_read_submission_experiment_id ON qc_read_submission (experiment_id);
+CREATE INDEX idx_qc_read_submission_finalised_attempt ON qc_read_submission (finalised_attempt_id);
+CREATE INDEX idx_qc_read_submission_lock_expires_at ON qc_read_submission (lock_expires_at);
+CREATE INDEX idx_qc_read_submission_status ON qc_read_submission (status);
+
+CREATE UNIQUE INDEX uq_qc_read_one_accepted
+  ON qc_read_submission (qc_read_id, authority)
+  WHERE status = 'accepted' AND accession IS NOT NULL;
 
 -- ==========================================
 -- BPA initiative table
@@ -678,8 +702,8 @@ CREATE TABLE bpa_initiative (
 );
 
 -- Create indexes for common query patterns
-CREATE INDEX idx_tax_id ON organism(tax_id);
-CREATE INDEX idx_sample_organism_key ON sample(organism_key);
+CREATE INDEX idx_sample_taxon_id ON sample(taxon_id);
 CREATE INDEX idx_experiment_sample_id ON experiment(sample_id);
+CREATE INDEX idx_experiment_project_id ON experiment(project_id);
 CREATE INDEX idx_assembly_sample_id ON assembly(sample_id);
-CREATE INDEX idx_assembly_organism_key ON assembly(organism_key);
+CREATE INDEX idx_assembly_taxon_id ON assembly(taxon_id);

@@ -20,9 +20,7 @@ class GenomeNote(Base):
     __tablename__ = "genome_note"
 
     id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
-    organism_key = Column(
-        Text, ForeignKey("organism.grouping_key", ondelete="CASCADE"), nullable=False
-    )
+    taxon_id = Column(Integer, ForeignKey("organism.taxon_id", ondelete="CASCADE"), nullable=False)
     assembly_id = Column(
         UUID(as_uuid=True), ForeignKey("assembly.id", ondelete="CASCADE"), nullable=False
     )
@@ -52,7 +50,7 @@ class GenomeNote(Base):
 
     # Table constraints
     __table_args__ = (
-        UniqueConstraint("organism_key", "version", name="uq_genome_note_organism_version"),
+        UniqueConstraint("taxon_id", "version", name="uq_genome_note_organism_version"),
         # Note: The partial unique index for published notes is created in the schema.sql
-        # CREATE UNIQUE INDEX uq_genome_note_one_published_per_organism ON genome_note (organism_key) WHERE is_published = TRUE;
+        # CREATE UNIQUE INDEX uq_genome_note_one_published_per_organism ON genome_note (taxon_id) WHERE is_published = TRUE;
     )

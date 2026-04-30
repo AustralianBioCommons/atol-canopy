@@ -95,9 +95,7 @@ def test_bulk_import_specimens_success(monkeypatch):
     client = TestClient(app)
 
     # Mock organism
-    fake_organism = SimpleNamespace(
-        grouping_key="Homo_sapiens", tax_id=9606, scientific_name="Homo sapiens"
-    )
+    fake_organism = SimpleNamespace(taxon_id=9606, scientific_name="Homo sapiens")
 
     fake_session = FakeSession(
         organisms={"default": fake_organism},
@@ -112,14 +110,14 @@ def test_bulk_import_specimens_success(monkeypatch):
         db,
         bpa_sample_id,
         sample_data,
-        organism_key,
+        taxon_id,
         kind,
         derived_from_sample_id=None,
         ena_atol_map=None,
     ):
         sample = SimpleNamespace(
             id=uuid.uuid4(),
-            organism_key=organism_key,
+            taxon_id=taxon_id,
             bpa_sample_id=bpa_sample_id,
             specimen_id=sample_data.get("specimen_id"),
             kind=kind,
@@ -135,7 +133,7 @@ def test_bulk_import_specimens_success(monkeypatch):
         with patch("json.load", return_value={"sample": {}}):
             payload = {
                 "SPEC001_9606": {
-                    "organism_grouping_key": "Homo_sapiens",
+                    "taxon_id": 9606,
                     "specimen_id": "SPEC001",
                     "lifestage": "adult",
                     "sex": "male",
@@ -152,8 +150,8 @@ def test_bulk_import_specimens_success(monkeypatch):
     assert "Created: 1" in body["message"]
 
 
-def test_bulk_import_specimens_missing_organism_key():
-    """Test bulk import fails when organism_grouping_key is missing."""
+def test_bulk_import_specimens_missing_taxon_id():
+    """Test bulk import fails when taxon_id is missing."""
     client = TestClient(app)
 
     fake_session = FakeSession()
@@ -172,14 +170,14 @@ def test_bulk_import_specimens_missing_organism_key():
     assert body["created_count"] == 0
     assert body["skipped_count"] == 1
     assert body["errors"] is not None
-    assert any("Missing organism_grouping_key" in err for err in body["errors"])
+    assert any("Missing taxon_id" in err for err in body["errors"])
 
 
 def test_bulk_import_specimens_missing_specimen_id():
     """Test bulk import fails when specimen_id is missing."""
     client = TestClient(app)
 
-    fake_organism = SimpleNamespace(grouping_key="Homo_sapiens")
+    fake_organism = SimpleNamespace(taxon_id=9606)
     fake_session = FakeSession(organisms={"default": fake_organism})
 
     app.dependency_overrides[samples.get_current_active_user] = _override_user(["admin"])
@@ -187,9 +185,7 @@ def test_bulk_import_specimens_missing_specimen_id():
 
     with patch("builtins.open", create=True):
         with patch("json.load", return_value={"sample": {}}):
-            payload = {
-                "SPEC001_9606": {"organism_grouping_key": "Homo_sapiens", "lifestage": "adult"}
-            }
+            payload = {"SPEC001_9606": {"taxon_id": 9606, "lifestage": "adult"}}
 
             resp = client.post("/api/v1/samples/bulk-import-specimens", json=payload)
 
@@ -205,12 +201,12 @@ def test_bulk_import_specimens_duplicate_specimen(monkeypatch):
     """Test bulk import skips duplicate specimens."""
     client = TestClient(app)
 
-    fake_organism = SimpleNamespace(grouping_key="Homo_sapiens")
+    fake_organism = SimpleNamespace(taxon_id=9606)
 
     # Mock existing specimen
     existing_specimen = SimpleNamespace(
         id=uuid.uuid4(),
-        organism_key="Homo_sapiens",
+        taxon_id=9606,
         specimen_id="SPEC001",
         kind=SampleKind.SPECIMEN,
     )
@@ -236,7 +232,7 @@ def test_bulk_import_specimens_duplicate_specimen(monkeypatch):
         with patch("json.load", return_value={"sample": {}}):
             payload = {
                 "SPEC001_9606": {
-                    "organism_grouping_key": "Homo_sapiens",
+                    "taxon_id": 9606,
                     "specimen_id": "SPEC001",
                     "lifestage": "adult",
                 }
@@ -265,7 +261,7 @@ def test_bulk_import_specimens_organism_not_found():
         with patch("json.load", return_value={"sample": {}}):
             payload = {
                 "SPEC001_9606": {
-                    "organism_grouping_key": "NonExistent",
+                    "taxon_id": 9606,
                     "specimen_id": "SPEC001",
                     "lifestage": "adult",
                 }
@@ -285,7 +281,7 @@ def test_bulk_import_specimens_bpa_sample_id_optional(monkeypatch):
     """Test that bpa_sample_id is optional for specimens."""
     client = TestClient(app)
 
-    fake_organism = SimpleNamespace(grouping_key="Homo_sapiens")
+    fake_organism = SimpleNamespace(taxon_id=9606)
     fake_session = FakeSession(organisms={"default": fake_organism}, samples={"default": None})
 
     app.dependency_overrides[samples.get_current_active_user] = _override_user(["admin"])
@@ -295,7 +291,7 @@ def test_bulk_import_specimens_bpa_sample_id_optional(monkeypatch):
         db,
         bpa_sample_id,
         sample_data,
-        organism_key,
+        taxon_id,
         kind,
         derived_from_sample_id=None,
         ena_atol_map=None,
@@ -304,7 +300,7 @@ def test_bulk_import_specimens_bpa_sample_id_optional(monkeypatch):
         assert bpa_sample_id is None
         sample = SimpleNamespace(
             id=uuid.uuid4(),
-            organism_key=organism_key,
+            taxon_id=taxon_id,
             bpa_sample_id=bpa_sample_id,
             specimen_id=sample_data.get("specimen_id"),
             kind=kind,
@@ -318,7 +314,7 @@ def test_bulk_import_specimens_bpa_sample_id_optional(monkeypatch):
         with patch("json.load", return_value={"sample": {}}):
             payload = {
                 "SPEC001_9606": {
-                    "organism_grouping_key": "Homo_sapiens",
+                    "taxon_id": 9606,
                     "specimen_id": "SPEC001",
                     "lifestage": "adult",
                     "sex": "male",
@@ -343,12 +339,12 @@ def test_bulk_import_derived_success(monkeypatch):
     """Test successful bulk import of derived samples."""
     client = TestClient(app)
 
-    fake_organism = SimpleNamespace(grouping_key="Homo_sapiens")
+    fake_organism = SimpleNamespace(taxon_id=9606)
 
     # Mock parent specimen
     parent_specimen = SimpleNamespace(
         id=uuid.uuid4(),
-        organism_key="Homo_sapiens",
+        taxon_id=9606,
         specimen_id="SPEC001",
         kind=SampleKind.SPECIMEN,
     )
@@ -382,7 +378,7 @@ def test_bulk_import_derived_success(monkeypatch):
         db,
         bpa_sample_id,
         sample_data,
-        organism_key,
+        taxon_id,
         kind,
         derived_from_sample_id=None,
         ena_atol_map=None,
@@ -392,7 +388,7 @@ def test_bulk_import_derived_success(monkeypatch):
         assert derived_from_sample_id == parent_specimen.id
         sample = SimpleNamespace(
             id=uuid.uuid4(),
-            organism_key=organism_key,
+            taxon_id=taxon_id,
             bpa_sample_id=bpa_sample_id,
             kind=kind,
             derived_from_sample_id=derived_from_sample_id,
@@ -407,7 +403,7 @@ def test_bulk_import_derived_success(monkeypatch):
             payload = {
                 "BPA123": {
                     "bpa_sample_id": "BPA123",
-                    "organism_grouping_key": "Homo_sapiens",
+                    "taxon_id": 9606,
                     "specimen_id": "SPEC001",
                     "lifestage": "adult",
                 }
@@ -435,7 +431,7 @@ def test_bulk_import_derived_missing_bpa_sample_id():
         with patch("json.load", return_value={"sample": {}}):
             payload = {
                 "derived_001": {
-                    "organism_grouping_key": "Homo_sapiens",
+                    "taxon_id": 9606,
                     "specimen_id": "SPEC001",
                     "lifestage": "adult",
                     # Missing bpa_sample_id
@@ -456,7 +452,7 @@ def test_bulk_import_derived_parent_not_found():
     """Test bulk import derived fails when parent specimen doesn't exist."""
     client = TestClient(app)
 
-    fake_organism = SimpleNamespace(grouping_key="Homo_sapiens")
+    fake_organism = SimpleNamespace(taxon_id=9606)
 
     class CustomFakeSession(FakeSession):
         def query(self, model):
@@ -477,7 +473,7 @@ def test_bulk_import_derived_parent_not_found():
             payload = {
                 "derived_001": {
                     "bpa_sample_id": "BPA123",
-                    "organism_grouping_key": "Homo_sapiens",
+                    "taxon_id": 9606,
                     "specimen_id": "SPEC999",  # Non-existent
                     "lifestage": "adult",
                 }
@@ -494,14 +490,14 @@ def test_bulk_import_derived_parent_not_found():
 
 
 def test_bulk_import_derived_lookup_by_tax_id(monkeypatch):
-    """Test bulk import derived can lookup organism by tax_id."""
+    """Test bulk import derived can lookup organism by taxon_id."""
     client = TestClient(app)
 
-    fake_organism = SimpleNamespace(grouping_key="Homo_sapiens", tax_id=9606)
+    fake_organism = SimpleNamespace(taxon_id=9606)
 
     parent_specimen = SimpleNamespace(
         id=uuid.uuid4(),
-        organism_key="Homo_sapiens",
+        taxon_id=9606,
         specimen_id="SPEC001",
         kind=SampleKind.SPECIMEN,
     )
@@ -533,14 +529,14 @@ def test_bulk_import_derived_lookup_by_tax_id(monkeypatch):
         db,
         bpa_sample_id,
         sample_data,
-        organism_key,
+        taxon_id,
         kind,
         derived_from_sample_id=None,
         ena_atol_map=None,
     ):
-        assert organism_key == "Homo_sapiens"
+        assert taxon_id == 9606
         sample = SimpleNamespace(
-            id=uuid.uuid4(), organism_key=organism_key, bpa_sample_id=bpa_sample_id, kind=kind
+            id=uuid.uuid4(), taxon_id=taxon_id, bpa_sample_id=bpa_sample_id, kind=kind
         )
         submission = SimpleNamespace(id=uuid.uuid4(), sample_id=sample.id)
         return sample, submission
@@ -552,7 +548,7 @@ def test_bulk_import_derived_lookup_by_tax_id(monkeypatch):
             payload = {
                 "derived_001": {
                     "bpa_sample_id": "BPA123",
-                    "tax_id": 9606,  # Using tax_id instead of organism_grouping_key
+                    "taxon_id": 9606,
                     "specimen_id": "SPEC001",
                     "lifestage": "adult",
                 }
@@ -583,7 +579,7 @@ def test_bulk_import_derived_duplicate_bpa_sample_id():
             payload = {
                 "derived_001": {
                     "bpa_sample_id": "BPA123",
-                    "organism_grouping_key": "Homo_sapiens",
+                    "taxon_id": 9606,
                     "specimen_id": "SPEC001",
                     "lifestage": "adult",
                 }
@@ -657,7 +653,7 @@ def test_bulk_import_specimens_multiple_samples(monkeypatch):
     """Test bulk import with multiple specimen samples."""
     client = TestClient(app)
 
-    fake_organism = SimpleNamespace(grouping_key="Homo_sapiens")
+    fake_organism = SimpleNamespace(taxon_id=9606)
     fake_session = FakeSession(organisms={"default": fake_organism}, samples={"default": None})
 
     app.dependency_overrides[samples.get_current_active_user] = _override_user(["admin"])
@@ -667,14 +663,14 @@ def test_bulk_import_specimens_multiple_samples(monkeypatch):
         db,
         bpa_sample_id,
         sample_data,
-        organism_key,
+        taxon_id,
         kind,
         derived_from_sample_id=None,
         ena_atol_map=None,
     ):
         sample = SimpleNamespace(
             id=uuid.uuid4(),
-            organism_key=organism_key,
+            taxon_id=taxon_id,
             specimen_id=sample_data.get("specimen_id"),
             kind=kind,
         )
@@ -687,17 +683,17 @@ def test_bulk_import_specimens_multiple_samples(monkeypatch):
         with patch("json.load", return_value={"sample": {}}):
             payload = {
                 "SPEC001_9606": {
-                    "organism_grouping_key": "Homo_sapiens",
+                    "taxon_id": 9606,
                     "specimen_id": "SPEC001",
                     "lifestage": "adult",
                 },
                 "SPEC002_9606": {
-                    "organism_grouping_key": "Homo_sapiens",
+                    "taxon_id": 9606,
                     "specimen_id": "SPEC002",
                     "lifestage": "juvenile",
                 },
                 "SPEC003_9606": {
-                    "organism_grouping_key": "Homo_sapiens",
+                    "taxon_id": 9606,
                     "specimen_id": "SPEC003",
                     "lifestage": "larva",
                 },

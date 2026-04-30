@@ -28,7 +28,7 @@ class Assembly(Base):
     __tablename__ = "assembly"
 
     id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
-    organism_key = Column("organism_key", ForeignKey("organism.grouping_key"), nullable=False)
+    taxon_id = Column("taxon_id", ForeignKey("organism.taxon_id"), nullable=False)
     sample_id = Column(UUID(as_uuid=True), ForeignKey("sample.id"), nullable=False)
     project_id = Column(UUID(as_uuid=True), ForeignKey("project.id"), nullable=True)
 
@@ -83,7 +83,7 @@ class AssemblyRun(Base):
     __tablename__ = "assembly_run"
 
     id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
-    organism_key = Column("organism_key", ForeignKey("organism.grouping_key"), nullable=False)
+    taxon_id = Column("taxon_id", ForeignKey("organism.taxon_id"), nullable=False)
     sample_id = Column(UUID(as_uuid=True), ForeignKey("sample.id"), nullable=False)
     data_types = Column(
         SQLAlchemyEnum(

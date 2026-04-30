@@ -17,7 +17,7 @@ A dedicated broker workflow enables integration with external submission pipelin
 - RESTful APIs for core entities (organisms, samples, experiments, reads, assemblies, projects, genome notes, BPA initiatives)
 - Submission workflow endpoints (sample-submissions, experiment-submissions, read-submissions)
 - Broker endpoints to support external submission pipelines:
-  - Claim drafts and obtain a lease: `/api/v1/broker/organisms/{organism_key}/claim`
+  - Claim drafts and obtain a lease: `/api/v1/broker/organisms/{taxon_id}/claim`
   - ENA broker contract endpoints: `/api/v1/broker/claims/ready`, `/api/v1/broker/claims/entity`, `/api/v1/broker/validation`, `/api/v1/broker/reports/{attempt_id}`
   - Renew lease, finalise, and report results: `/api/v1/broker/attempts/{attempt_id}/...`
   - Attempt listing and summaries for dashboard views
@@ -222,7 +222,7 @@ pyproject.toml, uv.lock, docker-compose.yml, Dockerfile, schema.sql, scripts/, d
 
     ```bash
     TOKEN=<your_access_token>
-    curl -s -X POST "http://localhost:8000/api/v1/broker/organisms/<organism_key>/claim?per_type_limit=100" \
+    curl -s -X POST "http://localhost:8000/api/v1/broker/organisms/<taxon_id>/claim?per_type_limit=100" \
       -H "Authorization: Bearer $TOKEN" \
       -H "Content-Type: application/json" \
       -d '{"lease_duration_minutes": 30}'

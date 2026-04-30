@@ -9,7 +9,7 @@ from pydantic import BaseModel, ConfigDict
 class GenomeNoteBase(BaseModel):
     """Base GenomeNote schema with common attributes."""
 
-    organism_key: str
+    taxon_id: int
     assembly_id: UUID
     title: str
     note_url: str
@@ -25,7 +25,7 @@ class GenomeNoteCreate(BaseModel):
     is_published defaults to False for new notes.
     """
 
-    organism_key: str
+    taxon_id: int
     assembly_id: UUID
     title: str
     note_url: str
@@ -49,7 +49,7 @@ class GenomeNoteInDBBase(GenomeNoteBase):
     created_at: datetime
     updated_at: datetime
 
-    model_config = ConfigDict(from_attributes=True)
+    model_config = ConfigDict(from_attributes=True, populate_by_name=True)
 
 
 # Schema for returning GenomeNote information

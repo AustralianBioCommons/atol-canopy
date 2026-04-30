@@ -88,9 +88,8 @@ def test_broker_claim_explicit_ids_empty_lists_returns_empty_response():
         {
             Organism: [
                 SimpleNamespace(
-                    grouping_key="g1",
                     scientific_name="Sci",
-                    tax_id=1,
+                    taxon_id=1,
                     bpa_json={"culture_or_strain_id": "C1"},
                 )
             ]
@@ -106,7 +105,7 @@ def test_broker_claim_explicit_ids_empty_lists_returns_empty_response():
 
     with pytest.raises(HTTPException) as excinfo:
         broker.claim_drafts_for_organism(
-            organism_key="g1",
+            taxon_id="1",
             per_type_limit=10,
             payload=payload,
             current_user=broker_user,
@@ -219,7 +218,7 @@ def test_broker_report_results_sample_accepted():
 def test_broker_list_attempts_basic(monkeypatch):
     a1 = SimpleNamespace(
         id=uuid4(),
-        organism_key="g1",
+        taxon_id=1,
         campaign_label=None,
         lock_expires_at=None,
         created_at=datetime.now(),
@@ -227,7 +226,7 @@ def test_broker_list_attempts_basic(monkeypatch):
     )
     a2 = SimpleNamespace(
         id=uuid4(),
-        organism_key="g2",
+        taxon_id=2,
         campaign_label="c2",
         lock_expires_at=None,
         created_at=datetime.now(),
@@ -249,13 +248,13 @@ def test_broker_list_attempts_basic(monkeypatch):
     out = broker.list_attempts(db=db, page=1, page_size=10)
     assert out["total"] == 2
     assert len(out["items"]) == 2
-    assert out["items"][0]["organism_key"] in {"g1", "g2"}
+    assert out["items"][0]["taxon_id"] in {1, 2}
 
 
 def test_broker_get_attempt_include_items(monkeypatch):
     att = SimpleNamespace(
         id=uuid4(),
-        organism_key="g1",
+        taxon_id=1,
         campaign_label=None,
         lock_expires_at=None,
         created_at=datetime.now(),
@@ -312,7 +311,7 @@ def test_broker_organism_summary(monkeypatch):
     # Prepare attempts and summary counts
     att = SimpleNamespace(
         id=uuid4(),
-        organism_key="g1",
+        taxon_id=1,
         lock_expires_at=datetime.now() + timedelta(minutes=10),
         created_at=datetime.now(),
     )
@@ -349,8 +348,8 @@ def test_broker_organism_summary(monkeypatch):
     )
     monkeypatch.setattr(broker, "_derive_attempt_status", lambda counts, lock: "active")
 
-    out = broker.organism_summary(organism_key="g1", db=db, recent_attempts=1)
-    assert out["organism_key"] == "g1"
+    out = broker.organism_summary(taxon_id="1", db=db, recent_attempts=1)
+    assert out["taxon_id"] == "1"
     assert len(out["latest_attempts"]) == 1
     assert "counts_by_entity" in out and set(out["counts_by_entity"].keys()) == {
         "samples",

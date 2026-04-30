@@ -30,7 +30,7 @@ def assembly_service():
 def sample_assembly_create():
     """Create a sample AssemblyCreate schema."""
     return AssemblyCreate(
-        organism_key="test_organism",
+        taxon_id=172942,
         sample_id=uuid.uuid4(),
         project_id=uuid.uuid4(),
         assembly_name="Test Assembly",
@@ -56,7 +56,7 @@ class TestCreateAssembly:
         # Mock the assembly object that will be created
         created_assembly = Assembly(
             id=uuid.uuid4(),
-            organism_key=sample_assembly_create.organism_key,
+            taxon_id=sample_assembly_create.taxon_id,
             sample_id=sample_assembly_create.sample_id,
             data_types=sample_assembly_create.data_types,
             version=1,
@@ -91,12 +91,12 @@ class TestCreateAssembly:
         mock_db.commit.assert_called_once()
 
     def test_create_version_per_combination(self, mock_db, assembly_service):
-        """Test that version is per (data_types, organism_key, sample_id) combination."""
+        """Test that version is per (data_types, taxon_id, sample_id) combination."""
         sample_id = uuid.uuid4()
 
         # Create two assemblies with different data_types
         assembly1 = AssemblyCreate(
-            organism_key="organism1",
+            taxon_id=172942,
             sample_id=sample_id,
             assembly_name="Assembly 1",
             assembly_type="clone or isolate",
@@ -108,7 +108,7 @@ class TestCreateAssembly:
         )
 
         assembly2 = AssemblyCreate(
-            organism_key="organism1",
+            taxon_id=172942,
             sample_id=sample_id,
             assembly_name="Assembly 2",
             assembly_type="clone or isolate",
@@ -140,13 +140,12 @@ class TestCreateFromExperiments:
 
     def test_create_from_experiments_success(self, mock_db, assembly_service):
         """Test successful assembly creation from experiments."""
-        tax_id = 172942
+        taxon_id = 172942
         organism = Organism(
-            grouping_key="test_organism",
-            tax_id=tax_id,
+            taxon_id=taxon_id,
             scientific_name="Test Species",
         )
-        sample = Sample(id=uuid.uuid4(), organism_key="test_organism")
+        sample = Sample(id=uuid.uuid4(), taxon_id=taxon_id)
         experiments = [
             Experiment(
                 id=uuid.uuid4(),
@@ -181,7 +180,7 @@ class TestCreateFromExperiments:
             )
 
             assembly, platform_info = assembly_service.create_from_experiments(
-                mock_db, tax_id=tax_id, assembly_in=assembly_in
+                mock_db, taxon_id=taxon_id, assembly_in=assembly_in
             )
 
         # Verify platform info was returned
@@ -191,7 +190,7 @@ class TestCreateFromExperiments:
 
     def test_create_from_experiments_organism_not_found(self, mock_db, assembly_service):
         """Test error when organism not found."""
-        tax_id = 999999
+        taxon_id = 999999
         mock_db.query.return_value.filter.return_value.first.return_value = None
 
         assembly_in = AssemblyCreateFromExperiments(
@@ -204,17 +203,16 @@ class TestCreateFromExperiments:
             moleculetype="genomic DNA",
         )
 
-        with pytest.raises(ValueError, match="Organism with tax_id 999999 not found"):
+        with pytest.raises(ValueError, match="Organism with taxon_id 999999 not found"):
             assembly_service.create_from_experiments(
-                mock_db, tax_id=tax_id, assembly_in=assembly_in
+                mock_db, taxon_id=taxon_id, assembly_in=assembly_in
             )
 
     def test_create_from_experiments_no_samples(self, mock_db, assembly_service):
         """Test error when no samples found for organism."""
-        tax_id = 172942
+        taxon_id = 172942
         organism = Organism(
-            grouping_key="test_organism",
-            tax_id=tax_id,
+            taxon_id=taxon_id,
             scientific_name="Test Species",
         )
 
@@ -234,18 +232,17 @@ class TestCreateFromExperiments:
 
         with pytest.raises(ValueError, match="No samples found"):
             assembly_service.create_from_experiments(
-                mock_db, tax_id=tax_id, assembly_in=assembly_in
+                mock_db, taxon_id=taxon_id, assembly_in=assembly_in
             )
 
     def test_create_from_experiments_no_experiments(self, mock_db, assembly_service):
         """Test error when no experiments found."""
-        tax_id = 172942
+        taxon_id = 172942
         organism = Organism(
-            grouping_key="test_organism",
-            tax_id=tax_id,
+            taxon_id=taxon_id,
             scientific_name="Test Species",
         )
-        sample = Sample(id=uuid.uuid4(), organism_key="test_organism")
+        sample = Sample(id=uuid.uuid4(), taxon_id=taxon_id)
 
         # Mock organism and samples found but no experiments
         mock_db.query.return_value.filter.return_value.first.return_value = organism
@@ -266,18 +263,17 @@ class TestCreateFromExperiments:
 
         with pytest.raises(ValueError, match="No experiments found"):
             assembly_service.create_from_experiments(
-                mock_db, tax_id=tax_id, assembly_in=assembly_in
+                mock_db, taxon_id=taxon_id, assembly_in=assembly_in
             )
 
     def test_create_from_experiments_overrides_data_types(self, mock_db, assembly_service):
         """Test that data_types is overridden based on experiments."""
-        tax_id = 172942
+        taxon_id = 172942
         organism = Organism(
-            grouping_key="test_organism",
-            tax_id=tax_id,
+            taxon_id=taxon_id,
             scientific_name="Test Species",
         )
-        sample = Sample(id=uuid.uuid4(), organism_key="test_organism")
+        sample = Sample(id=uuid.uuid4(), taxon_id=taxon_id)
         experiments = [
             Experiment(
                 id=uuid.uuid4(),
@@ -320,7 +316,7 @@ class TestCreateFromExperiments:
             )
 
             assembly, platform_info = assembly_service.create_from_experiments(
-                mock_db, tax_id=tax_id, assembly_in=assembly_in
+                mock_db, taxon_id=taxon_id, assembly_in=assembly_in
             )
 
             # Verify create was called
@@ -329,4 +325,4 @@ class TestCreateFromExperiments:
             created_assembly_in = call_args.kwargs["obj_in"]
 
             # The data_types should be determined from experiments (ILLUMINA+WGS = Hi-C)
-            assert created_assembly_in.organism_key == "test_organism"
+            assert created_assembly_in.taxon_id == 172942

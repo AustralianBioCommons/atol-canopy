@@ -17,8 +17,8 @@ class Project(Base):
     __tablename__ = "project"
 
     id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
-    organism_key = Column(
-        "organism_key", ForeignKey("organism.grouping_key", ondelete="CASCADE"), nullable=False
+    taxon_id = Column(
+        "taxon_id", ForeignKey("organism.taxon_id", ondelete="CASCADE"), nullable=False
     )
     project_type = Column(
         SQLAlchemyEnum("root", "genomic_data", "assembly", name="project_type"), nullable=False

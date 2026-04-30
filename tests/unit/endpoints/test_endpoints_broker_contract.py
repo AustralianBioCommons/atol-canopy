@@ -153,27 +153,27 @@ def test_claims_ready_returns_flat_entity_contract(monkeypatch):
     )
     monkeypatch.setattr(
         broker,
-        "_get_organism_by_tax_id",
-        lambda db_arg, tax_id: SimpleNamespace(grouping_key="org-1"),
+        "_get_organism_by_taxon_id",
+        lambda db_arg, taxon_id: SimpleNamespace(taxon_id=taxon_id),
     )
     monkeypatch.setattr(
-        broker, "_query_ready_project_submissions", lambda db_arg, tax_id: [project_row]
+        broker, "_query_ready_project_submissions", lambda db_arg, taxon_id: [project_row]
     )
     monkeypatch.setattr(
-        broker, "_query_ready_sample_submissions", lambda db_arg, tax_id: [sample_row]
+        broker, "_query_ready_sample_submissions", lambda db_arg, taxon_id: [sample_row]
     )
     monkeypatch.setattr(
-        broker, "_query_ready_experiment_submissions", lambda db_arg, tax_id: [experiment_row]
+        broker, "_query_ready_experiment_submissions", lambda db_arg, taxon_id: [experiment_row]
     )
-    monkeypatch.setattr(broker, "_query_ready_run_submissions", lambda db_arg, tax_id: [run_row])
+    monkeypatch.setattr(broker, "_query_ready_run_submissions", lambda db_arg, taxon_id: [run_row])
 
     response = broker.claim_ready_entities(
-        payload=BrokerReadyClaimRequest(tax_id="9606"),
+        payload=BrokerReadyClaimRequest(taxon_id="9606"),
         current_user=_broker_user(),
         db=db,
     )
 
-    assert response.tax_id == "9606"
+    assert response.taxon_id == "9606"
     assert response.scope == "full"
     assert [entity.type for entity in response.entities] == [
         BrokerEntityType.PROJECT,
@@ -190,22 +190,16 @@ def test_claims_ready_returns_flat_entity_contract(monkeypatch):
     # Projects don't have prerequisite accessions
     assert response.entities[0].prerequisites is None  # No prerequisites for projects
 
-    assert response.entities[1].prerequisites.project_accession is None
-    assert response.entities[1].prerequisites.study_accession is None
+    assert response.entities[1].prerequisites is None
     assert response.entities[1].payload["title"] == "Specimen SP1 for Homo sapiens"
 
-    assert (
-        response.entities[2].prerequisites.sample_accession is None
-    )  # Experiment - sample not in registry
-    assert response.entities[2].prerequisites.study_accession is None  # Project not in registry
+    assert response.entities[2].prerequisites is None
     assert (
         response.entities[2].payload["title"]
         == "Bioplatforms Australia dataset PKG1 for Homo sapiens"
     )
 
-    assert (
-        response.entities[3].prerequisites.experiment_accession is None
-    )  # Missing experiment accession
+    assert response.entities[3].prerequisites is None
     assert response.entities[3].files[0].filename == "reads_1.fastq.gz"
     assert response.entities[3].file_metadata is None
     assert sample_row.status == "submitting"
@@ -290,7 +284,7 @@ def test_project_entities_never_return_prerequisites_even_if_registry_has_access
     monkeypatch.setattr(
         broker,
         "_lookup_taxonomy_for_entity",
-        lambda db_arg, entity_type_arg, entity_id_arg: ("org-1", 9606),
+        lambda db_arg, entity_type_arg, entity_id_arg: (9606, 9606),
     )
 
     # If prerequisites were calculated for projects, we'd see them here.
@@ -320,7 +314,7 @@ def test_project_entities_never_return_prerequisites_even_if_registry_has_access
         (BrokerEntityType.PROJECT, "project_id"),
         (BrokerEntityType.SAMPLE, "sample_id"),
         (BrokerEntityType.EXPERIMENT, "experiment_id"),
-        (BrokerEntityType.RUN, "read_id"),
+        (BrokerEntityType.RUN, "qc_read_id"),
     ],
 )
 def test_claims_entity_returns_requested_entity_only(monkeypatch, entity_type, row_attr):
@@ -346,7 +340,7 @@ def test_claims_entity_returns_requested_entity_only(monkeypatch, entity_type, r
     monkeypatch.setattr(
         broker,
         "_lookup_taxonomy_for_entity",
-        lambda db_arg, entity_type_arg, entity_id_arg: ("org-1", 9606),
+        lambda db_arg, entity_type_arg, entity_id_arg: (9606, 9606),
     )
 
     response = broker.claim_specific_entity(
@@ -355,7 +349,7 @@ def test_claims_entity_returns_requested_entity_only(monkeypatch, entity_type, r
         db=db,
     )
 
-    assert response.tax_id == "9606"
+    assert response.taxon_id == "9606"
     assert len(response.entities) == 1
     assert response.entities[0].type == entity_type
     assert response.entities[0].id == entity_id
@@ -385,7 +379,10 @@ def test_validation_returns_success_with_override_merge(monkeypatch):
         payload=BrokerValidationRequest(
             entity_type=BrokerEntityType.EXPERIMENT,
             entity_id=experiment_id,
-            overrides={"sample_accession": "SAMEA000001"},
+            overrides={
+                "sample_accession": "SAMEA000001",
+                "project_accession": "PRJ000001",
+            },
         ),
         current_user=_broker_user(),
         db=FakeSession(),
@@ -393,7 +390,10 @@ def test_validation_returns_success_with_override_merge(monkeypatch):
 
     assert response.valid is True
     assert response.issues == []
-    assert response.resolved_prerequisites == {"sample_accession": "SAMEA000001"}
+    assert response.resolved_prerequisites == {
+        "sample_accession": "SAMEA000001",
+        "project_accession": "PRJ000001",
+    }
 
 
 def test_validation_returns_failure_when_required_prerequisite_missing(monkeypatch):
@@ -460,7 +460,7 @@ def test_reports_attempt_acceptance(monkeypatch):
     response = broker.report_submission_outcomes(
         attempt_id=attempt_id,
         payload=BrokerReportRequest(
-            tax_id=9606,
+            taxon_id=9606,
             results=[
                 BrokerReportRecord(
                     entity_type=BrokerEntityType.SAMPLE,
@@ -520,7 +520,7 @@ def test_reports_attempt_rejection_creates_new_draft_submission(monkeypatch):
     response = broker.report_submission_outcomes(
         attempt_id=attempt_id,
         payload=BrokerReportRequest(
-            tax_id=9606,
+            taxon_id=9606,
             results=[
                 BrokerReportRecord(
                     entity_type=BrokerEntityType.SAMPLE,
@@ -556,22 +556,22 @@ def test_claim_ready_entities_no_claimable_entities_returns_empty_response(monke
     monkeypatch.setattr(broker, "expire_stale_leases", lambda db_arg: {})
     monkeypatch.setattr(
         broker,
-        "_get_organism_by_tax_id",
-        lambda db_arg, tax_id: SimpleNamespace(grouping_key="org-1"),
+        "_get_organism_by_taxon_id",
+        lambda db_arg, taxon_id: SimpleNamespace(taxon_id=taxon_id),
     )
     # Mock all query functions to return empty lists
-    monkeypatch.setattr(broker, "_query_ready_project_submissions", lambda db_arg, tax_id: [])
-    monkeypatch.setattr(broker, "_query_ready_sample_submissions", lambda db_arg, tax_id: [])
-    monkeypatch.setattr(broker, "_query_ready_experiment_submissions", lambda db_arg, tax_id: [])
-    monkeypatch.setattr(broker, "_query_ready_run_submissions", lambda db_arg, tax_id: [])
+    monkeypatch.setattr(broker, "_query_ready_project_submissions", lambda db_arg, taxon_id: [])
+    monkeypatch.setattr(broker, "_query_ready_sample_submissions", lambda db_arg, taxon_id: [])
+    monkeypatch.setattr(broker, "_query_ready_experiment_submissions", lambda db_arg, taxon_id: [])
+    monkeypatch.setattr(broker, "_query_ready_run_submissions", lambda db_arg, taxon_id: [])
 
     response = broker.claim_ready_entities(
-        payload=BrokerReadyClaimRequest(tax_id="9606"),
+        payload=BrokerReadyClaimRequest(taxon_id="9606"),
         current_user=_broker_user(),
         db=db,
     )
 
-    assert response.tax_id == "9606"
+    assert response.taxon_id == "9606"
     assert response.scope == "full"
     assert response.entities == []
     assert response.attempt_id is None
@@ -583,17 +583,17 @@ def test_claim_ready_entities_organism_not_found_returns_404(monkeypatch):
     db = FakeSession()
 
     monkeypatch.setattr(broker, "expire_stale_leases", lambda db_arg: {})
-    monkeypatch.setattr(broker, "_get_organism_by_tax_id", lambda db_arg, tax_id: None)
+    monkeypatch.setattr(broker, "_get_organism_by_taxon_id", lambda db_arg, taxon_id: None)
 
     with pytest.raises(HTTPException) as exc_info:
         broker.claim_ready_entities(
-            payload=BrokerReadyClaimRequest(tax_id="99999"),
+            payload=BrokerReadyClaimRequest(taxon_id="99999"),
             current_user=_broker_user(),
             db=db,
         )
 
     assert exc_info.value.status_code == 404
-    assert "Organism with tax_id 99999 not found" in exc_info.value.detail
+    assert "Organism with taxon_id 99999 not found" in exc_info.value.detail
 
 
 def test_claims_batch_single_entity(monkeypatch):
@@ -629,7 +629,7 @@ def test_claims_batch_single_entity(monkeypatch):
         db=db,
     )
 
-    assert response.tax_id == "9606"
+    assert response.taxon_id == "9606"
     assert len(response.entities) == 1
     assert response.entities[0].type == BrokerEntityType.SAMPLE
     assert response.entities[0].id == sample_id
@@ -685,7 +685,7 @@ def test_claims_batch_multiple_entities_same_type(monkeypatch):
     monkeypatch.setattr(
         broker,
         "_lookup_taxonomy_for_entity",
-        lambda db_arg, entity_type_arg, entity_id_arg: ("org-1", 9606),
+        lambda db_arg, entity_type_arg, entity_id_arg: (9606, 9606),
     )
 
     response = broker.claim_batch_entities(
@@ -694,7 +694,7 @@ def test_claims_batch_multiple_entities_same_type(monkeypatch):
         db=db,
     )
 
-    assert response.tax_id == "9606"
+    assert response.taxon_id == "9606"
     assert len(response.entities) == 3
     assert all(e.type == BrokerEntityType.SAMPLE for e in response.entities)
     assert {e.id for e in response.entities} == {sample_id_1, sample_id_2, sample_id_3}
@@ -741,7 +741,7 @@ def test_claims_batch_multiple_entity_types(monkeypatch):
         ),
         (BrokerEntityType.RUN, run_id): SimpleNamespace(
             id=uuid4(),
-            read_id=run_id,
+            qc_read_id=run_id,
             status="ready",
             prepared_payload={
                 "alias": "run-1",
@@ -761,7 +761,7 @@ def test_claims_batch_multiple_entity_types(monkeypatch):
     monkeypatch.setattr(
         broker,
         "_lookup_taxonomy_for_entity",
-        lambda db_arg, entity_type_arg, entity_id_arg: ("org-1", 9606),
+        lambda db_arg, entity_type_arg, entity_id_arg: (9606, 9606),
     )
 
     response = broker.claim_batch_entities(
@@ -775,7 +775,7 @@ def test_claims_batch_multiple_entity_types(monkeypatch):
         db=db,
     )
 
-    assert response.tax_id == "9606"
+    assert response.taxon_id == "9606"
     assert len(response.entities) == 4
     entity_types = [e.type for e in response.entities]
     assert BrokerEntityType.PROJECT in entity_types
@@ -820,9 +820,9 @@ def test_claims_batch_multi_organism_returns_null_tax_id(monkeypatch):
     def mock_lookup_taxonomy(db_arg, entity_type_arg, entity_id_arg):
         # Different organisms for different samples
         if entity_id_arg == sample_id_1:
-            return ("org-1", 9606)
+            return (9606, 9606)
         else:
-            return ("org-2", 9685)
+            return (9685, 9685)
 
     monkeypatch.setattr(broker, "expire_stale_leases", lambda db_arg: {})
     monkeypatch.setattr(broker, "_find_latest_claimable_entity_submission", mock_find_submission)
@@ -834,7 +834,7 @@ def test_claims_batch_multi_organism_returns_null_tax_id(monkeypatch):
         db=db,
     )
 
-    assert response.tax_id is None  # Multi-organism batch
+    assert response.taxon_id is None  # Multi-organism batch
     assert len(response.entities) == 2
     assert db.committed is True
 

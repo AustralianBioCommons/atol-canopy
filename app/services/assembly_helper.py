@@ -135,7 +135,7 @@ def generate_assembly_manifest(
         YAML string formatted as assembly manifest
     """
     logger.info(
-        f"Generating manifest for organism: {organism.scientific_name} (tax_id: {organism.tax_id})"
+        f"Generating manifest for organism: {organism.scientific_name} (taxon_id: {organism.taxon_id})"
     )
     logger.info(f"Total experiments: {len(experiments)}, Total reads: {len(reads)}")
 
@@ -149,7 +149,7 @@ def generate_assembly_manifest(
             "platform": exp.platform.upper() if exp.platform else "",
             "library_strategy": exp.library_strategy.upper() if exp.library_strategy else "",
             "bpa_package_id": exp.bpa_package_id,
-            "base_url": getattr(exp, "base_url", None),
+            "bioplatforms_base_url": getattr(exp, "bioplatforms_base_url", None),
             "sample_id": str(exp.sample_id) if getattr(exp, "sample_id", None) else None,
         }
 
@@ -188,8 +188,8 @@ def generate_assembly_manifest(
                         "specimen_id": sample_meta.get("specimen_id"),
                         "resources": [],
                     }
-                    if exp_info["base_url"]:
-                        entry["base_url"] = exp_info["base_url"]
+                    if exp_info["bioplatforms_base_url"]:
+                        entry["bioplatforms_base_url"] = exp_info["bioplatforms_base_url"]
                     pacbio_by_package[bpa_package_id] = entry
                 pacbio_by_package[bpa_package_id]["resources"].append(
                     {"md5sum": read.file_checksum, "url": read.bioplatforms_url}
@@ -230,7 +230,7 @@ def generate_assembly_manifest(
     # Build manifest structure
     manifest = {
         "scientific_name": organism.scientific_name,
-        "taxon_id": organism.tax_id,
+        "taxon_id": organism.taxon_id,
         "tolid": tol_id,
         "version": version,
         "reads": {},

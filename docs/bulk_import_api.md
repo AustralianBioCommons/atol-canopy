@@ -24,20 +24,20 @@ All bulk import endpoints require authentication and the user must have either t
 ```json
 {
   "organisms": {
-    "organism_grouping_key_1": {
+    "123456": {
       "taxon_id": 123456,
       "scientific_name": "Organism scientific name",
       "other_field": "value",
       ...
     },
-    "organism_grouping_key_2": {
+    "789012": {
       ...
     }
   }
 }
 ```
 
-The request body should match the format of the JSON file in `data/unique_organisms.json`. Each organism is identified by its `organism_grouping_key` and must contain at least `taxon_id` and `scientific_name`.
+The request body should match the format of the JSON file in `data/unique_organisms.json`. Each organism is keyed by `taxon_id` and must contain at least `taxon_id` and `scientific_name`.
 
 **Response:**
 ```json
@@ -57,7 +57,7 @@ The request body should match the format of the JSON file in `data/unique_organi
 {
   "samples": {
     "bpa_sample_id_1": {
-      "organism_grouping_key": "organism_grouping_key_1",
+      "taxon_id": 123456,
       "other_field": "value",
       ...
     },
@@ -68,7 +68,7 @@ The request body should match the format of the JSON file in `data/unique_organi
 }
 ```
 
-The request body should match the format of the JSON file in `data/unique_samples.json`. Each sample is identified by its `bpa_sample_id` and can optionally contain an `organism_grouping_key` to link it to an organism.
+The request body should match the format of the JSON file in `data/unique_samples.json`. Each sample is identified by its `bpa_sample_id` and can include `taxon_id` to link it to an organism.
 
 **Response:**
 ```json

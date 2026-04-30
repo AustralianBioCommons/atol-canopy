@@ -13,7 +13,7 @@ from app.schemas.common import SampleKind, SubmissionStatus
 class SampleBase(BaseModel):
     """Base Sample schema aligned to DB columns (excluding id, timestamps, bpa_json)."""
 
-    organism_key: Optional[str] = None
+    taxon_id: Optional[int] = None
     bpa_sample_id: Optional[str] = None
     specimen_id: Optional[str] = None
     specimen_id_description: Optional[str] = None
@@ -81,7 +81,7 @@ class SampleInDBBase(SampleBase):
     # Override to make these required in DB responses
     kind: SampleKind
 
-    model_config = ConfigDict(from_attributes=True)
+    model_config = ConfigDict(from_attributes=True, populate_by_name=True)
 
 
 # Schema for returning sample information
@@ -143,7 +143,7 @@ class SampleSubmissionInDBBase(SampleSubmissionBase):
     created_at: datetime
     updated_at: datetime
 
-    model_config = ConfigDict(from_attributes=True)
+    model_config = ConfigDict(from_attributes=True, populate_by_name=True)
 
 
 # Schema for returning sample submission information

@@ -11,9 +11,9 @@ from app.services.base_service import BaseService
 class SampleService(BaseService[Sample, SampleCreate, SampleUpdate]):
     """Service for Sample operations."""
 
-    def get_by_organism_key(self, db: Session, organism_key: str) -> List[Sample]:
-        """Get samples by organism key."""
-        return db.query(Sample).filter(Sample.organism_key == organism_key).all()
+    def get_by_taxon_id(self, db: Session, taxon_id: int) -> List[Sample]:
+        """Get samples by organism taxon ID."""
+        return db.query(Sample).filter(Sample.taxon_id == taxon_id).all()
 
     def get_by_bpa_sample_id(self, db: Session, bpa_sample_id: str) -> Optional[Sample]:
         """Get sample by BPA sample ID."""
@@ -25,13 +25,13 @@ class SampleService(BaseService[Sample, SampleCreate, SampleUpdate]):
         *,
         skip: int = 0,
         limit: int = 100,
-        organism_key: Optional[str] = None,
+        taxon_id: Optional[int] = None,
         bpa_sample_id: Optional[str] = None,
     ) -> List[Sample]:
         """Get samples with filters."""
         query = db.query(Sample)
-        if organism_key:
-            query = query.filter(Sample.organism_key == organism_key)
+        if taxon_id is not None:
+            query = query.filter(Sample.taxon_id == taxon_id)
         if bpa_sample_id:
             query = query.filter(Sample.bpa_sample_id.ilike(f"%{bpa_sample_id}%"))
         return query.offset(skip).limit(limit).all()

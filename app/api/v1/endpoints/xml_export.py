@@ -62,19 +62,19 @@ def get_sample_xml(
         )
 
     # Get the organism data
-    organism_key = sample_submission.organism_key
-    if not organism_key:
+    taxon_id = sample_submission.sample.taxon_id if sample_submission.sample else None
+    if not taxon_id:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Sample_submitted object missing organism_key",
+            detail="Sample_submitted object missing taxon_id",
         )
 
-    organism = db.query(Organism).filter(Organism.grouping_key == organism_key).first()
+    organism = db.query(Organism).filter(Organism.taxon_id == taxon_id).first()
 
     if not organism:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
-            detail=f"Organism with id {organism_key} not found",
+            detail=f"Organism with id {taxon_id} not found",
         )
 
     # Generate XML using the utility function
@@ -139,19 +139,19 @@ def get_experiment_sample_xml(
         )
 
     # Get the organism data
-    organism_key = sample_submission.organism_key
-    if not organism_key:
+    taxon_id = sample_submission.sample.taxon_id if sample_submission.sample else None
+    if not taxon_id:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Sample_submitted object missing organism_key",
+            detail="Sample_submitted object missing taxon_id",
         )
 
-    organism = db.query(Organism).filter(Organism.grouping_key == organism_key).first()
+    organism = db.query(Organism).filter(Organism.taxon_id == taxon_id).first()
 
     if not organism:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
-            detail=f"Organism with id {organism_key} not found",
+            detail=f"Organism with id {taxon_id} not found",
         )
 
     # Generate XML using the utility function

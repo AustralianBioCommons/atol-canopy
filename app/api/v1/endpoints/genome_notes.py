@@ -25,7 +25,7 @@ router = APIRouter()
 def read_genome_notes(
     db: Session = Depends(get_db),
     pagination: Pagination = Depends(pagination_params),
-    organism_key: Optional[str] = Query(None, description="Filter by organism key"),
+    taxon_id: Optional[int] = Query(None, description="Filter by organism taxon ID"),
     assembly_id: Optional[UUID] = Query(None, description="Filter by assembly ID"),
     is_published: Optional[bool] = Query(None, description="Filter by publication status"),
     title: Optional[str] = Query(None, description="Filter by title (case-insensitive)"),
@@ -38,7 +38,7 @@ def read_genome_notes(
         db,
         skip=pagination.offset,
         limit=pagination.limit,
-        organism_key=organism_key,
+        taxon_id=taxon_id,
         assembly_id=assembly_id,
         is_published=is_published,
         title=title,
@@ -61,10 +61,10 @@ def create_genome_note(
     for the organism. The note is created in draft status (is_published=False).
     """
     # Auto-calculate next version for this organism
-    next_version = genome_note_service.get_next_version(db, genome_note_in.organism_key)
+    next_version = genome_note_service.get_next_version(db, genome_note_in.taxon_id)
 
     genome_note = GenomeNote(
-        organism_key=genome_note_in.organism_key,
+        taxon_id=genome_note_in.taxon_id,
         assembly_id=genome_note_in.assembly_id,
         version=next_version,
         title=genome_note_in.title,
@@ -112,7 +112,7 @@ def update_genome_note(
     if not genome_note:
         raise HTTPException(status_code=404, detail="Genome note not found")
 
-    update_data = genome_note_in.dict(exclude_unset=True)
+    update_data = genome_note_in.model_dump(exclude_unset=True)
     for field, value in update_data.items():
         setattr(genome_note, field, value)
 
@@ -190,11 +190,11 @@ def unpublish_genome_note(
         raise HTTPException(status_code=404, detail=str(e))
 
 
-@router.get("/organism/{organism_key}/versions", response_model=List[GenomeNoteSchema])
+@router.get("/organism/{taxon_id}/versions", response_model=List[GenomeNoteSchema])
 def get_genome_note_versions(
     *,
     db: Session = Depends(get_db),
-    organism_key: str,
+    taxon_id: int,
     current_user: User = Depends(get_current_active_user),
 ) -> Any:
     """
@@ -202,15 +202,15 @@ def get_genome_note_versions(
 
     Returns all genome note versions ordered by version number (descending).
     """
-    genome_notes = genome_note_service.get_versions_by_organism(db, organism_key)
+    genome_notes = genome_note_service.get_versions_by_organism(db, taxon_id)
     return genome_notes
 
 
-@router.get("/organism/{organism_key}/published", response_model=GenomeNoteSchema)
+@router.get("/organism/{taxon_id}/published", response_model=GenomeNoteSchema)
 def get_published_genome_note(
     *,
     db: Session = Depends(get_db),
-    organism_key: str,
+    taxon_id: int,
     current_user: User = Depends(get_current_active_user),
 ) -> Any:
     """
@@ -218,9 +218,9 @@ def get_published_genome_note(
 
     Returns 404 if no published genome note exists for the organism.
     """
-    genome_note = genome_note_service.get_published_by_organism(db, organism_key)
+    genome_note = genome_note_service.get_published_by_organism(db, taxon_id)
     if not genome_note:
         raise HTTPException(
-            status_code=404, detail=f"No published genome note found for organism {organism_key}"
+            status_code=404, detail=f"No published genome note found for organism {taxon_id}"
         )
     return genome_note

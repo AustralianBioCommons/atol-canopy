@@ -45,7 +45,7 @@ def read_sample_submissions(
         None, description="Filter by submission status"
     ),
     # sample_id: Optional[str] = Query(None, description="Filter by sample_id"),
-    # organism_key: Optional[str] = Query(None, description="Filter by organism_key"),
+    # taxon_id: Optional[str] = Query(None, description="Filter by taxon_id"),
     current_user: User = Depends(get_current_active_user),
 ) -> Any:
     """

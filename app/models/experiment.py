@@ -25,7 +25,7 @@ class Experiment(Base):
         UUID(as_uuid=True), ForeignKey("project.id", ondelete="CASCADE"), nullable=False
     )
     bpa_package_id = Column(Text, unique=True, nullable=False)
-    base_url = Column(Text, nullable=True)
+    bioplatforms_base_url = Column(Text, nullable=True)
     design_description = Column(Text, nullable=True)
     bpa_library_id = Column(Text, nullable=True)
     library_strategy = Column(Text, nullable=True)
