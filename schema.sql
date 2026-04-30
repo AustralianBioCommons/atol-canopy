@@ -1,5 +1,7 @@
 -- PostgreSQL schema for biological metadata tracking system
 -- Based on ER diagram and requirements
+-- NOTE: This file is kept in sync with the database after each migration
+-- Regenerate with: docker compose exec db pg_dump -U <user> -d <dbname> --schema-only --no-owner --no-acl
 
 -- Enable UUID extension
 CREATE EXTENSION IF NOT EXISTS "uuid-ossp";
@@ -22,7 +24,7 @@ CREATE TYPE assembly_file_type AS ENUM (
     'STATISTICS',
     'OTHER'
 );
-CREATE TYPE entity_type AS ENUM ('organism', 'sample', 'experiment', 'read', 'assembly', 'project');
+CREATE TYPE entity_type AS ENUM ('organism', 'sample', 'experiment', 'read', 'assembly', 'project', 'qc_read');
 CREATE TYPE project_type AS ENUM ('root', 'genomic_data', 'assembly');
 CREATE TYPE sample_kind AS ENUM ('specimen', 'derived');
 -- ==========================================
@@ -88,16 +90,6 @@ CREATE TABLE organism (
     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
-/*
-    -- BPA organism table
-    CREATE TABLE organism_bpa (
-        id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
-        organism_id UUID REFERENCES organism(id),
-        bpa_json JSONB,
-        created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-        updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
-    );
-*/
 
 -- ==========================================
 -- Accession registry table
@@ -329,6 +321,7 @@ CREATE TABLE experiment (
     sample_id UUID NOT NULL REFERENCES sample(id) ON DELETE CASCADE,
     project_id UUID NOT NULL REFERENCES project(id) ON DELETE CASCADE,
     bpa_package_id TEXT UNIQUE NOT NULL,
+    bioplatforms_base_url TEXT,
     design_description TEXT,
     bpa_library_id TEXT,
     library_strategy TEXT,
@@ -367,6 +360,8 @@ CREATE TABLE experiment_submission (
     authority authority_type NOT NULL DEFAULT 'ENA',
     status submission_status NOT NULL DEFAULT 'draft',
 
+    project_accession TEXT,
+    sample_accession TEXT,
     prepared_payload JSONB,
     response_payload JSONB,
 
@@ -435,51 +430,6 @@ CREATE TABLE read (
     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
-
-CREATE TABLE read_submission (
-    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
-    read_id UUID NOT NULL REFERENCES read(id) ON DELETE CASCADE,
-    authority authority_type NOT NULL DEFAULT 'ENA',
-    status submission_status NOT NULL DEFAULT 'draft',
-
-    prepared_payload JSONB NOT NULL,
-    response_payload JSONB,
-
-    experiment_id UUID NOT NULL REFERENCES experiment(id) ON DELETE CASCADE,
-
-    accession TEXT,
-
-    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-    updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-
-    -- attempt linkage
-    attempt_id UUID,
-    finalised_attempt_id UUID,
-
-    -- broker lease/claim fields (attempt-scoped)
-    lock_acquired_at TIMESTAMPTZ,
-    lock_expires_at TIMESTAMPTZ,
-
-    -- constant to help the composite FK
-    entity_type_const entity_type NOT NULL DEFAULT 'read' CHECK (entity_type_const = 'read'),
-
-    -- When accession is present, it must exist in the registry AND map to this same experiment:
-  CONSTRAINT fk_self_accession
-    FOREIGN KEY (accession, authority, entity_type_const, read_id)
-    REFERENCES accession_registry (accession, authority, entity_type, entity_id)
-    DEFERRABLE INITIALLY DEFERRED
-);
-
-CREATE UNIQUE INDEX uq_read_one_accepted
-  ON read_submission (read_id, authority)
-  WHERE status = 'accepted' AND accession IS NOT NULL;
-
--- Broker lease/claim index
--- removed batch index; attempt-only
-CREATE INDEX IF NOT EXISTS idx_read_submission_attempt ON read_submission (attempt_id);
-CREATE INDEX IF NOT EXISTS idx_read_submission_finalised_attempt ON read_submission (finalised_attempt_id);
-CREATE INDEX IF NOT EXISTS idx_read_submission_status ON read_submission (status);
-CREATE INDEX IF NOT EXISTS idx_read_submission_lock_expires_at ON read_submission (lock_expires_at);
 
 -- ==========================================
 -- Broker Attempt table
@@ -664,6 +614,82 @@ CREATE INDEX idx_genome_note_published ON genome_note(taxon_id, is_published)
     WHERE is_published = TRUE;
 
 -- ==========================================
+-- QC Read tables
+-- ==========================================
+
+CREATE TABLE qc_read (
+    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    experiment_id UUID NOT NULL REFERENCES experiment(id) ON DELETE CASCADE,
+    base_count BIGINT NOT NULL,
+    read_count BIGINT NOT NULL,
+    qc_bases_removed BIGINT NOT NULL,
+    qc_reads_removed BIGINT NOT NULL,
+    mean_gc_content FLOAT NOT NULL,
+    n50_length BIGINT,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+CREATE TABLE qc_read_file (
+    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    qc_read_id UUID NOT NULL REFERENCES qc_read(id) ON DELETE CASCADE,
+    file_type TEXT NOT NULL CHECK (file_type IN ('cram', 'fastq_r1', 'fastq_r2')),
+    storage_backend TEXT NOT NULL,
+    storage_profile TEXT NOT NULL,
+    bucket_name TEXT NOT NULL,
+    path_to_file TEXT NOT NULL,
+    md5_checksum TEXT NOT NULL CHECK (md5_checksum ~ '^[a-f0-9]{32}$'),
+    sha256_checksum TEXT NOT NULL CHECK (sha256_checksum ~ '^[a-f0-9]{64}$'),
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+CREATE TABLE qc_read_submission (
+    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    qc_read_id UUID NOT NULL REFERENCES qc_read(id) ON DELETE CASCADE,
+    experiment_id UUID REFERENCES experiment(id) ON DELETE CASCADE,
+    authority authority_type NOT NULL DEFAULT 'ENA',
+    status submission_status NOT NULL DEFAULT 'draft',
+
+    prepared_payload JSONB NOT NULL,
+    response_payload JSONB,
+
+    accession TEXT,
+
+    -- constant to help the composite FK
+    entity_type_const entity_type NOT NULL DEFAULT 'qc_read' CHECK (entity_type_const = 'qc_read'),
+
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+
+    -- attempt linkage
+    attempt_id UUID,
+    finalised_attempt_id UUID,
+
+    -- broker lease/claim fields
+    lock_acquired_at TIMESTAMPTZ,
+    lock_expires_at TIMESTAMPTZ,
+
+    CONSTRAINT fk_qc_read_submission_accession
+        FOREIGN KEY (accession, authority, entity_type_const, qc_read_id)
+        REFERENCES accession_registry (accession, authority, entity_type, entity_id)
+        DEFERRABLE INITIALLY DEFERRED
+);
+
+-- QC read indexes
+CREATE INDEX idx_qc_read_experiment_id ON qc_read(experiment_id);
+CREATE INDEX idx_qc_read_file_qc_read_id ON qc_read_file(qc_read_id);
+CREATE INDEX idx_qc_read_submission_attempt ON qc_read_submission (attempt_id);
+CREATE INDEX idx_qc_read_submission_experiment_id ON qc_read_submission (experiment_id);
+CREATE INDEX idx_qc_read_submission_finalised_attempt ON qc_read_submission (finalised_attempt_id);
+CREATE INDEX idx_qc_read_submission_lock_expires_at ON qc_read_submission (lock_expires_at);
+CREATE INDEX idx_qc_read_submission_status ON qc_read_submission (status);
+
+CREATE UNIQUE INDEX uq_qc_read_one_accepted
+  ON qc_read_submission (qc_read_id, authority)
+  WHERE status = 'accepted' AND accession IS NOT NULL;
+
+-- ==========================================
 -- BPA initiative table
 -- ==========================================
 
@@ -678,5 +704,6 @@ CREATE TABLE bpa_initiative (
 -- Create indexes for common query patterns
 CREATE INDEX idx_sample_taxon_id ON sample(taxon_id);
 CREATE INDEX idx_experiment_sample_id ON experiment(sample_id);
+CREATE INDEX idx_experiment_project_id ON experiment(project_id);
 CREATE INDEX idx_assembly_sample_id ON assembly(sample_id);
 CREATE INDEX idx_assembly_taxon_id ON assembly(taxon_id);
