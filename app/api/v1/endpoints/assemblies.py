@@ -353,9 +353,12 @@ def create_assembly_intent(
     tax_id: int,
     intent_in: Optional[AssemblyIntent] = Body(default=None),
     current_user: User = Depends(get_current_active_user),
-) -> AssemblyIntentResponse:
+) -> Response:
     """
-    Reserve the next assembly version and return a manifest.
+    Reserve the next assembly version and return a manifest as YAML.
+
+    Returns:
+        YAML response with manifest data including assembly_run_id, version, status, and manifest fields
     """
     organism, selected_sample, reads, experiments = _get_manifest_inputs_by_tax_id(db, tax_id)
     try:
@@ -391,15 +394,22 @@ def create_assembly_intent(
     db.refresh(run)
 
     sample_metadata_by_id = _build_sample_metadata_by_id(db, experiments)
-    yaml_content = generate_assembly_manifest(
+    manifest_yaml = generate_assembly_manifest(
         organism, reads, experiments, run.tol_id, run.version, sample_metadata_by_id
     )
-    return AssemblyIntentResponse(
-        assembly_run_id=run.id,
-        version=run.version,
-        status=run.status,
-        manifest_yaml=yaml_content,
-    )
+
+    # Build complete YAML response including metadata and manifest
+    import yaml
+
+    response_data = {
+        "assembly_run_id": str(run.id),
+        "version": run.version,
+        "status": run.status,
+        "manifest": yaml.safe_load(manifest_yaml),
+    }
+    yaml_response = yaml.dump(response_data, default_flow_style=False, sort_keys=False)
+
+    return Response(content=yaml_response, media_type="application/x-yaml")
 
 
 @router.post("/intent/{tax_id}/cancel")

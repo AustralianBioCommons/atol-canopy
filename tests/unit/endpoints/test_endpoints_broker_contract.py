@@ -123,14 +123,19 @@ def test_claims_ready_returns_flat_entity_contract(monkeypatch):
     )
     run_row = SimpleNamespace(
         id=uuid4(),
-        read_id=run_id,
+        qc_read_id=run_id,
         experiment_id=experiment_id,  # FK to experiment
-        project_id=project_id,  # FK to project
         status="ready",
         prepared_payload={
             "alias": "run-1",
-            "file_name": "reads_1.fastq.gz",
-            "file_format": "fastq",
+            "files": [
+                {
+                    "filename": "reads_1.fastq.gz",
+                    "filetype": "fastq",
+                    "checksum": "abc123",
+                    "checksum_method": "MD5",
+                }
+            ],
             "expected_experiment_accession": "ERX000001",  # Required but not submitted
         },
         accession=None,

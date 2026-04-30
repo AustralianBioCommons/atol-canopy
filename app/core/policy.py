@@ -38,9 +38,9 @@ POLICY: Dict[str, List[str]] = {
     "reads:create": ["curator", "admin"],
     "reads:update": ["curator", "admin"],
     "reads:delete": ["admin", "superuser"],
-    # Read submissions
-    "read_submissions:read": ["admin", "curator", "broker", "genome_launcher"],
-    "read_submissions:write": ["curator", "admin"],
+    # QC reads
+    "qc_reads:report": ["genome_launcher", "admin"],
+    "qc_reads:delete": ["admin", "superuser"],
     # Projects
     "projects:create": ["curator", "admin"],
     "projects:update": ["curator", "admin"],

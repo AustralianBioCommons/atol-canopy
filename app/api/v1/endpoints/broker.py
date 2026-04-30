@@ -17,7 +17,7 @@ from app.models.broker import SubmissionAttempt, SubmissionEvent
 from app.models.experiment import Experiment, ExperimentSubmission
 from app.models.organism import Organism
 from app.models.project import Project, ProjectSubmission
-from app.models.read import Read, ReadSubmission
+from app.models.qc_read import QcRead, QcReadSubmission
 from app.models.sample import Sample, SampleSubmission
 from app.models.user import User
 from app.schemas.broker_contract import (
@@ -79,20 +79,22 @@ class ClaimRequest(BaseModel):
     # Optional explicit selection by submission IDs; if provided, organism_key is not enforced
     sample_submission_ids: Optional[List[UUID]] = None
     experiment_submission_ids: Optional[List[UUID]] = None
-    read_submission_ids: Optional[List[UUID]] = None
+    qc_read_submission_ids: Optional[List[UUID]] = None
     project_submission_ids: Optional[List[UUID]] = None
     # option to override lease, in mins
     lease_duration_minutes: Optional[int] = Field(default=None, ge=1, le=180)
 
 
 class ClaimByEntityRequest(BaseModel):
-    """Request to claim specific samples, experiments, and reads by their entity IDs."""
+    """Request to claim specific samples, experiments, and qc_reads by their entity IDs."""
 
     sample_ids: Optional[List[UUID]] = Field(default=None, description="Sample entity IDs to claim")
     experiment_ids: Optional[List[UUID]] = Field(
         default=None, description="Experiment entity IDs to claim"
     )
-    read_ids: Optional[List[UUID]] = Field(default=None, description="Read entity IDs to claim")
+    qc_read_ids: Optional[List[UUID]] = Field(
+        default=None, description="QcRead entity IDs to claim"
+    )
     project_ids: Optional[List[UUID]] = Field(
         default=None, description="Project entity IDs to claim"
     )
@@ -195,8 +197,8 @@ def _create_new_draft_submission_after_rejection(
         model_cls = ExperimentSubmission
         entity_fk_field = "experiment_id"
     elif entity_type == BrokerEntityType.RUN:
-        model_cls = ReadSubmission
-        entity_fk_field = "read_id"
+        model_cls = QcReadSubmission
+        entity_fk_field = "qc_read_id"
     elif entity_type == BrokerEntityType.PROJECT:
         model_cls = ProjectSubmission
         entity_fk_field = "project_id"
@@ -231,6 +233,8 @@ def _create_new_draft_submission_after_rejection(
     model_column_names = set(getattr(model_cls, "__table__").columns.keys())
     if hasattr(row, "project_id") and "project_id" in model_column_names:
         kwargs["project_id"] = getattr(row, "project_id", None)
+    if hasattr(row, "experiment_id") and "experiment_id" in model_column_names:
+        kwargs["experiment_id"] = getattr(row, "experiment_id", None)
     if hasattr(row, "biosample_accession") and "biosample_accession" in model_column_names:
         kwargs["biosample_accession"] = getattr(row, "biosample_accession", None)
 
@@ -479,18 +483,18 @@ def _query_ready_experiment_submissions(db: Session, tax_id: int) -> List[Experi
     )
 
 
-def _query_ready_run_submissions(db: Session, tax_id: int) -> List[ReadSubmission]:
+def _query_ready_run_submissions(db: Session, tax_id: int) -> List[QcReadSubmission]:
     return (
-        db.query(ReadSubmission)
-        .join(Read, ReadSubmission.read_id == Read.id)
-        .join(Experiment, Read.experiment_id == Experiment.id)
+        db.query(QcReadSubmission)
+        .join(QcRead, QcReadSubmission.qc_read_id == QcRead.id)
+        .join(Experiment, QcRead.experiment_id == Experiment.id)
         .join(Sample, Experiment.sample_id == Sample.id)
         .join(Organism, Sample.organism_key == Organism.grouping_key)
         .filter(
             Organism.tax_id == tax_id,
-            ReadSubmission.status.in_(CLAIMABLE_SUBMISSION_STATES),
+            QcReadSubmission.status.in_(CLAIMABLE_SUBMISSION_STATES),
         )
-        .order_by(ReadSubmission.created_at.desc())
+        .order_by(QcReadSubmission.created_at.desc())
         .with_for_update(skip_locked=True)
         .all()
     )
@@ -546,12 +550,12 @@ def _find_latest_claimable_entity_submission(
             .first()
         )
     return (
-        db.query(ReadSubmission)
+        db.query(QcReadSubmission)
         .filter(
-            ReadSubmission.read_id == entity_id,
-            ReadSubmission.status.in_(CLAIMABLE_SUBMISSION_STATES),
+            QcReadSubmission.qc_read_id == entity_id,
+            QcReadSubmission.status.in_(CLAIMABLE_SUBMISSION_STATES),
         )
-        .order_by(ReadSubmission.created_at.desc())
+        .order_by(QcReadSubmission.created_at.desc())
         .with_for_update(skip_locked=True)
         .first()
     )
@@ -583,9 +587,9 @@ def _find_latest_submission_for_validation(
             .first()
         )
     return (
-        db.query(ReadSubmission)
-        .filter(ReadSubmission.read_id == entity_id)
-        .order_by(ReadSubmission.created_at.desc())
+        db.query(QcReadSubmission)
+        .filter(QcReadSubmission.qc_read_id == entity_id)
+        .order_by(QcReadSubmission.created_at.desc())
         .first()
     )
 
@@ -617,12 +621,13 @@ def _lookup_taxonomy_for_entity(
             .first()
         )
     else:
+        # RUN entity_id is a qc_read_id; traverse qc_read → experiment → sample → organism
         row = (
             db.query(Sample.organism_key, Organism.tax_id)
             .join(Experiment, Experiment.sample_id == Sample.id)
-            .join(Read, Read.experiment_id == Experiment.id)
+            .join(QcRead, QcRead.experiment_id == Experiment.id)
             .join(Organism, Sample.organism_key == Organism.grouping_key)
-            .filter(Read.id == entity_id)
+            .filter(QcRead.id == entity_id)
             .first()
         )
 
@@ -745,9 +750,12 @@ def _find_submission_for_attempt(
         return result
     if entity_type == BrokerEntityType.RUN:
         result = (
-            db.query(ReadSubmission)
-            .filter(ReadSubmission.read_id == entity_id, ReadSubmission.attempt_id == attempt_id)
-            .order_by(ReadSubmission.created_at.desc())
+            db.query(QcReadSubmission)
+            .filter(
+                QcReadSubmission.qc_read_id == entity_id,
+                QcReadSubmission.attempt_id == attempt_id,
+            )
+            .order_by(QcReadSubmission.created_at.desc())
             .first()
         )
         return result
@@ -774,8 +782,8 @@ def _register_submission_accession(
         registry_entity_type = "experiment"
         registry_entity_id = row.experiment_id
     else:
-        registry_entity_type = "read"
-        registry_entity_id = row.read_id
+        registry_entity_type = "qc_read"
+        registry_entity_id = row.qc_read_id
 
     if registry_entity_id is None:
         return
@@ -813,7 +821,7 @@ def claim_ready_entities(
     experiment_rows = _latest_per_entity(
         _query_ready_experiment_submissions(db, tax_id), "experiment_id"
     )
-    run_rows = _latest_per_entity(_query_ready_run_submissions(db, tax_id), "read_id")
+    run_rows = _latest_per_entity(_query_ready_run_submissions(db, tax_id), "qc_read_id")
 
     if not any([project_rows, sample_rows, experiment_rows, run_rows]):
         # Return empty response when organism exists but has no claimable entities
@@ -844,8 +852,10 @@ def claim_ready_entities(
             _build_contract_entity(db, BrokerEntityType.EXPERIMENT, row.experiment_id, tax_id, row)
         )
     for row in run_rows:
-        _claim_submission_row(db, attempt=attempt, row=row, entity_type="read", now=now)
-        entities.append(_build_contract_entity(db, BrokerEntityType.RUN, row.read_id, tax_id, row))
+        _claim_submission_row(db, attempt=attempt, row=row, entity_type="qc_read", now=now)
+        entities.append(
+            _build_contract_entity(db, BrokerEntityType.RUN, row.qc_read_id, tax_id, row)
+        )
 
     db.commit()
 
@@ -880,7 +890,7 @@ def claim_specific_entity(
         db,
         attempt=attempt,
         row=row,
-        entity_type="read"
+        entity_type="qc_read"
         if payload.entity_type == BrokerEntityType.RUN
         else payload.entity_type.value,
         now=datetime.now(timezone.utc),
@@ -961,7 +971,7 @@ def claim_batch_entities(
             db,
             attempt=attempt,
             row=row,
-            entity_type="read" if entity_type == BrokerEntityType.RUN else entity_type.value,
+            entity_type="qc_read" if entity_type == BrokerEntityType.RUN else entity_type.value,
             now=now,
         )
         entities.append(_build_contract_entity(db, entity_type, entity_id, tax_id, row))
@@ -1045,7 +1055,7 @@ def report_submission_outcomes(
             db.add(
                 SubmissionEvent(
                     attempt_id=attempt_id,
-                    entity_type="read"
+                    entity_type="qc_read"
                     if _coerce_entity_type(result.entity_type) == BrokerEntityType.RUN
                     else _coerce_entity_type(result.entity_type).value,
                     submission_id=row.id,
@@ -1108,7 +1118,9 @@ def claim_by_entity_ids(
     # Expire any stale leases before claiming
     expire_stale_leases(db)
 
-    if not any([payload.sample_ids, payload.experiment_ids, payload.read_ids, payload.project_ids]):
+    if not any(
+        [payload.sample_ids, payload.experiment_ids, payload.qc_read_ids, payload.project_ids]
+    ):
         raise HTTPException(
             status_code=400,
             detail="At least one of sample_ids, experiment_ids, read_ids, or project_ids must be provided",
@@ -1320,27 +1332,32 @@ def claim_by_entity_ids(
                 )
             )
 
-    # Claim reads by entity IDs
-    if payload.read_ids:
-        read_rank_subq = (
+    # Claim qc_reads by entity IDs
+    if payload.qc_read_ids:
+        qc_read_rank_subq = (
             db.query(
-                ReadSubmission.id.label("id"),
-                ReadSubmission.read_id.label("read_id"),
+                QcReadSubmission.id.label("id"),
+                QcReadSubmission.qc_read_id.label("qc_read_id"),
                 func.row_number()
                 .over(
-                    partition_by=ReadSubmission.read_id,
-                    order_by=ReadSubmission.created_at.desc(),
+                    partition_by=QcReadSubmission.qc_read_id,
+                    order_by=QcReadSubmission.created_at.desc(),
                 )
                 .label("rn"),
-            ).filter(ReadSubmission.read_id.in_(payload.read_ids), ReadSubmission.status == "draft")
+            ).filter(
+                QcReadSubmission.qc_read_id.in_(payload.qc_read_ids),
+                QcReadSubmission.status == "draft",
+            )
         ).subquery()
 
-        read_ids_subq = (db.query(read_rank_subq.c.id).filter(read_rank_subq.c.rn == 1)).subquery()
+        qc_read_ids_subq = (
+            db.query(qc_read_rank_subq.c.id).filter(qc_read_rank_subq.c.rn == 1)
+        ).subquery()
 
         read_rows = (
-            db.query(ReadSubmission)
-            .filter(ReadSubmission.id.in_(db.query(read_ids_subq.c.id)))
-            .filter(ReadSubmission.status == "draft")
+            db.query(QcReadSubmission)
+            .filter(QcReadSubmission.id.in_(db.query(qc_read_ids_subq.c.id)))
+            .filter(QcReadSubmission.status == "draft")
             .with_for_update(skip_locked=True)
             .all()
         )
@@ -1353,17 +1370,17 @@ def claim_by_entity_ids(
             db.add(
                 SubmissionEvent(
                     attempt_id=attempt_id,
-                    entity_type="read",
+                    entity_type="qc_read",
                     submission_id=row.id,
                     action="claimed",
                 )
             )
         db.commit()
 
-        # Build relationships for reads -> experiment/experiment_submission
+        # Build relationships for qc_reads -> experiment/experiment_submission
         read_exp_ids = [r.experiment_id for r in read_rows]
 
-        # Get organism keys from reads via experiments and samples
+        # Get organism keys from qc_reads via experiments and samples
         if read_exp_ids:
             organism_keys = (
                 db.query(Sample.organism_key)
@@ -1379,7 +1396,7 @@ def claim_by_entity_ids(
             r.experiment_id: r for r in exp_rows
         }
 
-        # For reads whose experiments weren't claimed, fall back to latest accepted experiment submission
+        # For qc_reads whose experiments weren't claimed, fall back to latest accepted
         missing_exp_ids = [
             eid for eid in set(read_exp_ids) if eid not in claimed_exp_by_experiment_id
         ]
@@ -1412,7 +1429,7 @@ def claim_by_entity_ids(
             }
             claimed_reads.append(
                 ClaimedEntity(
-                    id=row.read_id,
+                    id=row.qc_read_id,
                     submission_id=row.id,
                     status=row.status,
                     prepared_payload=row.prepared_payload,
@@ -1729,40 +1746,42 @@ def claim_drafts_for_organism(
             )
         )
 
-    # Choose read rows by explicit IDs (if provided) else by organism/limit
-    if payload and payload.read_submission_ids:
+    # Choose qc_read rows by explicit IDs (if provided) else by organism/limit
+    if payload and payload.qc_read_submission_ids:
         read_rows = (
-            db.query(ReadSubmission)
-            .filter(ReadSubmission.id.in_(payload.read_submission_ids))
-            .filter(ReadSubmission.status == "draft")
+            db.query(QcReadSubmission)
+            .filter(QcReadSubmission.id.in_(payload.qc_read_submission_ids))
+            .filter(QcReadSubmission.status == "draft")
             .with_for_update(skip_locked=True)
             .all()
         )
     else:
-        read_rank_subq = (
+        qc_read_rank_subq = (
             db.query(
-                ReadSubmission.id.label("id"),
+                QcReadSubmission.id.label("id"),
                 func.row_number()
                 .over(
-                    partition_by=ReadSubmission.read_id,
-                    order_by=ReadSubmission.created_at.desc(),
+                    partition_by=QcReadSubmission.qc_read_id,
+                    order_by=QcReadSubmission.created_at.desc(),
                 )
                 .label("rn"),
             )
-            .join(Read, ReadSubmission.read_id == Read.id)
-            .join(Experiment, Read.experiment_id == Experiment.id)
+            .join(QcRead, QcReadSubmission.qc_read_id == QcRead.id)
+            .join(Experiment, QcRead.experiment_id == Experiment.id)
             .join(Sample, Experiment.sample_id == Sample.id)
-            .filter(Sample.organism_key == organism_key, ReadSubmission.status == "draft")
+            .filter(Sample.organism_key == organism_key, QcReadSubmission.status == "draft")
         ).subquery()
 
-        read_ids_subq = (
-            db.query(read_rank_subq.c.id).filter(read_rank_subq.c.rn == 1).limit(per_type_limit)
+        qc_read_ids_subq = (
+            db.query(qc_read_rank_subq.c.id)
+            .filter(qc_read_rank_subq.c.rn == 1)
+            .limit(per_type_limit)
         ).subquery()
 
         read_rows = (
-            db.query(ReadSubmission)
-            .filter(ReadSubmission.id.in_(db.query(read_ids_subq.c.id)))
-            .filter(ReadSubmission.status == "draft")
+            db.query(QcReadSubmission)
+            .filter(QcReadSubmission.id.in_(db.query(qc_read_ids_subq.c.id)))
+            .filter(QcReadSubmission.status == "draft")
             .with_for_update(skip_locked=True)
             .all()
         )
@@ -1773,19 +1792,19 @@ def claim_drafts_for_organism(
         row.lock_expires_at = attempt.lock_expires_at
         db.add(
             SubmissionEvent(
-                attempt_id=attempt_id, entity_type="read", submission_id=row.id, action="claimed"
+                attempt_id=attempt_id, entity_type="qc_read", submission_id=row.id, action="claimed"
             )
         )
     db.commit()
 
-    # Build relationships for reads -> experiment/experiment_submission
+    # Build relationships for qc_reads -> experiment/experiment_submission
     read_exp_ids = [r.experiment_id for r in read_rows]
     # Map of claimed experiment submissions: experiment_id -> ExperimentSubmission row
     claimed_exp_by_experiment_id: Dict[UUID, ExperimentSubmission] = {
         r.experiment_id: r for r in exp_rows
     }
 
-    # For reads whose experiments weren't claimed, fall back to latest accepted experiment submission
+    # For qc_reads whose experiments weren't claimed, fall back to latest accepted
     missing_exp_ids = [eid for eid in set(read_exp_ids) if eid not in claimed_exp_by_experiment_id]
     accepted_exp_by_experiment_id: Dict[UUID, ExperimentSubmission] = {}
     if missing_exp_ids:
@@ -1816,7 +1835,7 @@ def claim_drafts_for_organism(
         }
         claimed_reads.append(
             ClaimedEntity(
-                id=row.read_id,
+                id=row.qc_read_id,
                 submission_id=row.id,
                 status=row.status,
                 prepared_payload=row.prepared_payload,
@@ -1998,8 +2017,8 @@ def renew_attempt_lease(
     ):
         sub.lock_expires_at = new_exp
     for sub in (
-        db.query(ReadSubmission)
-        .filter(ReadSubmission.attempt_id == attempt_id, ReadSubmission.status == "submitting")
+        db.query(QcReadSubmission)
+        .filter(QcReadSubmission.attempt_id == attempt_id, QcReadSubmission.status == "submitting")
         .all()
     ):
         sub.lock_expires_at = new_exp
@@ -2071,10 +2090,10 @@ def finalise_attempt(
         )
         released["experiments"] += 1
 
-    # Reads
+    # QC reads
     read_rows = (
-        db.query(ReadSubmission)
-        .filter(ReadSubmission.attempt_id == attempt_id, ReadSubmission.status == "submitting")
+        db.query(QcReadSubmission)
+        .filter(QcReadSubmission.attempt_id == attempt_id, QcReadSubmission.status == "submitting")
         .all()
     )
     for sub in read_rows:
@@ -2084,7 +2103,10 @@ def finalise_attempt(
         sub.lock_expires_at = None
         db.add(
             SubmissionEvent(
-                attempt_id=attempt_id, entity_type="read", submission_id=sub.id, action="released"
+                attempt_id=attempt_id,
+                entity_type="qc_read",
+                submission_id=sub.id,
+                action="released",
             )
         )
         released["reads"] += 1
@@ -2298,26 +2320,29 @@ def report_results(
 
         updated_experiments += 1
 
-    # Process ReadSubmission updates
+    # Process QcReadSubmission updates
     for item in payload.reads:
         submission_id = item.submission_id or item.id
-        sub = db.query(ReadSubmission).filter(ReadSubmission.id == submission_id).first()
+        sub = db.query(QcReadSubmission).filter(QcReadSubmission.id == submission_id).first()
         if not sub:
-            raise HTTPException(status_code=404, detail=f"ReadSubmission {submission_id} not found")
-        if item.submission_id and sub.read_id != item.id:
+            raise HTTPException(
+                status_code=404, detail=f"QcReadSubmission {submission_id} not found"
+            )
+        if item.submission_id and sub.qc_read_id != item.id:
             raise HTTPException(
                 status_code=409,
-                detail=f"ReadSubmission {submission_id} does not match read entity id {item.id}",
+                detail=f"QcReadSubmission {submission_id} does not match qc_read entity id {item.id}",
             )
 
         if sub.status != "submitting":
             raise HTTPException(
-                status_code=409, detail=f"ReadSubmission {submission_id} not in 'submitting' state"
+                status_code=409,
+                detail=f"QcReadSubmission {submission_id} not in 'submitting' state",
             )
         if sub.attempt_id != provided_attempt_id:
             raise HTTPException(
                 status_code=409,
-                detail=f"ReadSubmission {submission_id} belongs to different attempt",
+                detail=f"QcReadSubmission {submission_id} belongs to different attempt",
             )
 
         sub.status = item.status
@@ -2335,17 +2360,16 @@ def report_results(
             )
             stmt = stmt.on_conflict_do_nothing(index_elements=[AccessionRegistry.accession])
             db.execute(stmt)
-            sub.experiment_accession = item.experiment_accession
 
         db.add(sub)
         db.flush()
 
-        if item.accession and sub.read_id is not None:
+        if item.accession and sub.qc_read_id is not None:
             stmt = insert(AccessionRegistry).values(
                 authority=sub.authority or "ENA",
                 accession=item.accession,
-                entity_type="read",
-                entity_id=sub.read_id,
+                entity_type="qc_read",
+                entity_id=sub.qc_read_id,
                 accepted_at=item.submitted_at or datetime.now(timezone.utc),
             )
             stmt = stmt.on_conflict_do_nothing(index_elements=[AccessionRegistry.accession])
@@ -2359,7 +2383,7 @@ def report_results(
             db.add(
                 SubmissionEvent(
                     attempt_id=attempt_id,
-                    entity_type="read",
+                    entity_type="qc_read",
                     submission_id=sub.id,
                     action=(
                         "accepted"
@@ -2370,6 +2394,12 @@ def report_results(
                     details=item.response_payload,
                 )
             )
+            if item.status == "rejected":
+                _create_new_draft_submission_after_rejection(
+                    db,
+                    entity_type=BrokerEntityType.RUN,
+                    row=sub,
+                )
 
         updated_reads += 1
 
@@ -2516,13 +2546,13 @@ def expire_stale_leases(db: Session) -> Dict[str, int]:
             )
         expired_counts["experiments"] += 1
 
-    # Expire read submissions
+    # Expire qc_read submissions
     read_rows = (
-        db.query(ReadSubmission)
+        db.query(QcReadSubmission)
         .filter(
-            ReadSubmission.status == "submitting",
-            ReadSubmission.lock_expires_at.isnot(None),
-            ReadSubmission.lock_expires_at <= now,
+            QcReadSubmission.status == "submitting",
+            QcReadSubmission.lock_expires_at.isnot(None),
+            QcReadSubmission.lock_expires_at <= now,
         )
         .all()
     )
@@ -2536,7 +2566,7 @@ def expire_stale_leases(db: Session) -> Dict[str, int]:
             db.add(
                 SubmissionEvent(
                     attempt_id=attempt_id,
-                    entity_type="read",
+                    entity_type="qc_read",
                     submission_id=sub.id,
                     action="expired",
                 )
@@ -2628,11 +2658,11 @@ def _counts_by_entity_for_attempt(db: Session, attempt_id: UUID) -> Dict[str, Di
         ),
         "reads": _counts_for_model(
             db,
-            ReadSubmission,
+            QcReadSubmission,
             [
                 or_(
-                    ReadSubmission.attempt_id == attempt_id,
-                    ReadSubmission.finalised_attempt_id == attempt_id,
+                    QcReadSubmission.attempt_id == attempt_id,
+                    QcReadSubmission.finalised_attempt_id == attempt_id,
                 )
             ],
         ),
@@ -2698,11 +2728,11 @@ def _get_attempt_items_with_relationships(
     )
     read_ids: set[UUID] = set(
         x[0]
-        for x in db.query(ReadSubmission.id)
+        for x in db.query(QcReadSubmission.id)
         .filter(
             or_(
-                ReadSubmission.attempt_id == attempt_id,
-                ReadSubmission.finalised_attempt_id == attempt_id,
+                QcReadSubmission.attempt_id == attempt_id,
+                QcReadSubmission.finalised_attempt_id == attempt_id,
             )
         )
         .all()
@@ -2740,7 +2770,7 @@ def _get_attempt_items_with_relationships(
         db.query(SubmissionEvent.submission_id)
         .filter(
             SubmissionEvent.attempt_id == attempt_id,
-            SubmissionEvent.entity_type == "read",
+            SubmissionEvent.entity_type == "qc_read",
         )
         .all()
     )
@@ -2769,7 +2799,9 @@ def _get_attempt_items_with_relationships(
         else []
     )
     reads = (
-        db.query(ReadSubmission).filter(ReadSubmission.id.in_(read_ids)).all() if read_ids else []
+        db.query(QcReadSubmission).filter(QcReadSubmission.id.in_(read_ids)).all()
+        if read_ids
+        else []
     )
     projects = (
         db.query(ProjectSubmission).filter(ProjectSubmission.id.in_(project_ids)).all()
@@ -2878,7 +2910,7 @@ def _get_attempt_items_with_relationships(
             }
             read_entity_list.append(
                 ClaimedEntity(
-                    id=row.read_id,
+                    id=row.qc_read_id,
                     submission_id=row.id,
                     status=row.status,
                     prepared_payload=row.prepared_payload,
@@ -3053,14 +3085,14 @@ def organism_summary(
     for st, cnt in e_rows:
         e_counts[st] = cnt
 
-    # Reads: ReadSubmission -> Read -> Experiment -> Sample
+    # QC reads: QcReadSubmission -> QcRead -> Experiment -> Sample
     r_rows = (
-        db.query(ReadSubmission.status, func.count())
-        .join(Read, ReadSubmission.read_id == Read.id)
-        .join(Experiment, Read.experiment_id == Experiment.id)
+        db.query(QcReadSubmission.status, func.count())
+        .join(QcRead, QcReadSubmission.qc_read_id == QcRead.id)
+        .join(Experiment, QcRead.experiment_id == Experiment.id)
         .join(Sample, Experiment.sample_id == Sample.id)
         .filter(Sample.organism_key == organism_key)
-        .group_by(ReadSubmission.status)
+        .group_by(QcReadSubmission.status)
         .all()
     )
     r_counts: Dict[str, int] = {"draft": 0, "submitting": 0, "accepted": 0, "rejected": 0}

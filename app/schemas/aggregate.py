@@ -48,19 +48,16 @@ class ExperimentSubmissionJson(BaseModel):
     lock_expires_at: Optional[datetime] = None
 
 
-class ReadSubmissionJson(BaseModel):
-    """Schema for read prepared_payload data with read ID"""
+class QcReadSubmissionJson(BaseModel):
+    """Schema for QC read submission data"""
 
-    read_id: UUID
-    experiment_id: UUID
-    file_name: Optional[str] = None
+    qc_read_id: UUID
+    experiment_id: Optional[UUID] = None
     prepared_payload: Optional[Dict[str, Any]] = None
     status: Optional[str] = None
     accession: Optional[str] = None
-    experiment_accession: Optional[str] = None
     authority: Optional[str] = None
     response_payload: Optional[Dict[str, Any]] = None
-    submitted_at: Optional[datetime] = None
 
     created_at: Optional[datetime] = None
     updated_at: Optional[datetime] = None
@@ -68,6 +65,8 @@ class ReadSubmissionJson(BaseModel):
     finalised_attempt_id: Optional[UUID] = None
     lock_acquired_at: Optional[datetime] = None
     lock_expires_at: Optional[datetime] = None
+
+    model_config = {"from_attributes": True}
 
 
 class OrganismSubmissionJsonResponse(BaseModel):
@@ -78,4 +77,4 @@ class OrganismSubmissionJsonResponse(BaseModel):
     scientific_name: Optional[str] = None
     samples: List[SampleSubmissionJson] = []
     experiments: List[ExperimentSubmissionJson] = []
-    reads: List[ReadSubmissionJson] = []
+    reads: List[QcReadSubmissionJson] = []

@@ -6,7 +6,8 @@ from sqlalchemy.orm import Session, selectinload
 from app.models.experiment import Experiment, ExperimentSubmission
 from app.models.organism import Organism
 from app.models.project import Project, ProjectSubmission
-from app.models.read import Read, ReadSubmission
+from app.models.qc_read import QcRead, QcReadSubmission
+from app.models.read import Read
 from app.models.sample import Sample, SampleSubmission
 from app.schemas.aggregate import OrganismSubmissionJsonResponse
 from app.schemas.bulk_import import BulkImportResponse
@@ -158,14 +159,16 @@ class OrganismService(BaseService[Organism, OrganismCreate, OrganismUpdate]):
                 )
                 response.experiments = experiment_submission_records
 
-                reads = db.query(Read).filter(Read.experiment_id.in_(experiment_ids)).all()
-                read_ids = [read.id for read in reads]
+                qc_reads = db.query(QcRead).filter(QcRead.experiment_id.in_(experiment_ids)).all()
+                qc_read_ids = [qr.id for qr in qc_reads]
 
-                if read_ids:
-                    read_submission_records = (
-                        db.query(ReadSubmission).filter(ReadSubmission.read_id.in_(read_ids)).all()
+                if qc_read_ids:
+                    qc_read_submission_records = (
+                        db.query(QcReadSubmission)
+                        .filter(QcReadSubmission.qc_read_id.in_(qc_read_ids))
+                        .all()
                     )
-                    response.reads = read_submission_records
+                    response.reads = qc_read_submission_records
 
         return response
 
