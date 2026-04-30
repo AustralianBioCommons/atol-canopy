@@ -18,6 +18,9 @@ depends_on = None
 def upgrade():
     op.execute("ALTER TABLE organism RENAME COLUMN tax_id TO taxon_id")
 
+    # Rename base_url to bioplatforms_base_url in experiment table (merged from 0010)
+    op.alter_column("experiment", "base_url", new_column_name="bioplatforms_base_url")
+
     op.drop_index("uq_one_project_type_per_organism", table_name="project")
     op.drop_index("uq_specimen_per_organism_specimen_id", table_name="sample")
     op.drop_index("idx_sample_organism_specimen_lookup", table_name="sample")
@@ -154,6 +157,9 @@ def downgrade():
     op.execute("ALTER TABLE organism DROP CONSTRAINT IF EXISTS organism_pkey")
     op.execute("ALTER TABLE organism ADD CONSTRAINT organism_pkey PRIMARY KEY (grouping_key)")
     op.execute("ALTER TABLE organism RENAME COLUMN taxon_id TO tax_id")
+
+    # Revert base_url rename (merged from 0010 downgrade)
+    op.alter_column("experiment", "bioplatforms_base_url", new_column_name="base_url")
 
 
 def _migrate_fk_column(table_name: str, *, nullable: bool) -> None:
