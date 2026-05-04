@@ -265,10 +265,7 @@ class AssemblyStageRun(Base):
         UUID(as_uuid=True), ForeignKey("assembly.id", ondelete="CASCADE"), nullable=False
     )
     stage_name = Column(Text, ForeignKey("assembly_stage.name"), nullable=False)
-    status = Column(
-        SQLAlchemyEnum("running", "succeeded", "failed", "cancelled", name="stage_run_status"),
-        nullable=False,
-    )
+    status = Column(Text, nullable=False)
     external_run_id = Column(Text, nullable=True)
     attempt = Column(Integer, nullable=False, default=1)
     stats = Column(JSONB, nullable=False, default=dict)

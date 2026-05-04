@@ -84,11 +84,28 @@ CREATE TABLE organism (
     ncbi_order TEXT,
     ncbi_family TEXT,
     busco_dataset_name TEXT,
-    augustus_dataset_name TEXT,
     bpa_json JSONB,
     taxonomy_lineage_json JSONB,
     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+-- ==========================================
+-- Taxonomy info table (1:1 extension of organism)
+-- ==========================================
+
+CREATE TABLE taxonomy_info (
+    taxon_id INT PRIMARY KEY REFERENCES organism(taxon_id) ON DELETE CASCADE,
+    busco_odb10_dataset_name TEXT,
+    busco_odb12_dataset_name TEXT,
+    find_plastid BOOLEAN,
+    hic_motif TEXT,
+    mitochondrial_genetic_code_id INTEGER,
+    mitohifi_reference_species TEXT,
+    oatk_hmm_name TEXT,
+    defined_class TEXT,
+    augustus_dataset_name TEXT,
+    genetic_code_id INTEGER
 );
 
 -- ==========================================
@@ -484,12 +501,12 @@ CREATE TABLE assembly (
     project_id UUID REFERENCES project(id),
 
     -- Assembly metadata
-    assembly_name TEXT NOT NULL,
+    assembly_name TEXT,
     assembly_type TEXT NOT NULL DEFAULT 'clone or isolate',
     tol_id TEXT,
     data_types assembly_data_types NOT NULL,
-    coverage FLOAT NOT NULL,
-    program TEXT NOT NULL,
+    coverage FLOAT,
+    program TEXT,
     mingaplength FLOAT,
     moleculetype molecule_type NOT NULL DEFAULT 'genomic DNA',
     description TEXT,
@@ -497,8 +514,15 @@ CREATE TABLE assembly (
     -- Auto-incremented version per (data_types, taxon_id, sample_id)
     version INTEGER NOT NULL DEFAULT 1,
 
+    -- Assembly lifecycle status
+    status TEXT NOT NULL DEFAULT 'requested',
+
     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-    updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+
+    CONSTRAINT ck_assembly_status CHECK (
+        status IN ('requested', 'running', 'curating', 'completed', 'failed', 'cancelled')
+    )
 );
 
 CREATE TABLE assembly_run (
@@ -571,6 +595,57 @@ CREATE TABLE assembly_read (
     read_id UUID NOT NULL REFERENCES read(id),
     PRIMARY KEY (assembly_id, read_id)
 );
+
+-- ==========================================
+-- Assembly stage catalog and reporting tables
+-- ==========================================
+
+CREATE TABLE assembly_stage (
+    name TEXT PRIMARY KEY,
+    category TEXT NOT NULL,
+    is_active BOOLEAN NOT NULL DEFAULT TRUE,
+    CONSTRAINT ck_assembly_stage_category CHECK (category IN ('pipeline', 'manual'))
+);
+
+-- Seed rows
+INSERT INTO assembly_stage (name, category) VALUES
+    ('genomeassembly', 'pipeline'),
+    ('ascc',           'pipeline'),
+    ('treeval',        'pipeline'),
+    ('curation-pretext', 'pipeline'),
+    ('manual-curation',  'manual');
+
+CREATE TABLE assembly_stage_run (
+    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    assembly_id UUID NOT NULL REFERENCES assembly(id) ON DELETE CASCADE,
+    stage_name TEXT NOT NULL REFERENCES assembly_stage(name),
+    status TEXT NOT NULL,
+    external_run_id TEXT,
+    attempt INTEGER NOT NULL DEFAULT 1,
+    stats JSONB NOT NULL DEFAULT '{}',
+    started_at TIMESTAMPTZ,
+    completed_at TIMESTAMPTZ,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    CONSTRAINT ck_assembly_stage_run_status CHECK (
+        status IN ('running', 'succeeded', 'failed', 'cancelled')
+    ),
+    CONSTRAINT uq_stage_run_assembly_stage_attempt UNIQUE (assembly_id, stage_name, attempt)
+);
+
+CREATE INDEX ix_assembly_stage_run_assembly_id ON assembly_stage_run(assembly_id);
+
+CREATE TABLE assembly_stage_run_file (
+    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    assembly_stage_run_id UUID NOT NULL REFERENCES assembly_stage_run(id) ON DELETE CASCADE,
+    storage_type TEXT NOT NULL,
+    storage_uri TEXT NOT NULL,
+    storage_details JSONB NOT NULL DEFAULT '{}',
+    sha256sum TEXT NOT NULL,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+CREATE INDEX ix_assembly_stage_run_file_run_id ON assembly_stage_run_file(assembly_stage_run_id);
 
 -- ==========================================
 -- Genome note tables
