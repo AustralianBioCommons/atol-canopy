@@ -47,7 +47,7 @@ from app.services.organism_service import organism_service
 
 router = APIRouter()
 
-
+# TODO remove tax_id refs and rely solely on taxon_id in organism table for all relationships and queries.
 def _organism_taxon_id(organism: Any) -> int:
     return organism.taxon_id if hasattr(organism, "taxon_id") else organism.tax_id
 

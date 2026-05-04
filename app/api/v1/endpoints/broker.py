@@ -51,6 +51,7 @@ class ClaimedEntity(BaseModel):
     id: UUID
     # Submission identifier (sample_submission.id / experiment_submission.id / ...)
     submission_id: UUID
+    kind: Optional[str] = None
     status: Optional[str] = None
     prepared_payload: Optional[Dict[str, Any]] = None
     accession: Optional[str] = None
@@ -1201,18 +1202,23 @@ def claim_by_entity_ids(
         db.commit()
 
         # Get organism keys from samples
+        sample_kind_by_id: Dict[UUID, str] = {}
         if sample_rows:
             sample_entity_ids = [r.sample_id for r in sample_rows]
-            taxon_ids = (
-                db.query(Sample.taxon_id).filter(Sample.id.in_(sample_entity_ids)).distinct().all()
+            sample_meta = (
+                db.query(Sample.id, Sample.taxon_id, Sample.kind)
+                .filter(Sample.id.in_(sample_entity_ids))
+                .all()
             )
-            taxon_ids_set.update(ok for (ok,) in taxon_ids)
+            taxon_ids_set.update(ok for _, ok, _ in sample_meta)
+            sample_kind_by_id = {sid: kind for sid, _, kind in sample_meta}
 
         for row in sample_rows:
             claimed_samples.append(
                 ClaimedEntity(
                     id=row.sample_id,
                     submission_id=row.id,
+                    kind=sample_kind_by_id.get(row.sample_id),
                     status=row.status,
                     prepared_payload=row.prepared_payload,
                     accession=row.accession,
@@ -1622,11 +1628,20 @@ def claim_drafts_for_organism(
         )
     db.commit()
 
+    sample_kind_by_id: Dict[UUID, str] = {}
+    if sample_rows:
+        sample_entity_ids = [r.sample_id for r in sample_rows]
+        sample_meta = (
+            db.query(Sample.id, Sample.kind).filter(Sample.id.in_(sample_entity_ids)).all()
+        )
+        sample_kind_by_id = {sid: kind for sid, kind in sample_meta}
+
     for row in sample_rows:
         claimed_samples.append(
             ClaimedEntity(
                 id=row.sample_id,
                 submission_id=row.id,
+                kind=sample_kind_by_id.get(row.sample_id),
                 status=row.status,
                 prepared_payload=row.prepared_payload,
                 accession=row.accession,
