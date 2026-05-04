@@ -64,9 +64,10 @@ def determine_assembly_data_types(experiments: List[Experiment]) -> AssemblyData
     elif has_nanopore:
         return AssemblyDataTypes.OXFORD_NANOPORE
     else:
+        # TODO decide if we relax this requirement and still return the manifest noting the available data types are not supported
         raise ValueError(
-            "No valid sequencing platforms detected in experiments. "
-            "Expected PACBIO_SMRT, OXFORD_NANOPORE, or ILLUMINA with Hi-C library strategy."
+            "No valid data types detected in experiments. "
+            "Expected PACBIO_SMRT (with or without Hi-C), OXFORD_NANOPORE (with or without Hi-C), or ILLUMINA with Hi-C."
         )
 
 
