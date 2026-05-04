@@ -1,3 +1,4 @@
+import yaml
 from typing import Any, Dict, List, Optional
 from uuid import UUID
 
@@ -9,7 +10,7 @@ from app.core.dependencies import get_current_active_user, get_db
 from app.core.errors import AppError
 from app.core.pagination import Pagination, apply_pagination, pagination_params
 from app.core.policy import policy
-from app.models.assembly import Assembly, AssemblyFile, AssemblyRun, AssemblySubmission
+from app.models.assembly import Assembly, AssemblyFile, AssemblyRun, AssemblyStageRun, AssemblySubmission
 from app.models.experiment import Experiment
 from app.models.organism import Organism
 from app.models.read import Read
@@ -26,6 +27,9 @@ from app.schemas.assembly import (
     AssemblyIntent,
     AssemblyIntentCancel,
     AssemblyIntentResponse,
+    AssemblyStageRunCreate,
+    AssemblyStageRunOut,
+    AssemblyStageRunUpdate,
     AssemblySubmissionCreate,
     AssemblySubmissionUpdate,
     AssemblyUpdate,
@@ -41,6 +45,7 @@ from app.services.assembly_helper import determine_assembly_data_types, generate
 from app.services.assembly_service import (
     assembly_file_service,
     assembly_service,
+    assembly_stage_run_service,
     assembly_submission_service,
 )
 from app.services.organism_service import organism_service
@@ -296,11 +301,11 @@ def get_assembly_manifest(
     *,
     db: Session = Depends(get_db),
     taxon_id: int,
-    version: Optional[int] = Query(None, description="Reserved manifest version to retrieve"),
+    version: Optional[int] = Query(None, description="Assembly version to retrieve"),
     current_user: User = Depends(get_current_active_user),
 ) -> Any:
     """
-    Retrieve the latest reserved assembly manifest YAML for an organism by taxon_id.
+    Retrieve the latest requested assembly manifest YAML for an organism by taxon_id.
 
     Returns YAML manifest with:
     - scientific_name and taxon_id from organism
@@ -313,31 +318,31 @@ def get_assembly_manifest(
     """
     organism, selected_sample, reads, experiments = _get_manifest_inputs_by_taxon_id(db, taxon_id)
 
-    run_query = (
-        db.query(AssemblyRun)
+    assembly_query = (
+        db.query(Assembly)
         .filter(
-            AssemblyRun.taxon_id == _organism_taxon_id(organism),
-            AssemblyRun.sample_id == selected_sample.id,
+            Assembly.taxon_id == _organism_taxon_id(organism),
+            Assembly.sample_id == selected_sample.id,
+            Assembly.status == "requested",
         )
-        .order_by(AssemblyRun.created_at.desc())
+        .order_by(Assembly.created_at.desc())
     )
     if version is not None:
-        run_query = run_query.filter(AssemblyRun.version == version)
-    assembly_run = run_query.first()
-    if not assembly_run:
-        raise HTTPException(status_code=404, detail="No reserved assembly manifest found")
+        assembly_query = assembly_query.filter(Assembly.version == version)
+    assembly = assembly_query.first()
+    if not assembly:
+        raise HTTPException(status_code=404, detail="No requested assembly manifest found")
 
     sample_metadata_by_id = _build_sample_metadata_by_id(db, experiments)
     yaml_content = generate_assembly_manifest(
         organism,
         reads,
         experiments,
-        assembly_run.tol_id,
-        assembly_run.version,
+        assembly.tol_id,
+        assembly.version,
         sample_metadata_by_id,
     )
 
-    # Return as YAML response
     return Response(content=yaml_content, media_type="application/x-yaml")
 
 
@@ -351,10 +356,10 @@ def create_assembly_intent(
     current_user: User = Depends(get_current_active_user),
 ) -> Response:
     """
-    Reserve the next assembly version and return a manifest as YAML.
+    Create an assembly record and return its manifest as YAML.
 
     Returns:
-        YAML response with manifest data including assembly_run_id, version, status, and manifest fields
+        YAML response with assembly_id, version, status, and manifest fields
     """
     organism, selected_sample, reads, experiments = _get_manifest_inputs_by_taxon_id(db, taxon_id)
     try:
@@ -370,37 +375,24 @@ def create_assembly_intent(
             },
         ) from exc
 
-    next_version = assembly_service.get_next_version(
+    assembly = assembly_service.create_from_intent(
         db,
         taxon_id=_organism_taxon_id(organism),
         sample_id=selected_sample.id,
         data_types=data_types,
-    )
-
-    run = AssemblyRun(
-        taxon_id=_organism_taxon_id(organism),
-        sample_id=selected_sample.id,
-        data_types=data_types,
-        version=next_version,
         tol_id=intent_in.tol_id if intent_in else None,
-        status="reserved",
+        project_id=None,
     )
-    db.add(run)
-    db.commit()
-    db.refresh(run)
 
     sample_metadata_by_id = _build_sample_metadata_by_id(db, experiments)
     manifest_yaml = generate_assembly_manifest(
-        organism, reads, experiments, run.tol_id, run.version, sample_metadata_by_id
+        organism, reads, experiments, assembly.tol_id, assembly.version, sample_metadata_by_id
     )
 
-    # Build complete YAML response including metadata and manifest
-    import yaml
-
     response_data = {
-        "assembly_run_id": str(run.id),
-        "version": run.version,
-        "status": run.status,
+        "assembly_id": str(assembly.id),
+        "version": assembly.version,
+        "status": assembly.status,
         "manifest": yaml.safe_load(manifest_yaml),
     }
     yaml_response = yaml.dump(response_data, default_flow_style=False, sort_keys=False)
@@ -417,7 +409,7 @@ def cancel_assembly_intent(
     cancel_in: AssemblyIntentCancel,
     current_user: User = Depends(get_current_active_user),
 ) -> Any:
-    """Cancel a reserved assembly intent by ID."""
+    """Cancel a requested assembly by ID."""
     organism = db.query(Organism).filter(Organism.taxon_id == taxon_id).first()
     if not organism:
         raise HTTPException(status_code=404, detail=f"Organism with taxon_id {taxon_id} not found")
@@ -431,40 +423,40 @@ def cancel_assembly_intent(
             detail=f"No specimen sample found for taxon_id {taxon_id}",
         )
 
-    run = (
-        db.query(AssemblyRun)
+    assembly = (
+        db.query(Assembly)
         .filter(
-            AssemblyRun.id == cancel_in.assembly_run_id,
-            AssemblyRun.taxon_id == _organism_taxon_id(organism),
-            AssemblyRun.sample_id == selected_sample_id,
-            AssemblyRun.status == "reserved",
+            Assembly.id == cancel_in.assembly_id,
+            Assembly.taxon_id == _organism_taxon_id(organism),
+            Assembly.sample_id == selected_sample_id,
+            Assembly.status == "requested",
         )
         .first()
     )
-    if not run:
-        raise HTTPException(status_code=404, detail="No reserved assembly intent found to cancel")
-    if cancel_in.version is not None and cancel_in.version != run.version:
+    if not assembly:
+        raise HTTPException(status_code=404, detail="No requested assembly found to cancel")
+    if cancel_in.version is not None and cancel_in.version != assembly.version:
         raise AppError(
             status_code=409,
             code="assembly_intent_version_mismatch",
-            message="Requested version does not match the reserved assembly intent",
+            message="Requested version does not match the assembly",
             details={
-                "assembly_run_id": str(run.id),
+                "assembly_id": str(assembly.id),
                 "requested_version": cancel_in.version,
-                "actual_version": run.version,
+                "actual_version": assembly.version,
             },
         )
 
-    run.status = "cancelled"
-    db.add(run)
+    assembly.status = "cancelled"
+    db.add(assembly)
     db.commit()
-    db.refresh(run)
+    db.refresh(assembly)
     return {
-        "id": str(run.id),
-        "taxon_id": run.taxon_id,
-        "sample_id": str(run.sample_id),
-        "version": run.version,
-        "status": run.status,
+        "id": str(assembly.id),
+        "taxon_id": assembly.taxon_id,
+        "sample_id": str(assembly.sample_id),
+        "version": assembly.version,
+        "status": assembly.status,
     }
 
 
@@ -518,6 +510,42 @@ def create_assembly(
 ) -> Any:
     assembly = assembly_service.create(db, obj_in=assembly_in)
     return assembly
+
+
+@router.get("/{assembly_id}/manifest")
+def get_manifest_by_assembly_id(
+    *,
+    db: Session = Depends(get_db),
+    assembly_id: UUID,
+    current_user: User = Depends(get_current_active_user),
+) -> Any:
+    """Retrieve the assembly manifest YAML for a specific assembly by ID."""
+    assembly = db.query(Assembly).filter(Assembly.id == assembly_id).first()
+    if not assembly:
+        raise HTTPException(status_code=404, detail="Assembly not found")
+
+    organism = db.query(Organism).filter(Organism.taxon_id == assembly.taxon_id).first()
+    if not organism:
+        raise HTTPException(status_code=404, detail="Organism not found for this assembly")
+
+    sample_ids = [
+        row[0]
+        for row in db.query(Sample.id).filter(Sample.taxon_id == assembly.taxon_id).all()
+    ]
+    experiments = db.query(Experiment).filter(Experiment.sample_id.in_(sample_ids)).all()
+    if not experiments:
+        raise HTTPException(status_code=404, detail="No experiments found for this assembly")
+
+    experiment_ids = [exp.id for exp in experiments]
+    reads = db.query(Read).filter(Read.experiment_id.in_(experiment_ids)).all()
+    if not reads:
+        raise HTTPException(status_code=404, detail="No reads found for this assembly")
+
+    sample_metadata_by_id = _build_sample_metadata_by_id(db, experiments)
+    yaml_content = generate_assembly_manifest(
+        organism, reads, experiments, assembly.tol_id, assembly.version, sample_metadata_by_id
+    )
+    return Response(content=yaml_content, media_type="application/x-yaml")
 
 
 @router.get("/{assembly_id}", response_model=AssemblySchema)
@@ -722,3 +750,66 @@ def delete_assembly_file(
 
     assembly_file_service.remove(db, id=file_id)
     return {"message": "File deleted successfully"}
+
+
+# ==========================================
+# Assembly Stage Run endpoints
+# ==========================================
+
+
+@router.get("/{assembly_id}/stage-runs", response_model=List[AssemblyStageRunOut])
+def list_stage_runs(
+    *,
+    db: Session = Depends(get_db),
+    assembly_id: UUID,
+    current_user: User = Depends(get_current_active_user),
+) -> Any:
+    """List all stage runs for an assembly, newest first."""
+    assembly = assembly_service.get(db, id=assembly_id)
+    if not assembly:
+        raise HTTPException(status_code=404, detail="Assembly not found")
+    return assembly_stage_run_service.get_by_assembly_id(db, assembly_id=assembly_id)
+
+
+@router.post("/{assembly_id}/stage-runs", response_model=AssemblyStageRunOut)
+@policy("assemblies:write")
+def create_stage_run(
+    *,
+    db: Session = Depends(get_db),
+    assembly_id: UUID,
+    run_in: AssemblyStageRunCreate,
+    current_user: User = Depends(get_current_active_user),
+) -> Any:
+    """Report a stage run result for an assembly."""
+    assembly = assembly_service.get(db, id=assembly_id)
+    if not assembly:
+        raise HTTPException(status_code=404, detail="Assembly not found")
+    return assembly_stage_run_service.create_with_files(
+        db,
+        assembly_id=assembly_id,
+        run_in=run_in,
+    )
+
+
+@router.patch("/{assembly_id}/stage-runs/{stage_run_id}", response_model=AssemblyStageRunOut)
+@policy("assemblies:write")
+def update_stage_run(
+    *,
+    db: Session = Depends(get_db),
+    assembly_id: UUID,
+    stage_run_id: UUID,
+    update_in: AssemblyStageRunUpdate,
+    current_user: User = Depends(get_current_active_user),
+) -> Any:
+    """Update status, stats, or files for an existing stage run."""
+    stage_run = (
+        db.query(AssemblyStageRun)
+        .filter(
+            AssemblyStageRun.id == stage_run_id,
+            AssemblyStageRun.assembly_id == assembly_id,
+        )
+        .first()
+    )
+    if not stage_run:
+        raise HTTPException(status_code=404, detail="Stage run not found")
+    return assembly_stage_run_service.update_with_files(db, db_obj=stage_run, update_in=update_in)

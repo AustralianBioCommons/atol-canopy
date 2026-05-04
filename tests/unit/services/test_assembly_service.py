@@ -326,3 +326,70 @@ class TestCreateFromExperiments:
 
             # The data_types should be determined from experiments (ILLUMINA+WGS = Hi-C)
             assert created_assembly_in.taxon_id == 172942
+
+
+class TestCreateFromIntent:
+    """Tests for create_from_intent method."""
+
+    def test_create_from_intent_creates_assembly_with_requested_status(
+        self, mock_db, assembly_service
+    ):
+        """create_from_intent should create an Assembly with status='requested'."""
+        sample_id = uuid.uuid4()
+        taxon_id = 172942
+
+        # get_next_version queries Assembly + AssemblyRun - both return None
+        mock_query = Mock()
+        mock_query.filter.return_value.scalar.return_value = None
+        mock_db.query.return_value = mock_query
+        mock_db.add = Mock()
+        mock_db.commit = Mock()
+        mock_db.refresh = Mock()
+
+        with patch.object(Assembly, "__init__", return_value=None):
+            assembly_service.create_from_intent(
+                mock_db,
+                taxon_id=taxon_id,
+                sample_id=sample_id,
+                data_types="PACBIO_SMRT",
+                tol_id="tol-999",
+                project_id=None,
+            )
+
+        # Should add the Assembly and commit
+        mock_db.add.assert_called_once()
+        added_obj = mock_db.add.call_args[0][0]
+        # The added object should be an Assembly with status="requested"
+        assert isinstance(added_obj, Assembly)
+        mock_db.commit.assert_called_once()
+
+    def test_create_from_intent_version_is_next(self, mock_db, assembly_service):
+        """create_from_intent assigns the next version based on existing assemblies."""
+        sample_id = uuid.uuid4()
+
+        mock_query = Mock()
+        # Assembly.version max = 2, AssemblyRun.version max = None → next version = 3
+        mock_query.filter.return_value.scalar.side_effect = [2, None]
+        mock_db.query.return_value = mock_query
+        mock_db.add = Mock()
+        mock_db.commit = Mock()
+        mock_db.refresh = Mock()
+
+        created_versions = []
+
+        original_init = Assembly.__init__
+
+        def capture_init(self, **kwargs):
+            created_versions.append(kwargs.get("version"))
+
+        with patch.object(Assembly, "__init__", capture_init):
+            assembly_service.create_from_intent(
+                mock_db,
+                taxon_id=172942,
+                sample_id=sample_id,
+                data_types="PACBIO_SMRT",
+                tol_id=None,
+                project_id=None,
+            )
+
+        assert created_versions == [3]

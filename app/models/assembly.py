@@ -2,6 +2,7 @@ import uuid
 
 from sqlalchemy import (
     BigInteger,
+    Boolean,
     Column,
     DateTime,
     Float,
@@ -9,6 +10,7 @@ from sqlalchemy import (
     Integer,
     PrimaryKeyConstraint,
     Text,
+    UniqueConstraint,
     func,
 )
 from sqlalchemy import Enum as SQLAlchemyEnum
@@ -33,7 +35,7 @@ class Assembly(Base):
     project_id = Column(UUID(as_uuid=True), ForeignKey("project.id"), nullable=True)
 
     # Assembly metadata fields
-    assembly_name = Column(Text, nullable=False)
+    assembly_name = Column(Text, nullable=True)
     assembly_type = Column(Text, nullable=False, default="clone or isolate")
     tol_id = Column(Text, nullable=True)
     data_types = Column(
@@ -48,9 +50,10 @@ class Assembly(Base):
         ),
         nullable=False,
     )
-    coverage = Column(Float, nullable=False)
-    program = Column(Text, nullable=False)
+    coverage = Column(Float, nullable=True)
+    program = Column(Text, nullable=True)
     mingaplength = Column(Float, nullable=True)
+    status = Column(Text, nullable=False, default="requested")
     moleculetype = Column(
         SQLAlchemyEnum("genomic DNA", "genomic RNA", name="molecule_type"),
         nullable=False,
@@ -240,3 +243,72 @@ class AssemblyRead(Base):
         "Assembly", backref=backref("assembly_reads", cascade="all, delete-orphan")
     )
     read = relationship("Read", backref=backref("reads_assembly", cascade="all, delete-orphan"))
+
+
+class AssemblyStage(Base):
+    """Catalog of known assembly pipeline/manual stages."""
+
+    __tablename__ = "assembly_stage"
+
+    name = Column(Text, primary_key=True)
+    category = Column(Text, nullable=False)
+    is_active = Column(Boolean, nullable=False, default=True)
+
+
+class AssemblyStageRun(Base):
+    """A single reported run of an assembly stage (pipeline or manual)."""
+
+    __tablename__ = "assembly_stage_run"
+
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    assembly_id = Column(
+        UUID(as_uuid=True), ForeignKey("assembly.id", ondelete="CASCADE"), nullable=False
+    )
+    stage_name = Column(Text, ForeignKey("assembly_stage.name"), nullable=False)
+    status = Column(
+        SQLAlchemyEnum("running", "succeeded", "failed", "cancelled", name="stage_run_status"),
+        nullable=False,
+    )
+    external_run_id = Column(Text, nullable=True)
+    attempt = Column(Integer, nullable=False, default=1)
+    stats = Column(JSONB, nullable=False, default=dict)
+    started_at = Column(DateTime(timezone=True), nullable=True)
+    completed_at = Column(DateTime(timezone=True), nullable=True)
+
+    created_at = Column(DateTime(timezone=True), nullable=False, server_default=func.now())
+    updated_at = Column(
+        DateTime(timezone=True),
+        nullable=False,
+        server_default=func.now(),
+        onupdate=func.now(),
+    )
+
+    __table_args__ = (
+        UniqueConstraint("assembly_id", "stage_name", "attempt", name="uq_stage_run_assembly_stage_attempt"),
+    )
+
+    assembly = relationship("Assembly", backref=backref("stage_runs", cascade="all, delete-orphan"))
+    stage = relationship("AssemblyStage", backref="runs")
+
+
+class AssemblyStageRunFile(Base):
+    """Files attached to an assembly stage run."""
+
+    __tablename__ = "assembly_stage_run_file"
+
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    assembly_stage_run_id = Column(
+        UUID(as_uuid=True),
+        ForeignKey("assembly_stage_run.id", ondelete="CASCADE"),
+        nullable=False,
+    )
+    storage_type = Column(Text, nullable=False)
+    storage_uri = Column(Text, nullable=False)
+    storage_details = Column(JSONB, nullable=False, default=dict)
+    sha256sum = Column(Text, nullable=False)
+
+    created_at = Column(DateTime(timezone=True), nullable=False, server_default=func.now())
+
+    stage_run = relationship(
+        "AssemblyStageRun", backref=backref("files", cascade="all, delete-orphan")
+    )
