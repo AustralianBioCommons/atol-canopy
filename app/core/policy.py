@@ -59,6 +59,11 @@ POLICY: Dict[str, List[str]] = {
     "admin:expire_leases": ["admin", "superuser"],
     # Broker
     "broker:claim": ["broker"],
+    # Taxonomy info
+    "taxonomy_info:create": ["curator", "admin"],
+    "taxonomy_info:update": ["curator", "admin"],
+    "taxonomy_info:delete": ["admin", "superuser"],
+    "taxonomy_info:bulk_import": ["curator", "admin"],
 }
 
 

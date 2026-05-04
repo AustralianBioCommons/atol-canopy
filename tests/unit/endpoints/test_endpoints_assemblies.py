@@ -342,7 +342,7 @@ def test_create_assembly_intent_invalid_data_types_returns_app_error(monkeypatch
     assert resp.status_code == 400
     body = resp.json()
     assert body["error"]["code"] == "assembly_intent_invalid_data_types"
-    assert "No valid sequencing platforms detected" in body["error"]["message"]
+    assert "No valid data types detected in experiments" in body["error"]["message"]
 
 
 def test_create_assembly_intent_allows_empty_body(monkeypatch):
