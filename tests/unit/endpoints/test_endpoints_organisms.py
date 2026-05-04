@@ -63,9 +63,9 @@ def test_organisms_list_and_not_found(monkeypatch):
         "ncbi_order": None,
         "ncbi_family": None,
         "busco_dataset_name": None,
-        "augustus_dataset_name": None,
         "bpa_json": None,
         "taxonomy_lineage_json": None,
+        "taxonomy_info": None,
         "created_at": now,
         "updated_at": now,
     }

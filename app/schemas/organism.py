@@ -1,15 +1,16 @@
+from __future__ import annotations
+
 from datetime import datetime
-from enum import Enum
-from typing import Dict, Optional
-from uuid import UUID
+from typing import TYPE_CHECKING, Dict, Optional
 
 from pydantic import BaseModel, ConfigDict, model_validator
 
-# Enum for submission status
-from app.schemas.common import SubmissionStatus
+from app.schemas.common import SubmissionStatus  # noqa: F401 – kept for consumers
+
+if TYPE_CHECKING:
+    from app.schemas.taxonomy_info import TaxonomyInfo as TaxonomyInfoSchema
 
 
-# Base Organism schema
 class OrganismBase(BaseModel):
     """Base Organism schema with common attributes."""
 
@@ -27,7 +28,6 @@ class OrganismBase(BaseModel):
     ncbi_order: Optional[str] = None
     ncbi_family: Optional[str] = None
     busco_dataset_name: Optional[str] = None
-    augustus_dataset_name: Optional[str] = None
     bpa_json: Optional[Dict] = None
     taxonomy_lineage_json: Optional[Dict] = None
 
@@ -40,14 +40,12 @@ class OrganismBase(BaseModel):
         return data
 
 
-# Schema for creating a new organism
 class OrganismCreate(OrganismBase):
     """Schema for creating a new organism."""
 
     pass
 
 
-# Schema for updating an existing organism
 class OrganismUpdate(BaseModel):
     """Schema for updating an existing organism."""
 
@@ -64,12 +62,10 @@ class OrganismUpdate(BaseModel):
     ncbi_order: Optional[str] = None
     ncbi_family: Optional[str] = None
     busco_dataset_name: Optional[str] = None
-    augustus_dataset_name: Optional[str] = None
     bpa_json: Optional[Dict] = None
     taxonomy_lineage_json: Optional[Dict] = None
 
 
-# Schema for organism in DB
 class OrganismInDBBase(OrganismBase):
     """Base schema for Organism in DB, includes id and timestamps."""
 
@@ -79,8 +75,13 @@ class OrganismInDBBase(OrganismBase):
     model_config = ConfigDict(from_attributes=True, populate_by_name=True)
 
 
-# Schema for returning organism information
 class Organism(OrganismInDBBase):
     """Schema for returning organism information."""
 
-    pass
+    taxonomy_info: Optional[TaxonomyInfoSchema] = None
+
+
+# Resolve forward references now that all schemas are defined.
+from app.schemas.taxonomy_info import TaxonomyInfo as TaxonomyInfoSchema  # noqa: E402
+
+Organism.model_rebuild()

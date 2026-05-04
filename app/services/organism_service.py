@@ -182,7 +182,6 @@ class OrganismService(BaseService[Organism, OrganismCreate, OrganismUpdate]):
             ncbi_order=organism_in.ncbi_order,
             ncbi_family=organism_in.ncbi_family,
             busco_dataset_name=organism_in.busco_dataset_name,
-            augustus_dataset_name=organism_in.augustus_dataset_name,
             taxonomy_lineage_json=organism_in.taxonomy_lineage_json,
             bpa_json=organism_in.model_dump(exclude_unset=True),
         )
@@ -275,7 +274,6 @@ class OrganismService(BaseService[Organism, OrganismCreate, OrganismUpdate]):
             "ncbi_order",
             "ncbi_family",
             "busco_dataset_name",
-            "augustus_dataset_name",
             "common_name",
             "common_name_source",
             "tax_string",
@@ -347,7 +345,6 @@ class OrganismService(BaseService[Organism, OrganismCreate, OrganismUpdate]):
                     ncbi_order=organism_data.get("ncbi_order"),
                     ncbi_family=organism_data.get("ncbi_family"),
                     busco_dataset_name=organism_data.get("busco_dataset_name"),
-                    augustus_dataset_name=organism_data.get("augustus_dataset_name"),
                     bpa_json=organism_data,
                 )
                 root_project = Project(

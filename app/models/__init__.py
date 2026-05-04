@@ -5,6 +5,7 @@ from app.models.broker import SubmissionAttempt, SubmissionEvent
 from app.models.experiment import Experiment, ExperimentSubmission
 from app.models.genome_note import GenomeNote
 from app.models.organism import Organism
+from app.models.taxonomy_info import TaxonomyInfo
 from app.models.project import Project
 from app.models.qc_read import QcRead, QcReadFile, QcReadSubmission
 from app.models.read import Read

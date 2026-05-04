@@ -40,7 +40,7 @@ class TestDetermineAssemblyDataTypes:
         experiments = [
             Mock(platform="ILLUMINA", library_strategy="Hi-C"),
         ]
-        with pytest.raises(ValueError, match="No valid sequencing platforms detected"):
+        with pytest.raises(ValueError, match="No valid data types detected in experiments"):
             determine_assembly_data_types(experiments)
 
     def test_illumina_wgs_treated_as_hic(self):
@@ -111,12 +111,12 @@ class TestDetermineAssemblyDataTypes:
         experiments = [
             Mock(platform="UNKNOWN", library_strategy="WGS"),
         ]
-        with pytest.raises(ValueError, match="No valid sequencing platforms detected"):
+        with pytest.raises(ValueError, match="No valid data types detected in experiments"):
             determine_assembly_data_types(experiments)
 
     def test_empty_experiments_raises_error(self):
         """Test that empty experiments list raises ValueError."""
-        with pytest.raises(ValueError, match="No valid sequencing platforms detected"):
+        with pytest.raises(ValueError, match="No valid data types detected in experiments"):
             determine_assembly_data_types([])
 
     def test_none_platform_ignored(self):

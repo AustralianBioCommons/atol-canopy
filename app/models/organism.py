@@ -1,7 +1,6 @@
-import uuid
-
 from sqlalchemy import Column, DateTime, Integer, Text, func
-from sqlalchemy.dialects.postgresql import JSONB, UUID
+from sqlalchemy.dialects.postgresql import JSONB
+from sqlalchemy.orm import relationship
 
 from app.db.session import Base
 
@@ -29,7 +28,6 @@ class Organism(Base):
     ncbi_order = Column(Text, nullable=True)
     ncbi_family = Column(Text, nullable=True)
     busco_dataset_name = Column(Text, nullable=True)
-    augustus_dataset_name = Column(Text, nullable=True)
     bpa_json = Column(JSONB, nullable=True)
     taxonomy_lineage_json = Column(JSONB, nullable=True)
     created_at = Column(DateTime(timezone=True), nullable=False, server_default=func.now())
@@ -38,4 +36,11 @@ class Organism(Base):
         nullable=False,
         server_default=func.now(),
         onupdate=func.now(),
+    )
+
+    taxonomy_info = relationship(
+        "TaxonomyInfo",
+        back_populates="organism",
+        uselist=False,
+        cascade="all, delete-orphan",
     )
