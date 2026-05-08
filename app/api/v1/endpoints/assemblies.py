@@ -1,9 +1,8 @@
-import json
 from typing import Any, Dict, List, Optional
 from uuid import UUID
 
 from fastapi import APIRouter, Body, Depends, HTTPException, Query
-from fastapi.responses import JSONResponse, Response
+from fastapi.responses import JSONResponse
 from sqlalchemy.orm import Session
 
 from app.core.dependencies import get_current_active_user, get_db
@@ -26,7 +25,6 @@ from app.schemas.assembly import (
     AssemblyFileUpdate,
     AssemblyIntent,
     AssemblyIntentCancel,
-    AssemblyIntentResponse,
     AssemblyStageRunCreate,
     AssemblyStageRunOut,
     AssemblyStageRunUpdate,
@@ -254,7 +252,7 @@ def create_assembly_intent(
     taxon_id: int,
     intent_in: AssemblyIntent = Body(...),
     current_user: User = Depends(get_current_active_user),
-) -> Response:
+) -> Any:
     """
     Create an assembly record using explicit specimen sample IDs and return its manifest as JSON.
 
@@ -318,13 +316,13 @@ def create_assembly_intent(
         )
         hic_experiments = [
             e for e in hic_experiments
-            if (e.library_strategy or "").upper() in ("HI-C", "WGS")
+            if (e.library_strategy or "").upper() == "HI-C"
         ]
         if not hic_experiments:
             raise AppError(
                 status_code=422,
                 code="no_hic_experiments",
-                message="No Hi-C experiments (ILLUMINA + Hi-C/WGS) found for hic_specimen_sample_id",
+                message="No Hi-C experiments (ILLUMINA + Hi-C) found for hic_specimen_sample_id",
                 details={"hic_specimen_sample_id": str(hic_sample.id)},
             )
         hic_exp_ids = [e.id for e in hic_experiments]
@@ -354,49 +352,50 @@ def create_assembly_intent(
         manifest_json=None,  # filled in step 9
     )
 
-    # 8. Build sample metadata and generate JSON manifest
-    all_reads = long_reads + hic_reads
-    sample_metadata_by_id = _build_sample_metadata_by_id(db, all_experiments)
-    manifest_data = generate_assembly_manifest_json(
-        organism=organism,
-        reads=all_reads,
-        experiments=all_experiments,
-        tol_id=assembly.tol_id,
-        version=assembly.version,
-        long_read_sample_id=long_read_sample.id,
-        hic_sample_id=hic_sample.id if hic_sample else None,
-        sample_metadata_by_id=sample_metadata_by_id,
-    )
-
-    # 9. Validate that the manifest contains eligible reads then persist it
-    long_read_keys = {"PACBIO_SMRT", "OXFORD_NANOPORE"}
-    if not any(k in manifest_data["reads"] for k in long_read_keys):
-        db.delete(assembly)
-        db.commit()
-        raise AppError(
-            status_code=422,
-            code="no_eligible_long_reads",
-            message=(
-                "No eligible long reads found for long_read_specimen_sample_id. "
-                "PacBio reads must end in .ccs.bam or hifi_reads.bam."
-            ),
-            details={"long_read_specimen_sample_id": str(long_read_sample.id)},
+    try:
+        # 8. Build sample metadata and generate JSON manifest
+        all_reads = long_reads + hic_reads
+        sample_metadata_by_id = _build_sample_metadata_by_id(db, all_experiments)
+        manifest_data = generate_assembly_manifest_json(
+            organism=organism,
+            reads=all_reads,
+            experiments=all_experiments,
+            tol_id=assembly.tol_id,
+            version=assembly.version,
+            long_read_sample_id=long_read_sample.id,
+            hic_sample_id=hic_sample.id if hic_sample else None,
+            sample_metadata_by_id=sample_metadata_by_id,
         )
 
-    if hic_sample and "Hi-C" not in manifest_data["reads"]:
+        # 9. Validate that the manifest contains eligible reads then persist it
+        long_read_keys = {"PACBIO_SMRT", "OXFORD_NANOPORE"}
+        if not any(k in manifest_data["reads"] for k in long_read_keys):
+            raise AppError(
+                status_code=422,
+                code="no_eligible_long_reads",
+                message=(
+                    "No eligible long reads found for long_read_specimen_sample_id. "
+                    "PacBio reads must end in .ccs.bam or hifi_reads.bam."
+                ),
+                details={"long_read_specimen_sample_id": str(long_read_sample.id)},
+            )
+
+        if hic_sample and "Hi-C" not in manifest_data["reads"]:
+            raise AppError(
+                status_code=422,
+                code="no_eligible_hic_reads",
+                message="No eligible Hi-C reads found for hic_specimen_sample_id",
+                details={"hic_specimen_sample_id": str(hic_sample.id)},
+            )
+
+        assembly.manifest_json = manifest_data
+        db.add(assembly)
+        db.commit()
+        db.refresh(assembly)
+    except Exception:
         db.delete(assembly)
         db.commit()
-        raise AppError(
-            status_code=422,
-            code="no_eligible_hic_reads",
-            message="No eligible Hi-C reads found for hic_specimen_sample_id",
-            details={"hic_specimen_sample_id": str(hic_sample.id)},
-        )
-
-    assembly.manifest_json = manifest_data
-    db.add(assembly)
-    db.commit()
-    db.refresh(assembly)
+        raise
 
     return JSONResponse(
         content={

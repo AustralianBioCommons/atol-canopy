@@ -37,12 +37,12 @@ class TestDetermineAssemblyDataTypes:
         with pytest.raises(ValueError, match="No valid data types detected in experiments"):
             determine_assembly_data_types(experiments)
 
-    def test_illumina_wgs_treated_as_hic(self):
+    def test_illumina_wgs_not_treated_as_hic(self):
         experiments = [
             Mock(platform="PACBIO_SMRT", library_strategy="WGS"),
             Mock(platform="ILLUMINA", library_strategy="WGS"),
         ]
-        assert determine_assembly_data_types(experiments) == AssemblyDataTypes.PACBIO_SMRT_HIC
+        assert determine_assembly_data_types(experiments) == AssemblyDataTypes.PACBIO_SMRT
 
     def test_pacbio_and_hic(self):
         experiments = [
@@ -54,7 +54,7 @@ class TestDetermineAssemblyDataTypes:
     def test_nanopore_and_hic(self):
         experiments = [
             Mock(platform="OXFORD_NANOPORE", library_strategy="WGS"),
-            Mock(platform="ILLUMINA", library_strategy="WGS"),
+            Mock(platform="ILLUMINA", library_strategy="Hi-C"),
         ]
         assert determine_assembly_data_types(experiments) == AssemblyDataTypes.OXFORD_NANOPORE_HIC
 
@@ -86,7 +86,7 @@ class TestDetermineAssemblyDataTypes:
     def test_case_insensitive_library_strategy(self):
         experiments = [
             Mock(platform="OXFORD_NANOPORE", library_strategy="WGS"),
-            Mock(platform="ILLUMINA", library_strategy="wgs"),
+            Mock(platform="ILLUMINA", library_strategy="hi-c"),
         ]
         assert determine_assembly_data_types(experiments) == AssemblyDataTypes.OXFORD_NANOPORE_HIC
 
@@ -359,8 +359,8 @@ class TestGenerateAssemblyManifestJson:
         assert resources["r1"][0]["url"] == "https://example.com/r1"
         assert resources["r2"][0]["url"] == "https://example.com/r2"
 
-    def test_wgs_treated_as_hic(self):
-        """ILLUMINA + WGS is treated as Hi-C."""
+    def test_wgs_not_treated_as_hic(self):
+        """ILLUMINA + WGS does not populate the Hi-C section."""
         organism = Mock(scientific_name="Test Species", taxon_id=12345)
         experiments = [
             Mock(
@@ -388,8 +388,7 @@ class TestGenerateAssemblyManifestJson:
             organism, reads, experiments, "tol1", 1, LONG_READ_SAMPLE_ID, HIC_SAMPLE_ID
         )
 
-        assert "Hi-C" in result["reads"]
-        assert "pkg-wgs" in result["reads"]["Hi-C"]
+        assert "Hi-C" not in result["reads"]
 
     def test_hic_section_omitted_when_no_hic_sample_id(self):
         """Hi-C section is absent when hic_sample_id is not supplied."""
@@ -498,6 +497,49 @@ class TestGenerateAssemblyManifestJson:
         assert "Hi-C" in result["reads"]
         assert "pkg-pacbio" in result["reads"]["PACBIO_SMRT"]
         assert "pkg-hic" in result["reads"]["Hi-C"]
+
+    def test_same_specimen_sample_can_supply_long_reads_and_hic(self):
+        """When the same specimen sample ID is used for both roles, both sections are populated."""
+        organism = Mock(scientific_name="Test Species", taxon_id=12345)
+        experiments = [
+            _make_pacbio_experiment(
+                exp_id="exp-pb",
+                bpa_package_id="pkg-pacbio",
+                sample_id=LONG_READ_SAMPLE_STR,
+            ),
+            _make_hic_experiment(
+                exp_id="exp-hic",
+                bpa_package_id="pkg-hic",
+                sample_id=LONG_READ_SAMPLE_STR,
+            ),
+        ]
+        reads = [
+            Mock(
+                id="r1",
+                experiment_id="exp-pb",
+                file_name="sample.ccs.bam",
+                file_checksum="abc123",
+                bioplatforms_url="https://example.com/pb",
+                read_number=None,
+                lane_number=None,
+            ),
+            Mock(
+                id="r2",
+                experiment_id="exp-hic",
+                file_name="hic_R1.fastq.gz",
+                file_checksum="def456",
+                bioplatforms_url="https://example.com/hic",
+                read_number="1",
+                lane_number="001",
+            ),
+        ]
+
+        result = generate_assembly_manifest_json(
+            organism, reads, experiments, "tol1", 1, LONG_READ_SAMPLE_ID, LONG_READ_SAMPLE_ID
+        )
+
+        assert "PACBIO_SMRT" in result["reads"]
+        assert "Hi-C" in result["reads"]
 
     def test_pacbio_and_ont_in_same_long_read_sample(self):
         """Both PacBio and ONT reads from the same long-read specimen appear in separate sections."""

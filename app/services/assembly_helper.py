@@ -18,7 +18,7 @@ def determine_assembly_data_types(experiments: List[Experiment]) -> AssemblyData
     Rules:
     - PACBIO_SMRT exists if: platform == "PACBIO_SMRT"
     - OXFORD_NANOPORE exists if: platform == "OXFORD_NANOPORE"
-    - Hi-C exists if: platform == "ILLUMINA" AND library_strategy in ("Hi-C", "WGS")
+    - Hi-C exists if: platform == "ILLUMINA" AND library_strategy == "Hi-C"
 
     Raises:
         ValueError: If no valid sequencing platforms are detected
@@ -35,7 +35,7 @@ def determine_assembly_data_types(experiments: List[Experiment]) -> AssemblyData
             has_pacbio = True
         if platform == "OXFORD_NANOPORE" and library_strategy in ("WGS", "WGA"):
             has_nanopore = True
-        if platform == "ILLUMINA" and library_strategy in ("HI-C", "WGS"):
+        if platform == "ILLUMINA" and library_strategy == "HI-C":
             has_hic = True
 
     if has_pacbio and has_nanopore and has_hic:
@@ -162,8 +162,12 @@ def generate_assembly_manifest_json(
         sample_meta = (sample_metadata_by_id or {}).get(sample_id, {}) if sample_id else {}
 
         # Route by specimen sample, then by platform
-        if sample_id == long_read_sample_str:
-            if platform == "PACBIO_SMRT" and read.file_name:
+        is_long_read_sample = sample_id == long_read_sample_str
+        is_hic_sample = hic_sample_str is not None and sample_id == hic_sample_str
+
+        if is_long_read_sample:
+        #TODO check logic
+            if platform == "PACBIO_SMRT" and library_strategy in ("WGS", "WGA") and read.file_name:
                 if read.file_name.endswith(".ccs.bam") or read.file_name.endswith("hifi_reads.bam"):
                     logger.info("Adding PacBio read: %s", read.file_name)
                     if bpa_package_id not in pacbio_by_package:
@@ -184,8 +188,8 @@ def generate_assembly_manifest_json(
                         "Skipping PacBio read %s — not .ccs.bam or hifi_reads.bam",
                         read.file_name,
                     )
-
-            elif platform == "OXFORD_NANOPORE":
+            # TODO check logic
+            elif platform == "OXFORD_NANOPORE" and library_strategy in ("WGS", "WGA"):
                 logger.info("Adding ONT read: %s", read.file_name)
                 if bpa_package_id not in ont_by_package:
                     entry = {
@@ -208,8 +212,8 @@ def generate_assembly_manifest_json(
                     platform,
                 )
 
-        elif hic_sample_str and sample_id == hic_sample_str:
-            if platform == "ILLUMINA" and library_strategy in ("HI-C", "WGS"):
+        if is_hic_sample:
+            if platform == "ILLUMINA" and library_strategy == "HI-C":
                 logger.info(
                     "Adding Hi-C read: %s (library_strategy=%s)", read.file_name, library_strategy
                 )
@@ -242,8 +246,7 @@ def generate_assembly_manifest_json(
                     platform,
                     library_strategy,
                 )
-
-        else:
+        elif not is_long_read_sample:
             logger.debug(
                 "Read %s sample_id=%s does not match either specimen sample, skipping",
                 read.id,
