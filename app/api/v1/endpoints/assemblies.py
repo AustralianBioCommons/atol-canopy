@@ -76,6 +76,17 @@ def _build_sample_metadata_by_id(
     }
 
 
+def _build_specimen_metadata(*samples: Sample) -> Dict[str, Dict[str, Any]]:
+    return {
+        str(sample.id): {
+            "bpa_sample_id": getattr(sample, "bpa_sample_id", None),
+            "specimen_id": getattr(sample, "specimen_id", None),
+        }
+        for sample in samples
+        if sample is not None
+    }
+
+
 def _validate_specimen_sample(
     db: Session, sample_id: UUID, taxon_id: int, field_name: str
 ) -> Sample:
@@ -108,6 +119,20 @@ def _validate_specimen_sample(
             },
         )
     return sample
+
+
+def _get_lineage_sample_ids_for_specimen(db: Session, specimen_sample: Sample) -> List[UUID]:
+    """Return specimen sample id plus any derived samples linked from it."""
+    derived_samples = (
+        db.query(Sample)
+        .filter(
+            Sample.derived_from_sample_id == specimen_sample.id,
+            Sample.taxon_id == specimen_sample.taxon_id,
+            Sample.kind == "derived",
+        )
+        .all()
+    )
+    return [specimen_sample.id] + [sample.id for sample in derived_samples]
 
 
 @router.get("/pipeline-inputs")
@@ -283,10 +308,14 @@ def create_assembly_intent(
         )
 
     # 4. Fetch long-read experiments (PacBio or ONT only) and their reads
+    long_read_lineage_sample_ids = _get_lineage_sample_ids_for_specimen(db, long_read_sample)
+    long_read_sample_id_map = {
+        str(sample_id): str(long_read_sample.id) for sample_id in long_read_lineage_sample_ids
+    }
     long_read_experiments = (
         db.query(Experiment)
         .filter(
-            Experiment.sample_id == long_read_sample.id,
+            Experiment.sample_id.in_(long_read_lineage_sample_ids),
             Experiment.platform.in_(["PACBIO_SMRT", "OXFORD_NANOPORE"]),
         )
         .all()
@@ -305,11 +334,16 @@ def create_assembly_intent(
     # 5. Fetch Hi-C experiments and reads if hic_sample is provided
     hic_experiments: List[Experiment] = []
     hic_reads: List[Read] = []
+    hic_sample_id_map: Dict[str, str] = {}
     if hic_sample:
+        hic_lineage_sample_ids = _get_lineage_sample_ids_for_specimen(db, hic_sample)
+        hic_sample_id_map = {
+            str(sample_id): str(hic_sample.id) for sample_id in hic_lineage_sample_ids
+        }
         hic_experiments = (
             db.query(Experiment)
             .filter(
-                Experiment.sample_id == hic_sample.id,
+                Experiment.sample_id.in_(hic_lineage_sample_ids),
                 Experiment.platform == "ILLUMINA",
             )
             .all()
@@ -355,7 +389,11 @@ def create_assembly_intent(
     try:
         # 8. Build sample metadata and generate JSON manifest
         all_reads = long_reads + hic_reads
-        sample_metadata_by_id = _build_sample_metadata_by_id(db, all_experiments)
+        sample_metadata_by_id = _build_specimen_metadata(long_read_sample, hic_sample)
+        sequencing_sample_to_specimen_sample_id = {
+            **long_read_sample_id_map,
+            **hic_sample_id_map,
+        }
         manifest_data = generate_assembly_manifest_json(
             organism=organism,
             reads=all_reads,
@@ -365,6 +403,7 @@ def create_assembly_intent(
             long_read_sample_id=long_read_sample.id,
             hic_sample_id=hic_sample.id if hic_sample else None,
             sample_metadata_by_id=sample_metadata_by_id,
+            sequencing_sample_to_specimen_sample_id=sequencing_sample_to_specimen_sample_id,
         )
 
         # 9. Validate that the manifest contains eligible reads then persist it

@@ -541,6 +541,52 @@ class TestGenerateAssemblyManifestJson:
         assert "PACBIO_SMRT" in result["reads"]
         assert "Hi-C" in result["reads"]
 
+    def test_derived_sample_reads_are_attributed_to_parent_specimen(self):
+        """Reads from derived sequencing samples are routed to the selected parent specimen."""
+        organism = Mock(scientific_name="Test Species", taxon_id=12345)
+        derived_sample_id = "cccccccc-cccc-cccc-cccc-cccccccccccc"
+        experiments = [
+            _make_pacbio_experiment(
+                exp_id="exp-derived",
+                bpa_package_id="pkg-derived",
+                sample_id=derived_sample_id,
+            ),
+        ]
+        reads = [
+            Mock(
+                id="r1",
+                experiment_id="exp-derived",
+                file_name="sample.ccs.bam",
+                file_checksum="abc123",
+                bioplatforms_url="https://example.com/pb",
+                read_number=None,
+                lane_number=None,
+            ),
+        ]
+        sample_metadata_by_id = {
+            LONG_READ_SAMPLE_STR: {
+                "bpa_sample_id": "102.100.100/9000",
+                "specimen_id": "SPEC-001",
+            }
+        }
+
+        result = generate_assembly_manifest_json(
+            organism,
+            reads,
+            experiments,
+            "tol1",
+            1,
+            LONG_READ_SAMPLE_ID,
+            sample_metadata_by_id=sample_metadata_by_id,
+            sequencing_sample_to_specimen_sample_id={
+                derived_sample_id: LONG_READ_SAMPLE_STR,
+            },
+        )
+
+        pkg = result["reads"]["PACBIO_SMRT"]["pkg-derived"]
+        assert pkg["sample_id"] == LONG_READ_SAMPLE_STR
+        assert pkg["specimen_id"] == "SPEC-001"
+
     def test_pacbio_and_ont_in_same_long_read_sample(self):
         """Both PacBio and ONT reads from the same long-read specimen appear in separate sections."""
         organism = Mock(scientific_name="Test Species", taxon_id=12345)

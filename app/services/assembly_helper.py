@@ -96,6 +96,7 @@ def generate_assembly_manifest_json(
     long_read_sample_id: UUID,
     hic_sample_id: Optional[UUID] = None,
     sample_metadata_by_id: Dict[str, Dict[str, Any]] | None = None,
+    sequencing_sample_to_specimen_sample_id: Dict[str, str] | None = None,
 ) -> Dict[str, Any]:
     """Generate an assembly manifest as a JSON-serialisable dict.
 
@@ -159,20 +160,26 @@ def generate_assembly_manifest_json(
         library_strategy = exp_info["library_strategy"]
         bpa_package_id = exp_info["bpa_package_id"]
         sample_id = exp_info["sample_id"]
-        sample_meta = (sample_metadata_by_id or {}).get(sample_id, {}) if sample_id else {}
+        resolved_sample_id = (
+            sequencing_sample_to_specimen_sample_id.get(sample_id, sample_id)
+            if sample_id and sequencing_sample_to_specimen_sample_id
+            else sample_id
+        )
+        sample_meta = (
+            (sample_metadata_by_id or {}).get(resolved_sample_id, {}) if resolved_sample_id else {}
+        )
 
         # Route by specimen sample, then by platform
-        is_long_read_sample = sample_id == long_read_sample_str
-        is_hic_sample = hic_sample_str is not None and sample_id == hic_sample_str
+        is_long_read_sample = resolved_sample_id == long_read_sample_str
+        is_hic_sample = hic_sample_str is not None and resolved_sample_id == hic_sample_str
 
         if is_long_read_sample:
-        #TODO check logic
             if platform == "PACBIO_SMRT" and library_strategy in ("WGS", "WGA") and read.file_name:
                 if read.file_name.endswith(".ccs.bam") or read.file_name.endswith("hifi_reads.bam"):
                     logger.info("Adding PacBio read: %s", read.file_name)
                     if bpa_package_id not in pacbio_by_package:
                         entry: Dict[str, Any] = {
-                            "sample_id": sample_id,
+                            "sample_id": resolved_sample_id,
                             "bpa_sample_id": sample_meta.get("bpa_sample_id"),
                             "specimen_id": sample_meta.get("specimen_id"),
                             "resources": [],
@@ -188,12 +195,11 @@ def generate_assembly_manifest_json(
                         "Skipping PacBio read %s — not .ccs.bam or hifi_reads.bam",
                         read.file_name,
                     )
-            # TODO check logic
             elif platform == "OXFORD_NANOPORE" and library_strategy in ("WGS", "WGA"):
                 logger.info("Adding ONT read: %s", read.file_name)
                 if bpa_package_id not in ont_by_package:
                     entry = {
-                        "sample_id": sample_id,
+                        "sample_id": resolved_sample_id,
                         "bpa_sample_id": sample_meta.get("bpa_sample_id"),
                         "specimen_id": sample_meta.get("specimen_id"),
                         "resources": [],
@@ -219,7 +225,7 @@ def generate_assembly_manifest_json(
                 )
                 if bpa_package_id not in hic_by_package:
                     hic_by_package[bpa_package_id] = {
-                        "sample_id": sample_id,
+                        "sample_id": resolved_sample_id,
                         "bpa_sample_id": sample_meta.get("bpa_sample_id"),
                         "specimen_id": sample_meta.get("specimen_id"),
                         "resources": {"r1": [], "r2": []},
@@ -248,9 +254,10 @@ def generate_assembly_manifest_json(
                 )
         elif not is_long_read_sample:
             logger.debug(
-                "Read %s sample_id=%s does not match either specimen sample, skipping",
+                "Read %s sample_id=%s resolved_sample_id=%s does not match either specimen sample, skipping",
                 read.id,
                 sample_id,
+                resolved_sample_id,
             )
 
     reads_section: Dict[str, Any] = {}
