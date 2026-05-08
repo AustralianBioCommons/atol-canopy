@@ -349,6 +349,160 @@ def test_create_assembly_intent_requires_specimen_sample_id():
     assert resp.status_code == 422
 
 
+def test_get_specimen_samples_for_assembly_returns_discovery_options():
+    client = TestClient(app)
+
+    organism = SimpleNamespace(scientific_name="Test Species", taxon_id=172942)
+    specimen_a_id = uuid4()
+    derived_a_id = uuid4()
+    specimen_b_id = uuid4()
+    specimen_c_id = uuid4()
+
+    specimen_a = SimpleNamespace(
+        id=specimen_a_id,
+        taxon_id=172942,
+        kind="specimen",
+        specimen_id="SPEC-001",
+        sex="female",
+    )
+    derived_a = SimpleNamespace(
+        id=derived_a_id,
+        taxon_id=172942,
+        kind="derived",
+        derived_from_sample_id=specimen_a_id,
+    )
+    specimen_b = SimpleNamespace(
+        id=specimen_b_id,
+        taxon_id=172942,
+        kind="specimen",
+        specimen_id=None,
+        sex="male",
+    )
+    specimen_c = SimpleNamespace(
+        id=specimen_c_id,
+        taxon_id=172942,
+        kind="specimen",
+        specimen_id="SPEC-003",
+        sex="unknown",
+    )
+
+    specimen_a_experiments = [
+        SimpleNamespace(
+            id="exp-pb",
+            sample_id=derived_a_id,
+            platform="PACBIO_SMRT",
+            library_strategy="WGS",
+        ),
+        SimpleNamespace(
+            id="exp-hic",
+            sample_id=specimen_a_id,
+            platform="ILLUMINA",
+            library_strategy="Hi-C",
+        ),
+    ]
+    specimen_b_experiments = [
+        SimpleNamespace(
+            id="exp-ont",
+            sample_id=specimen_b_id,
+            platform="OXFORD_NANOPORE",
+            library_strategy="WGA",
+        )
+    ]
+
+    class _Q:
+        def __init__(self, value):
+            self.value = value
+
+        def filter(self, *_a, **_k):
+            return self
+
+        def all(self):
+            return self.value if isinstance(self.value, list) else []
+
+        def first(self):
+            return self.value if not isinstance(self.value, list) else None
+
+    class _DB:
+        def __init__(self):
+            self.calls = 0
+
+        def query(self, _model):
+            self.calls += 1
+            if self.calls == 1:
+                return _Q(organism)
+            if self.calls == 2:
+                return _Q([specimen_a, specimen_b, specimen_c])
+            if self.calls == 3:
+                return _Q([derived_a])
+            if self.calls == 4:
+                return _Q(specimen_a_experiments)
+            if self.calls == 5:
+                return _Q([])
+            if self.calls == 6:
+                return _Q(specimen_b_experiments)
+            if self.calls == 7:
+                return _Q([])
+            if self.calls == 8:
+                return _Q([])
+            return _Q([])
+
+    app.dependency_overrides[assemblies.get_current_active_user] = lambda: SimpleNamespace(
+        is_active=True, roles=["admin"], is_superuser=False
+    )
+    app.dependency_overrides[assemblies.get_db] = _override_db(_DB())
+
+    resp = client.get("/api/v1/assemblies/specimen-samples/172942")
+
+    assert resp.status_code == 200
+    body = resp.json()
+    assert body["taxon_id"] == 172942
+    assert body["specimen_samples"] == [
+        {
+            "sample_id": str(specimen_a_id),
+            "specimen_id": "SPEC-001",
+            "sex": "female",
+            "available_data_types": ["PACBIO_SMRT", "Hi-C"],
+        },
+        {
+            "sample_id": str(specimen_b_id),
+            "specimen_id": None,
+            "sex": "male",
+            "available_data_types": ["OXFORD_NANOPORE"],
+        },
+        {
+            "sample_id": str(specimen_c_id),
+            "specimen_id": "SPEC-003",
+            "sex": "unknown",
+            "available_data_types": [],
+        },
+    ]
+
+
+def test_get_specimen_samples_for_assembly_returns_404_for_unknown_taxon():
+    client = TestClient(app)
+
+    class _Q:
+        def filter(self, *_a, **_k):
+            return self
+
+        def first(self):
+            return None
+
+    class _DB:
+        def query(self, _model):
+            return _Q()
+
+    app.dependency_overrides[assemblies.get_current_active_user] = lambda: SimpleNamespace(
+        is_active=True, roles=["admin"], is_superuser=False
+    )
+    app.dependency_overrides[assemblies.get_db] = _override_db(_DB())
+
+    resp = client.get("/api/v1/assemblies/specimen-samples/999999")
+
+    assert resp.status_code == 404
+    assert "not found" in resp.json()["error"]["message"]
+
+
 def test_create_assembly_intent_rejects_non_specimen_sample():
     client = TestClient(app)
 

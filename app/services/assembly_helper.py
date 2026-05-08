@@ -1,7 +1,7 @@
 """Helper functions for assembly operations."""
 
 import logging
-from typing import Any, Dict, List, Optional, Set
+from typing import Any, Dict, List, Optional, Set, Tuple
 from uuid import UUID
 
 from app.models.experiment import Experiment
@@ -12,17 +12,8 @@ from app.schemas.assembly import AssemblyDataTypes
 logger = logging.getLogger(__name__)
 
 
-def determine_assembly_data_types(experiments: List[Experiment]) -> AssemblyDataTypes:
-    """Determine assembly data_types based on experiments.
-
-    Rules:
-    - PACBIO_SMRT exists if: platform == "PACBIO_SMRT"
-    - OXFORD_NANOPORE exists if: platform == "OXFORD_NANOPORE"
-    - Hi-C exists if: platform == "ILLUMINA" AND library_strategy == "Hi-C"
-
-    Raises:
-        ValueError: If no valid sequencing platforms are detected
-    """
+def _detect_assembly_data_type_flags(experiments: List[Experiment]) -> Tuple[bool, bool, bool]:
+    """Return booleans for PacBio, ONT, and Hi-C using assembly classification rules."""
     has_pacbio = False
     has_nanopore = False
     has_hic = False
@@ -37,6 +28,42 @@ def determine_assembly_data_types(experiments: List[Experiment]) -> AssemblyData
             has_nanopore = True
         if platform == "ILLUMINA" and library_strategy == "HI-C":
             has_hic = True
+
+    return has_pacbio, has_nanopore, has_hic
+
+
+def get_available_assembly_data_types(experiments: List[Experiment]) -> List[str]:
+    """Return atomic data types available for a specimen sample.
+
+    This is used by discovery flows, so a sample with only Hi-C data should still
+    report ["Hi-C"] even though that combination is not sufficient for creating an
+    assembly intent on its own.
+    """
+    has_pacbio, has_nanopore, has_hic = _detect_assembly_data_type_flags(experiments)
+    available_data_types: List[str] = []
+
+    if has_pacbio:
+        available_data_types.append("PACBIO_SMRT")
+    if has_nanopore:
+        available_data_types.append("OXFORD_NANOPORE")
+    if has_hic:
+        available_data_types.append("Hi-C")
+
+    return available_data_types
+
+
+def determine_assembly_data_types(experiments: List[Experiment]) -> AssemblyDataTypes:
+    """Determine assembly data_types based on experiments.
+
+    Rules:
+    - PACBIO_SMRT exists if: platform == "PACBIO_SMRT"
+    - OXFORD_NANOPORE exists if: platform == "OXFORD_NANOPORE"
+    - Hi-C exists if: platform == "ILLUMINA" AND library_strategy == "Hi-C"
+
+    Raises:
+        ValueError: If no valid sequencing platforms are detected
+    """
+    has_pacbio, has_nanopore, has_hic = _detect_assembly_data_type_flags(experiments)
 
     if has_pacbio and has_nanopore and has_hic:
         return AssemblyDataTypes.PACBIO_SMRT_OXFORD_NANOPORE_HIC

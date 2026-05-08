@@ -19,6 +19,14 @@ class AssemblyDataTypes(str, Enum):
     PACBIO_SMRT_OXFORD_NANOPORE_HIC = "PACBIO_SMRT_OXFORD_NANOPORE_HIC"
 
 
+class AssemblySpecimenSampleDataType(str, Enum):
+    """Atomic data types exposed by specimen-sample discovery."""
+
+    PACBIO_SMRT = "PACBIO_SMRT"
+    OXFORD_NANOPORE = "OXFORD_NANOPORE"
+    HIC = "Hi-C"
+
+
 class AssemblyFileType(str, Enum):
     """Enum for assembly file types."""
 
@@ -87,6 +95,22 @@ class AssemblyIntentResponse(BaseModel):
     version: int
     status: str
     manifest_json: Dict[str, Any]
+
+
+class AssemblySpecimenSampleOption(BaseModel):
+    """Assembly discovery metadata for a specimen sample."""
+
+    sample_id: UUID
+    specimen_id: Optional[str] = None
+    sex: Optional[str] = None
+    available_data_types: List[AssemblySpecimenSampleDataType] = Field(default_factory=list)
+
+
+class AssemblySpecimenSampleDiscoveryResponse(BaseModel):
+    """Response schema for assembly specimen-sample discovery."""
+
+    taxon_id: int
+    specimen_samples: List[AssemblySpecimenSampleOption]
 
 
 class AssemblyIntentCancel(BaseModel):

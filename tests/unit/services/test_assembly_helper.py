@@ -12,6 +12,7 @@ from app.schemas.assembly import AssemblyDataTypes
 from app.services.assembly_helper import (
     determine_assembly_data_types,
     generate_assembly_manifest_json,
+    get_available_assembly_data_types,
     get_detected_platforms,
 )
 
@@ -105,6 +106,30 @@ class TestDetermineAssemblyDataTypes:
             Mock(platform="PACBIO_SMRT", library_strategy="WGS"),
         ]
         assert determine_assembly_data_types(experiments) == AssemblyDataTypes.PACBIO_SMRT
+
+
+class TestGetAvailableAssemblyDataTypes:
+    """Tests for discovery-oriented assembly data type detection."""
+
+    def test_hic_only_is_reported_for_discovery(self):
+        experiments = [Mock(platform="ILLUMINA", library_strategy="Hi-C")]
+        assert get_available_assembly_data_types(experiments) == ["Hi-C"]
+
+    def test_returns_atomic_data_types_in_stable_order(self):
+        experiments = [
+            Mock(platform="ILLUMINA", library_strategy="Hi-C"),
+            Mock(platform="OXFORD_NANOPORE", library_strategy="WGS"),
+            Mock(platform="PACBIO_SMRT", library_strategy="WGA"),
+        ]
+        assert get_available_assembly_data_types(experiments) == [
+            "PACBIO_SMRT",
+            "OXFORD_NANOPORE",
+            "Hi-C",
+        ]
+
+    def test_ignores_non_assembly_illumina_wgs(self):
+        experiments = [Mock(platform="ILLUMINA", library_strategy="WGS")]
+        assert get_available_assembly_data_types(experiments) == []
 
 
 class TestGetDetectedPlatforms:

@@ -25,6 +25,7 @@ from app.schemas.assembly import (
     AssemblyFileUpdate,
     AssemblyIntent,
     AssemblyIntentCancel,
+    AssemblySpecimenSampleDiscoveryResponse,
     AssemblyStageRunCreate,
     AssemblyStageRunOut,
     AssemblyStageRunUpdate,
@@ -42,6 +43,7 @@ from app.schemas.common import SubmissionStatus
 from app.services.assembly_helper import (
     determine_assembly_data_types,
     generate_assembly_manifest_json,
+    get_available_assembly_data_types,
 )
 from app.services.assembly_service import (
     assembly_file_service,
@@ -133,6 +135,45 @@ def _get_lineage_sample_ids_for_specimen(db: Session, specimen_sample: Sample) -
         .all()
     )
     return [specimen_sample.id] + [sample.id for sample in derived_samples]
+
+
+@router.get("/specimen-samples/{taxon_id}", response_model=AssemblySpecimenSampleDiscoveryResponse)
+def get_specimen_samples_for_assembly(
+    *,
+    db: Session = Depends(get_db),
+    taxon_id: int,
+    current_user: User = Depends(get_current_active_user),
+) -> Any:
+    """Return specimen samples and available assembly data types for a taxon."""
+    organism = db.query(Organism).filter(Organism.taxon_id == taxon_id).first()
+    if not organism:
+        raise HTTPException(status_code=404, detail=f"Organism with taxon_id {taxon_id} not found")
+
+    organism_taxon_id = _organism_taxon_id(organism)
+    specimen_samples = (
+        db.query(Sample)
+        .filter(Sample.taxon_id == organism_taxon_id, Sample.kind == "specimen")
+        .all()
+    )
+
+    specimen_sample_options = []
+    for specimen_sample in specimen_samples:
+        lineage_sample_ids = _get_lineage_sample_ids_for_specimen(db, specimen_sample)
+        experiments = db.query(Experiment).filter(Experiment.sample_id.in_(lineage_sample_ids)).all()
+
+        specimen_sample_options.append(
+            {
+                "sample_id": specimen_sample.id,
+                "specimen_id": specimen_sample.specimen_id,
+                "sex": specimen_sample.sex,
+                "available_data_types": get_available_assembly_data_types(experiments),
+            }
+        )
+
+    return {
+        "taxon_id": organism_taxon_id,
+        "specimen_samples": specimen_sample_options,
+    }
 
 
 @router.get("/pipeline-inputs")
