@@ -103,6 +103,37 @@ class Experiment(ExperimentInDBBase):
     pass
 
 
+class ExperimentDetail(ExperimentInDBBase):
+    """Detailed experiment schema used by nested aggregate endpoints."""
+
+    project_id: UUID
+    bioplatforms_base_url: Optional[str] = None
+    design_description: Optional[str] = None
+    bpa_library_id: Optional[str] = None
+    library_strategy: Optional[str] = None
+    library_source: Optional[str] = None
+    insert_size: Optional[str] = None
+    library_construction_protocol: Optional[str] = None
+    library_selection: Optional[str] = None
+    library_layout: Optional[str] = None
+    instrument_model: Optional[str] = None
+    platform: Optional[str] = None
+    material_extracted_by: Optional[str] = None
+    library_prepared_by: Optional[str] = None
+    sequencing_kit: Optional[str] = None
+    flowcell_type: Optional[str] = None
+    base_caller_model: Optional[str] = None
+    data_owner: Optional[str] = None
+    project_collaborators: Optional[str] = None
+    extraction_method: Optional[str] = None
+    nucleic_acid_treatment: Optional[str] = None
+    extraction_protocol_doi: Optional[str] = None
+    nucleic_acid_conc: Optional[str] = None
+    nucleic_acid_volume: Optional[str] = None
+    gal: Optional[str] = None
+    raw_data_release_date: Optional[str] = None
+
+
 # Base ExperimentSubmission schema
 class ExperimentSubmissionBase(BaseModel):
     """Base ExperimentSubmission schema with common attributes."""

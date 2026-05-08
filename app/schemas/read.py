@@ -69,6 +69,19 @@ class Read(ReadInDBBase):
     pass
 
 
+class ReadDetail(ReadInDBBase):
+    """Detailed read schema used by nested aggregate endpoints."""
+
+    bpa_dataset_id: Optional[str] = None
+    file_name: Optional[str] = None
+    file_checksum: Optional[str] = None
+    file_format: Optional[str] = None
+    optional_file: bool
+    bioplatforms_url: Optional[str] = None
+    read_number: Optional[str] = None
+    lane_number: Optional[str] = None
+
+
 # Base ReadSubmission schema
 class ReadSubmissionBase(BaseModel):
     """Base ReadSubmission schema with common attributes."""
