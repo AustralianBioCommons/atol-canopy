@@ -1,9 +1,8 @@
 """Helper functions for assembly operations."""
 
 import logging
-from typing import Any, Dict, List, Set
-
-import yaml
+from typing import Any, Dict, List, Optional, Set
+from uuid import UUID
 
 from app.models.experiment import Experiment
 from app.models.organism import Organism
@@ -21,12 +20,6 @@ def determine_assembly_data_types(experiments: List[Experiment]) -> AssemblyData
     - OXFORD_NANOPORE exists if: platform == "OXFORD_NANOPORE"
     - Hi-C exists if: platform == "ILLUMINA" AND library_strategy in ("Hi-C", "WGS")
 
-    Args:
-        experiments: List of Experiment objects
-
-    Returns:
-        AssemblyDataTypes enum value based on detected platforms
-
     Raises:
         ValueError: If no valid sequencing platforms are detected
     """
@@ -38,19 +31,13 @@ def determine_assembly_data_types(experiments: List[Experiment]) -> AssemblyData
         platform = exp.platform.upper() if exp.platform else ""
         library_strategy = exp.library_strategy.upper() if exp.library_strategy else ""
 
-        # Check for PacBio
         if platform == "PACBIO_SMRT" and library_strategy in ("WGS", "WGA"):
             has_pacbio = True
-
-        # Check for Oxford Nanopore
         if platform == "OXFORD_NANOPORE" and library_strategy in ("WGS", "WGA"):
             has_nanopore = True
-
-        # Check for Hi-C (Illumina + Hi-C or WGS library strategy)
         if platform == "ILLUMINA" and library_strategy in ("HI-C", "WGS"):
             has_hic = True
 
-    # Determine the appropriate enum value based on combinations
     if has_pacbio and has_nanopore and has_hic:
         return AssemblyDataTypes.PACBIO_SMRT_OXFORD_NANOPORE_HIC
     elif has_pacbio and has_nanopore:
@@ -64,7 +51,6 @@ def determine_assembly_data_types(experiments: List[Experiment]) -> AssemblyData
     elif has_nanopore:
         return AssemblyDataTypes.OXFORD_NANOPORE
     else:
-        # TODO decide if we relax this requirement and still return the manifest noting the available data types are not supported
         raise ValueError(
             "No valid data types detected in experiments. "
             "Expected PACBIO_SMRT (with or without Hi-C), OXFORD_NANOPORE (with or without Hi-C), or ILLUMINA with Hi-C."
@@ -72,14 +58,7 @@ def determine_assembly_data_types(experiments: List[Experiment]) -> AssemblyData
 
 
 def get_detected_platforms(experiments: List[Experiment]) -> dict:
-    """Get a summary of detected platforms for debugging/logging.
-
-    Args:
-        experiments: List of Experiment objects
-
-    Returns:
-        Dictionary with platform detection details
-    """
+    """Get a summary of detected platforms for debugging/logging."""
     platforms: Set[str] = set()
     library_strategies: Set[str] = set()
 
@@ -108,44 +87,52 @@ def _normalize_read_number(read_number: str | None) -> str | None:
     return None
 
 
-def generate_assembly_manifest(
+def generate_assembly_manifest_json(
     organism: Organism,
     reads: List[Read],
     experiments: List[Experiment],
     tol_id: str | None,
     version: int,
+    long_read_sample_id: UUID,
+    hic_sample_id: Optional[UUID] = None,
     sample_metadata_by_id: Dict[str, Dict[str, Any]] | None = None,
-) -> str:
-    """Generate assembly manifest YAML from organism and reads data.
+) -> Dict[str, Any]:
+    """Generate an assembly manifest as a JSON-serialisable dict.
 
-    Groups reads by bpa_package_id (from Experiment), then by platform type.
+    Reads are routed to sections based on which specimen sample they belong to:
+    - Reads from long_read_sample_id experiments → PACBIO_SMRT or OXFORD_NANOPORE section
+    - Reads from hic_sample_id experiments → Hi-C section (omitted when hic_sample_id is None)
 
-    Rules:
-    - PACBIO_SMRT: Only include files ending in .ccs.bam or hifi_reads.bam
-    - Hi-C: Split reads into r1/r2 groups by read_number
+    PacBio filtering: only files ending in .ccs.bam or hifi_reads.bam are included.
+    ONT: all reads are included.
+    Hi-C: reads are split into r1/r2 by read_number and include lane_number.
 
     Args:
         organism: Organism object
-        reads: List of Read objects
-        experiments: List of Experiment objects (to determine platform)
+        reads: Combined list of Read objects from both specimen samples
+        experiments: Combined list of Experiment objects from both specimen samples
         tol_id: ToL ID for the assembly (optional)
         version: Assembly version number
+        long_read_sample_id: sample.id of the long-read specimen sample
+        hic_sample_id: sample.id of the Hi-C specimen sample (optional)
         sample_metadata_by_id: Sample metadata keyed by sample.id as string (optional)
 
     Returns:
-        YAML string formatted as assembly manifest
+        Dict representing the manifest (JSON-serialisable)
     """
     logger.info(
-        f"Generating manifest for organism: {organism.scientific_name} (taxon_id: {organism.taxon_id})"
+        "Generating manifest for organism: %s (taxon_id: %s)",
+        organism.scientific_name,
+        organism.taxon_id,
     )
-    logger.info(f"Total experiments: {len(experiments)}, Total reads: {len(reads)}")
+    logger.info("Total experiments: %d, Total reads: %d", len(experiments), len(reads))
+
+    long_read_sample_str = str(long_read_sample_id)
+    hic_sample_str = str(hic_sample_id) if hic_sample_id else None
 
     # Build experiment info map: experiment.id → metadata
-    exp_info_map = {}
+    exp_info_map: Dict[Any, Dict[str, Any]] = {}
     for exp in experiments:
-        logger.info(
-            f"Experiment {exp.id}: platform={exp.platform}, library_strategy={exp.library_strategy}"
-        )
         exp_info_map[exp.id] = {
             "platform": exp.platform.upper() if exp.platform else "",
             "library_strategy": exp.library_strategy.upper() if exp.library_strategy else "",
@@ -154,18 +141,18 @@ def generate_assembly_manifest(
             "sample_id": str(exp.sample_id) if getattr(exp, "sample_id", None) else None,
         }
 
-    # Group reads by bpa_package_id per platform
     pacbio_by_package: Dict[str, Any] = {}
+    ont_by_package: Dict[str, Any] = {}
     hic_by_package: Dict[str, Any] = {}
 
     for read in reads:
         if not read.experiment_id:
-            logger.debug(f"Read {read.id} has no experiment_id, skipping")
+            logger.debug("Read %s has no experiment_id, skipping", read.id)
             continue
 
         exp_info = exp_info_map.get(read.experiment_id)
         if not exp_info:
-            logger.debug(f"Read {read.id} has no matching experiment, skipping")
+            logger.debug("Read %s has no matching experiment, skipping", read.id)
             continue
 
         platform = exp_info["platform"]
@@ -174,16 +161,34 @@ def generate_assembly_manifest(
         sample_id = exp_info["sample_id"]
         sample_meta = (sample_metadata_by_id or {}).get(sample_id, {}) if sample_id else {}
 
-        logger.debug(
-            f"Read {read.id} (file: {read.file_name}): platform={platform}, library_strategy={library_strategy}"
-        )
+        # Route by specimen sample, then by platform
+        if sample_id == long_read_sample_str:
+            if platform == "PACBIO_SMRT" and read.file_name:
+                if read.file_name.endswith(".ccs.bam") or read.file_name.endswith("hifi_reads.bam"):
+                    logger.info("Adding PacBio read: %s", read.file_name)
+                    if bpa_package_id not in pacbio_by_package:
+                        entry: Dict[str, Any] = {
+                            "sample_id": sample_id,
+                            "bpa_sample_id": sample_meta.get("bpa_sample_id"),
+                            "specimen_id": sample_meta.get("specimen_id"),
+                            "resources": [],
+                        }
+                        if exp_info["bioplatforms_base_url"]:
+                            entry["bioplatforms_base_url"] = exp_info["bioplatforms_base_url"]
+                        pacbio_by_package[bpa_package_id] = entry
+                    pacbio_by_package[bpa_package_id]["resources"].append(
+                        {"md5sum": read.file_checksum, "url": read.bioplatforms_url}
+                    )
+                else:
+                    logger.debug(
+                        "Skipping PacBio read %s — not .ccs.bam or hifi_reads.bam",
+                        read.file_name,
+                    )
 
-        # PacBio SMRT reads (only .ccs.bam or hifi_reads.bam)
-        if platform == "PACBIO_SMRT" and read.file_name:
-            if read.file_name.endswith(".ccs.bam") or read.file_name.endswith("hifi_reads.bam"):
-                logger.info(f"Adding PacBio read: {read.file_name}")
-                if bpa_package_id not in pacbio_by_package:
-                    entry: Dict[str, Any] = {
+            elif platform == "OXFORD_NANOPORE":
+                logger.info("Adding ONT read: %s", read.file_name)
+                if bpa_package_id not in ont_by_package:
+                    entry = {
                         "sample_id": sample_id,
                         "bpa_sample_id": sample_meta.get("bpa_sample_id"),
                         "specimen_id": sample_meta.get("specimen_id"),
@@ -191,62 +196,78 @@ def generate_assembly_manifest(
                     }
                     if exp_info["bioplatforms_base_url"]:
                         entry["bioplatforms_base_url"] = exp_info["bioplatforms_base_url"]
-                    pacbio_by_package[bpa_package_id] = entry
-                pacbio_by_package[bpa_package_id]["resources"].append(
+                    ont_by_package[bpa_package_id] = entry
+                ont_by_package[bpa_package_id]["resources"].append(
                     {"md5sum": read.file_checksum, "url": read.bioplatforms_url}
                 )
+
             else:
                 logger.debug(
-                    f"Skipping PacBio read {read.file_name} - doesn't match .ccs.bam or hifi_reads.bam"
+                    "Long-read sample read %s skipped: platform=%s not a long-read platform",
+                    read.file_name,
+                    platform,
                 )
 
-        # Hi-C reads (Illumina + Hi-C or WGS library strategy)
-        elif platform == "ILLUMINA" and library_strategy in ("HI-C", "WGS"):
-            logger.info(f"Adding Hi-C read: {read.file_name} (library_strategy={library_strategy})")
-            if bpa_package_id not in hic_by_package:
-                hic_by_package[bpa_package_id] = {
-                    "sample_id": sample_id,
-                    "bpa_sample_id": sample_meta.get("bpa_sample_id"),
-                    "specimen_id": sample_meta.get("specimen_id"),
-                    "resources": {"r1": [], "r2": []},
-                }
-            rkey = _normalize_read_number(read.read_number)
-            if rkey in ("r1", "r2"):
-                hic_by_package[bpa_package_id]["resources"][rkey].append(
-                    {
-                        "url": read.bioplatforms_url,
-                        "md5sum": read.file_checksum,
-                        "lane_number": read.lane_number,
-                    }
+        elif hic_sample_str and sample_id == hic_sample_str:
+            if platform == "ILLUMINA" and library_strategy in ("HI-C", "WGS"):
+                logger.info(
+                    "Adding Hi-C read: %s (library_strategy=%s)", read.file_name, library_strategy
                 )
+                if bpa_package_id not in hic_by_package:
+                    hic_by_package[bpa_package_id] = {
+                        "sample_id": sample_id,
+                        "bpa_sample_id": sample_meta.get("bpa_sample_id"),
+                        "specimen_id": sample_meta.get("specimen_id"),
+                        "resources": {"r1": [], "r2": []},
+                    }
+                rkey = _normalize_read_number(read.read_number)
+                if rkey in ("r1", "r2"):
+                    hic_by_package[bpa_package_id]["resources"][rkey].append(
+                        {
+                            "url": read.bioplatforms_url,
+                            "md5sum": read.file_checksum,
+                            "lane_number": read.lane_number,
+                        }
+                    )
+                else:
+                    logger.debug(
+                        "Hi-C read %s has unrecognised read_number=%s, skipping",
+                        read.file_name,
+                        read.read_number,
+                    )
             else:
                 logger.debug(
-                    f"Hi-C read {read.file_name} has unrecognized read_number={read.read_number}, skipping"
+                    "Hi-C sample read %s skipped: platform=%s library_strategy=%s not Hi-C",
+                    read.file_name,
+                    platform,
+                    library_strategy,
                 )
+
         else:
             logger.debug(
-                f"Read {read.file_name} doesn't match criteria: platform={platform}, library_strategy={library_strategy}"
+                "Read %s sample_id=%s does not match either specimen sample, skipping",
+                read.id,
+                sample_id,
             )
 
-    # Build manifest structure
-    manifest = {
+    reads_section: Dict[str, Any] = {}
+    if pacbio_by_package:
+        reads_section["PACBIO_SMRT"] = pacbio_by_package
+        logger.info("Added %d PacBio packages to manifest", len(pacbio_by_package))
+    if ont_by_package:
+        reads_section["OXFORD_NANOPORE"] = ont_by_package
+        logger.info("Added %d ONT packages to manifest", len(ont_by_package))
+    if hic_by_package:
+        reads_section["Hi-C"] = hic_by_package
+        logger.info("Added %d Hi-C packages to manifest", len(hic_by_package))
+
+    if not reads_section:
+        logger.warning("No reads matched the filtering criteria!")
+
+    return {
         "scientific_name": organism.scientific_name,
         "taxon_id": organism.taxon_id,
         "tolid": tol_id,
         "version": version,
-        "reads": {},
+        "reads": reads_section,
     }
-
-    if pacbio_by_package:
-        manifest["reads"]["PACBIO_SMRT"] = pacbio_by_package
-        logger.info(f"Added {len(pacbio_by_package)} PacBio packages to manifest")
-
-    if hic_by_package:
-        manifest["reads"]["Hi-C"] = hic_by_package
-        logger.info(f"Added {len(hic_by_package)} Hi-C packages to manifest")
-
-    if not pacbio_by_package and not hic_by_package:
-        logger.warning("No reads matched the filtering criteria!")
-
-    # Convert to YAML
-    return yaml.dump(manifest, default_flow_style=False, sort_keys=False)

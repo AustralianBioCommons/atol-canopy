@@ -183,28 +183,63 @@ class AssemblyService(BaseService[Assembly, AssemblyCreate, AssemblyUpdate]):
         )
         return max(max_assembly or 0, max_run or 0) + 1
 
+    def get_next_version_for_intent(
+        self,
+        db: Session,
+        *,
+        taxon_id: int,
+        long_read_specimen_sample_id: UUID,
+    ) -> int:
+        """Return the next version scoped by (taxon_id, long_read_specimen_sample_id).
+
+        This is the versioning strategy for the intent flow. Versions are shared
+        across all assemblies for the same taxon + long-read specimen, regardless
+        of data_types or hic_specimen_sample_id.
+        """
+        max_version = (
+            db.query(func.max(Assembly.version))
+            .filter(
+                Assembly.taxon_id == taxon_id,
+                Assembly.long_read_specimen_sample_id == long_read_specimen_sample_id,
+            )
+            .scalar()
+        )
+        return (max_version or 0) + 1
+
     def create_from_intent(
         self,
         db: Session,
         *,
         taxon_id: int,
-        sample_id: UUID,
+        long_read_specimen_sample_id: UUID,
+        hic_specimen_sample_id: Optional[UUID],
         data_types: str,
         tol_id: Optional[str],
         project_id: Optional[UUID],
+        manifest_json: Optional[dict] = None,
     ) -> Assembly:
-        """Create an Assembly at manifest-request time with status='requested'."""
-        version = self.get_next_version(
-            db, taxon_id=taxon_id, sample_id=sample_id, data_types=data_types
+        """Create an Assembly at manifest-request time with status='requested'.
+
+        Versioning is scoped by (taxon_id, long_read_specimen_sample_id) only —
+        data_types and hic_specimen_sample_id are excluded from the version key.
+        sample_id is set to long_read_specimen_sample_id for backward compatibility.
+        """
+        version = self.get_next_version_for_intent(
+            db,
+            taxon_id=taxon_id,
+            long_read_specimen_sample_id=long_read_specimen_sample_id,
         )
         assembly = Assembly(
             taxon_id=taxon_id,
-            sample_id=sample_id,
+            sample_id=long_read_specimen_sample_id,
+            long_read_specimen_sample_id=long_read_specimen_sample_id,
+            hic_specimen_sample_id=hic_specimen_sample_id,
             data_types=data_types,
             version=version,
             tol_id=tol_id,
             project_id=project_id,
             status="requested",
+            manifest_json=manifest_json,
         )
         db.add(assembly)
         db.commit()

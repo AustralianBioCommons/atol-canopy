@@ -511,7 +511,16 @@ CREATE TABLE assembly (
     moleculetype molecule_type NOT NULL DEFAULT 'genomic DNA',
     description TEXT,
 
-    -- Auto-incremented version per (data_types, taxon_id, sample_id)
+    -- Intent-flow specimen samples
+    -- long_read_specimen_sample_id: the specimen sample supplying PacBio / ONT reads
+    -- hic_specimen_sample_id: the specimen sample supplying Hi-C reads (optional)
+    long_read_specimen_sample_id UUID REFERENCES sample(id),
+    hic_specimen_sample_id UUID REFERENCES sample(id),
+
+    -- Persisted manifest generated at intent time
+    manifest_json JSONB,
+
+    -- Version is scoped by (taxon_id, long_read_specimen_sample_id) for intent-flow assemblies
     version INTEGER NOT NULL DEFAULT 1,
 
     -- Assembly lifecycle status
@@ -556,8 +565,11 @@ CREATE TABLE assembly_file (
 CREATE INDEX idx_assembly_file_assembly_id ON assembly_file(assembly_id);
 CREATE INDEX idx_assembly_file_type ON assembly_file(assembly_id, file_type);
 
--- Index for version lookups
+-- Index for legacy version lookups (generic create flow)
 CREATE INDEX idx_assembly_version_key ON assembly(data_types, taxon_id, sample_id, version);
+
+-- Index for intent-flow version lookups (scoped by taxon + long-read specimen sample)
+CREATE INDEX idx_assembly_intent_version_key ON assembly(taxon_id, long_read_specimen_sample_id);
 
 
 -- Assembly submission table (simplified - no broker integration)

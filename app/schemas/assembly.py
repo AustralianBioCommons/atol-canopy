@@ -76,6 +76,8 @@ class AssemblyIntent(BaseModel):
     """Schema for reserving an assembly version and generating a manifest."""
 
     tol_id: Optional[str] = None
+    long_read_specimen_sample_id: UUID
+    hic_specimen_sample_id: Optional[UUID] = None
 
 
 class AssemblyIntentResponse(BaseModel):
@@ -84,7 +86,7 @@ class AssemblyIntentResponse(BaseModel):
     assembly_id: UUID
     version: int
     status: str
-    manifest_yaml: str
+    manifest_json: Dict[str, Any]
 
 
 class AssemblyIntentCancel(BaseModel):
@@ -118,6 +120,9 @@ class AssemblyInDBBase(AssemblyBase):
     """Base schema for Assembly in DB, includes id and timestamps."""
 
     id: UUID
+    long_read_specimen_sample_id: Optional[UUID] = None
+    hic_specimen_sample_id: Optional[UUID] = None
+    manifest_json: Optional[Dict[str, Any]] = None
     created_at: datetime
     updated_at: datetime
 

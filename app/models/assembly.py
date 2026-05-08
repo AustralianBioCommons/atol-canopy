@@ -70,9 +70,19 @@ class Assembly(Base):
         onupdate=func.now(),
     )
 
+    long_read_specimen_sample_id = Column(
+        UUID(as_uuid=True), ForeignKey("sample.id"), nullable=True
+    )
+    hic_specimen_sample_id = Column(UUID(as_uuid=True), ForeignKey("sample.id"), nullable=True)
+    manifest_json = Column(JSONB, nullable=True)
+
     # Relationships
     organism = relationship("Organism", backref="assemblies")
-    sample = relationship("Sample", backref="assemblies")
+    sample = relationship("Sample", foreign_keys=[sample_id], backref="assemblies")
+    long_read_specimen_sample = relationship(
+        "Sample", foreign_keys=[long_read_specimen_sample_id]
+    )
+    hic_specimen_sample = relationship("Sample", foreign_keys=[hic_specimen_sample_id])
     project = relationship("Project", backref="assemblies")
 
 
