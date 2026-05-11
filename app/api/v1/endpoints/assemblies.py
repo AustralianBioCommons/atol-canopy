@@ -3,7 +3,7 @@ from uuid import UUID
 
 from fastapi import APIRouter, Body, Depends, HTTPException, Query
 from fastapi.responses import JSONResponse
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, joinedload
 
 from app.core.dependencies import get_current_active_user, get_db
 from app.core.errors import AppError
@@ -91,6 +91,7 @@ def _build_specimen_metadata(*samples: Sample) -> Dict[str, Dict[str, Any]]:
         str(sample.id): {
             "bpa_sample_id": getattr(sample, "bpa_sample_id", None),
             "specimen_id": getattr(sample, "specimen_id", None),
+            "tolid": getattr(sample, "tolid", None),
         }
         for sample in samples
         if sample is not None
@@ -348,9 +349,19 @@ def create_assembly_intent(
     Returns JSON with assembly_id, version, status, and the generated manifest.
     """
     # 1. Resolve organism
-    organism = db.query(Organism).filter(Organism.taxon_id == taxon_id).first()
+    organism = (
+        db.query(Organism)
+        .options(joinedload(Organism.taxonomy_info))
+        .filter(Organism.taxon_id == taxon_id)
+        .first()
+    )
     if not organism:
         raise HTTPException(status_code=404, detail=f"Organism with taxon_id {taxon_id} not found")
+    if not organism.taxonomy_info:
+        raise HTTPException(
+            status_code=422,
+            detail=f"Organism with taxon_id {taxon_id} has no taxonomy_info record",
+        )
     org_taxon_id = _organism_taxon_id(organism)
 
     # 2. Validate long_read_specimen_sample_id
@@ -420,6 +431,7 @@ def create_assembly_intent(
         hic_reads = db.query(Read).filter(Read.experiment_id.in_(hic_exp_ids)).all()
 
     # 6. Determine data_types from the relevant experiments
+    # TODO review and remove this step now that we pass in the specimen_id
     all_experiments = long_read_experiments + hic_experiments
     try:
         data_types = determine_assembly_data_types(all_experiments)
@@ -437,6 +449,7 @@ def create_assembly_intent(
         taxon_id=org_taxon_id,
         long_read_specimen_sample_id=long_read_sample.id,
         hic_specimen_sample_id=hic_sample.id if hic_sample else None,
+        # TODO review if we need data_types when creating experiment
         data_types=data_types,
         tol_id=intent_in.tol_id,
         project_id=None,
@@ -453,8 +466,10 @@ def create_assembly_intent(
         }
         manifest_data = generate_assembly_manifest_json(
             organism=organism,
+            taxonomy_information=organism.taxonomy_info,
             reads=all_reads,
             experiments=all_experiments,
+            # TODO tolid from sample (reported by broker) not input from caller
             tol_id=assembly.tol_id,
             version=assembly.version,
             long_read_sample_id=long_read_sample.id,
