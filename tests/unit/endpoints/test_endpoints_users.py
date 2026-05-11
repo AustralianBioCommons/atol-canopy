@@ -256,3 +256,10 @@ def test_user_not_found():
 
     resp = client.get(f"/api/v1/users/{uuid.uuid4()}")
     assert resp.status_code == 404
+
+
+def test_user_by_id_requires_auth():
+    client = TestClient(app)
+    app.dependency_overrides.pop(users.get_current_active_user, None)
+    resp = client.get(f"/api/v1/users/{uuid.uuid4()}")
+    assert resp.status_code == 401

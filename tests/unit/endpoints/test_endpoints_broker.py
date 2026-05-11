@@ -14,6 +14,14 @@ from app.models.qc_read import QcReadSubmission
 from app.models.sample import SampleSubmission
 
 
+def _broker_user():
+    return SimpleNamespace(is_superuser=False, roles=["broker"], is_active=True)
+
+
+def _admin_user():
+    return SimpleNamespace(is_superuser=False, roles=["admin"], is_active=True)
+
+
 class FakeQuery:
     def __init__(self, items):
         self.items = list(items)
@@ -134,7 +142,9 @@ def test_broker_renew_attempt_lease_updates_items():
         }
     )
 
-    out = broker.renew_attempt_lease(attempt_id=att_id, extend_minutes=5, db=db)
+    out = broker.renew_attempt_lease(
+        attempt_id=att_id, extend_minutes=5, db=db, current_user=_broker_user()
+    )
     assert out["attempt_id"] == str(att_id)
     # Ensure locks were set
     assert s1.lock_expires_at is not None
@@ -168,7 +178,7 @@ def test_broker_finalise_attempt_releases_items():
         }
     )
 
-    out = broker.finalise_attempt(attempt_id=att_id, db=db)
+    out = broker.finalise_attempt(attempt_id=att_id, db=db, current_user=_broker_user())
     assert out["attempt_id"] == str(att_id)
     assert out["released"] == {"samples": 1, "experiments": 1, "reads": 1, "projects": 1}
     # Items should be reset to draft and cleared lease
@@ -208,7 +218,9 @@ def test_broker_report_results_sample_accepted():
         projects=[],
     )
 
-    result = broker.report_results(attempt_id=att_id, payload=payload, db=db)
+    result = broker.report_results(
+        attempt_id=att_id, payload=payload, db=db, current_user=_broker_user()
+    )
     assert result.updated_counts["samples"] == 1
     assert sub.status == "accepted"
     assert sub.attempt_id is None
@@ -245,7 +257,7 @@ def test_broker_list_attempts_basic(monkeypatch):
     monkeypatch.setattr(broker, "_counts_by_entity_for_attempt", fake_counts)
     monkeypatch.setattr(broker, "_derive_attempt_status", lambda counts, lock: "active")
 
-    out = broker.list_attempts(db=db, page=1, page_size=10)
+    out = broker.list_attempts(db=db, page=1, page_size=10, current_user=_broker_user())
     assert out["total"] == 2
     assert len(out["items"]) == 2
     assert out["items"][0]["taxon_id"] in {1, 2}
@@ -276,7 +288,9 @@ def test_broker_get_attempt_include_items(monkeypatch):
     monkeypatch.setattr(
         broker, "_get_attempt_items_with_relationships", lambda db_arg, attempt_id: items
     )
-    out = broker.get_attempt(attempt_id=att.id, db=db, include_items=True)
+    out = broker.get_attempt(
+        attempt_id=att.id, db=db, include_items=True, current_user=_broker_user()
+    )
     assert out["attempt_id"] == str(att.id)
     assert (
         "items" in out and "samples" in out["items"] and isinstance(out["items"]["samples"], list)
@@ -286,7 +300,9 @@ def test_broker_get_attempt_include_items(monkeypatch):
 def test_broker_get_attempt_not_found():
     db = FakeSession({SubmissionAttempt: []})
     with pytest.raises(HTTPException) as exc:
-        broker.get_attempt(attempt_id=uuid4(), db=db, include_items=False)
+        broker.get_attempt(
+            attempt_id=uuid4(), db=db, include_items=False, current_user=_broker_user()
+        )
     assert exc.value.status_code == 404
 
 
@@ -302,7 +318,7 @@ def test_broker_get_attempt_items_serialised(monkeypatch):
     monkeypatch.setattr(
         broker, "_get_attempt_items_with_relationships", lambda db_arg, attempt_id: items
     )
-    out = broker.get_attempt_items(attempt_id=att_id, db=db)
+    out = broker.get_attempt_items(attempt_id=att_id, db=db, current_user=_broker_user())
     assert set(out.keys()) == {"samples", "experiments", "reads", "projects"}
     assert isinstance(out["samples"], list)
 
@@ -348,7 +364,9 @@ def test_broker_organism_summary(monkeypatch):
     )
     monkeypatch.setattr(broker, "_derive_attempt_status", lambda counts, lock: "active")
 
-    out = broker.organism_summary(taxon_id="1", db=db, recent_attempts=1)
+    out = broker.organism_summary(
+        taxon_id="1", db=db, recent_attempts=1, current_user=_broker_user()
+    )
     assert out["taxon_id"] == "1"
     assert len(out["latest_attempts"]) == 1
     assert "counts_by_entity" in out and set(out["counts_by_entity"].keys()) == {
@@ -361,14 +379,16 @@ def test_broker_organism_summary(monkeypatch):
 def test_broker_renew_attempt_lease_not_found():
     db = FakeSession({SubmissionAttempt: []})
     with pytest.raises(HTTPException) as exc:
-        broker.renew_attempt_lease(attempt_id=uuid4(), extend_minutes=5, db=db)
+        broker.renew_attempt_lease(
+            attempt_id=uuid4(), extend_minutes=5, db=db, current_user=_broker_user()
+        )
     assert exc.value.status_code == 404
 
 
 def test_broker_finalise_attempt_not_found():
     db = FakeSession({SubmissionAttempt: []})
     with pytest.raises(HTTPException) as exc:
-        broker.finalise_attempt(attempt_id=uuid4(), db=db)
+        broker.finalise_attempt(attempt_id=uuid4(), db=db, current_user=_broker_user())
     assert exc.value.status_code == 404
 
 
@@ -385,7 +405,9 @@ def test_broker_report_results_sample_status_conflict():
         projects=[],
     )
     with pytest.raises(HTTPException) as exc:
-        broker.report_results(attempt_id=att_id, payload=payload, db=db)
+        broker.report_results(
+            attempt_id=att_id, payload=payload, db=db, current_user=_broker_user()
+        )
     assert exc.value.status_code == 409
 
 
@@ -402,8 +424,22 @@ def test_broker_report_results_sample_attempt_mismatch():
         projects=[],
     )
     with pytest.raises(HTTPException) as exc:
-        broker.report_results(attempt_id=att_id, payload=payload, db=db)
+        broker.report_results(
+            attempt_id=att_id, payload=payload, db=db, current_user=_broker_user()
+        )
     assert exc.value.status_code == 409
+
+
+def test_broker_expire_leases_requires_admin_role():
+    with pytest.raises(Exception) as excinfo:
+        broker.expire_leases(db=FakeSession({}), current_user=_broker_user())
+    assert getattr(excinfo.value, "status_code", None) == 403
+
+
+def test_broker_expire_leases_allows_admin_role(monkeypatch):
+    monkeypatch.setattr(broker, "expire_stale_leases", lambda db_arg: {"samples": 1})
+    out = broker.expire_leases(db=FakeSession({}), current_user=_admin_user())
+    assert out["total_expired"] == 1
 
 
 def test_broker_report_results_experiment_registry_inserts_and_accept():
@@ -435,7 +471,9 @@ def test_broker_report_results_experiment_registry_inserts_and_accept():
         reads=[],
         projects=[],
     )
-    result = broker.report_results(attempt_id=att_id, payload=payload, db=db)
+    result = broker.report_results(
+        attempt_id=att_id, payload=payload, db=db, current_user=_broker_user()
+    )
     assert result.updated_counts["experiments"] == 1
     # Expect at least two registry inserts (sample accession + experiment accession)
     assert len(db.executed) >= 2
@@ -470,7 +508,9 @@ def test_broker_report_results_read_registry_inserts_and_accept():
         ],
         projects=[],
     )
-    result = broker.report_results(attempt_id=att_id, payload=payload, db=db)
+    result = broker.report_results(
+        attempt_id=att_id, payload=payload, db=db, current_user=_broker_user()
+    )
     assert result.updated_counts["reads"] == 1
     # Expect at least two registry inserts (experiment accession + run accession)
     assert len(db.executed) >= 2
@@ -495,7 +535,9 @@ def test_broker_report_results_project_rejected_clears_lease():
             )
         ],
     )
-    result = broker.report_results(attempt_id=att_id, payload=payload, db=db)
+    result = broker.report_results(
+        attempt_id=att_id, payload=payload, db=db, current_user=_broker_user()
+    )
     assert result.updated_counts["projects"] == 1
     assert sub.attempt_id is None
     assert getattr(sub, "finalised_attempt_id", None) == att_id

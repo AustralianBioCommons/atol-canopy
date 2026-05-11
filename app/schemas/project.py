@@ -1,20 +1,28 @@
 from datetime import datetime
-from typing import Optional
+from typing import Any, Dict, Literal, Optional
 from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict
+
+ProjectType = Literal["root", "genomic_data", "assembly"]
 
 
 # Base Project schema
 class ProjectBase(BaseModel):
     """Base Project schema with common attributes."""
 
-    project_accession: str
+    taxon_id: int
+    project_type: ProjectType
+    project_accession: Optional[str] = None
+    study_type: str
     alias: str
-    alias_md5: str
-    study_name: str
-    new_study_type: Optional[str] = None
-    study_abstract: Optional[str] = None
+    title: str
+    description: str
+    centre_name: Optional[str] = "AToL"
+    study_attributes: Optional[Dict[str, Any]] = None
+    submitted_at: Optional[datetime] = None
+    status: str = "draft"
+    authority: str = "ENA"
 
 
 # Schema for creating a new Project
@@ -28,11 +36,18 @@ class ProjectCreate(ProjectBase):
 class ProjectUpdate(BaseModel):
     """Schema for updating an existing Project."""
 
+    taxon_id: Optional[int] = None
+    project_type: Optional[ProjectType] = None
+    project_accession: Optional[str] = None
+    study_type: Optional[str] = None
     alias: Optional[str] = None
-    alias_md5: Optional[str] = None
-    study_name: Optional[str] = None
-    new_study_type: Optional[str] = None
-    study_abstract: Optional[str] = None
+    title: Optional[str] = None
+    description: Optional[str] = None
+    centre_name: Optional[str] = None
+    study_attributes: Optional[Dict[str, Any]] = None
+    submitted_at: Optional[datetime] = None
+    status: Optional[str] = None
+    authority: Optional[str] = None
 
 
 # Schema for Project in DB
