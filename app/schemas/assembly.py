@@ -182,7 +182,6 @@ class AssemblySubmissionCreate(AssemblySubmissionBase):
     """Schema for creating a new assembly submission."""
 
     manifest_json: Optional[Dict] = None
-    submission_xml: Optional[str] = None
     response_payload: Optional[Dict] = None
     submitted_at: Optional[datetime] = None
     submitted_by: Optional[UUID] = None
@@ -199,7 +198,6 @@ class AssemblySubmissionUpdate(BaseModel):
     sample_accession: Optional[str] = None
     project_accession: Optional[str] = None
     manifest_json: Optional[Dict] = None
-    submission_xml: Optional[str] = None
     response_payload: Optional[Dict] = None
     submitted_at: Optional[datetime] = None
     submitted_by: Optional[UUID] = None
@@ -211,7 +209,6 @@ class AssemblySubmissionInDBBase(AssemblySubmissionBase):
 
     id: UUID
     manifest_json: Optional[Dict] = None
-    submission_xml: Optional[str] = None
     response_payload: Optional[Dict] = None
     submitted_at: Optional[datetime] = None
     submitted_by: Optional[UUID] = None

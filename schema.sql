@@ -586,7 +586,6 @@ CREATE TABLE assembly_submission (
 
     -- Submission payloads
     manifest_json JSONB,
-    submission_xml TEXT,
     response_payload JSONB,
 
     -- Metadata
