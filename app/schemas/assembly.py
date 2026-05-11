@@ -6,7 +6,6 @@ from uuid import UUID
 from pydantic import BaseModel, ConfigDict, Field
 
 from app.schemas.common import SubmissionStatus
-from app.schemas.qc_read import QcReadOut
 
 
 class AssemblyDataTypes(str, Enum):
@@ -106,7 +105,6 @@ class AssemblySpecimenSampleOption(BaseModel):
     specimen_id: Optional[str] = None
     sex: Optional[str] = None
     available_data_types: List[AssemblySpecimenSampleDataType] = Field(default_factory=list)
-    qc_reads: List[QcReadOut] = Field(default_factory=list)
 
 
 class AssemblySpecimenSampleDiscoveryResponse(BaseModel):
