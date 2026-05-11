@@ -100,6 +100,7 @@ def test_create_assembly_from_experiments_success(monkeypatch):
         program="hifiasm",
         moleculetype="genomic DNA",
         version=1,
+        status="requested",
         created_at=datetime.now(timezone.utc),
         updated_at=datetime.now(timezone.utc),
     )
@@ -181,44 +182,24 @@ def test_create_assembly_from_experiments_not_found(monkeypatch):
 
 
 def test_get_assembly_manifest_success(monkeypatch):
-    """Test successful manifest generation."""
+    """GET /manifest/{taxon_id} returns stored manifest JSON for latest requested assembly."""
     client = TestClient(app)
 
-    # Mock database queries
-    organism = SimpleNamespace(
-        scientific_name="Test Species",
-        taxon_id=172942,
-    )
-    sample = SimpleNamespace(
-        id="550e8400-e29b-41d4-a716-446655440000",
-        taxon_id=172942,
-        kind="specimen",
-        bpa_sample_id="102.100.100/9000",
-        specimen_id="SPEC-001",
-    )
-    experiment = SimpleNamespace(
-        id="exp-1",
-        sample_id="550e8400-e29b-41d4-a716-446655440000",
-        platform="PACBIO_SMRT",
-        library_strategy="WGS",
-        bpa_package_id="pkg-exp-1",
-        bioplatforms_base_url=None,
-    )
-    read = SimpleNamespace(
-        id="read-1",
-        experiment_id="exp-1",
-        file_name="sample.ccs.bam",
-        file_checksum="abc123",
-        bioplatforms_url="https://example.com/1",
-        read_number=None,
-        lane_number=None,
-    )
-    assembly_run = SimpleNamespace(
+    organism = SimpleNamespace(scientific_name="Test Species", taxon_id=172942)
+    manifest_json = {
+        "scientific_name": "Test Species",
+        "taxon_id": 172942,
+        "tolid": "tol-123",
+        "version": 1,
+        "reads": {"PACBIO_SMRT": {"pkg-exp-1": {"resources": []}}},
+    }
+    requested_assembly = SimpleNamespace(
         id="run-1",
         taxon_id=172942,
-        sample_id="550e8400-e29b-41d4-a716-446655440000",
         tol_id="tol-123",
         version=1,
+        status="requested",
+        manifest_json=manifest_json,
     )
 
     class MockQuery:
@@ -243,22 +224,10 @@ def test_get_assembly_manifest_success(monkeypatch):
 
         def query(self, model):
             self.call_count += 1
-            if self.call_count == 1:  # organism query
+            if self.call_count == 1:
                 return MockQuery(organism)
-            elif self.call_count == 2:  # selected specimen sample query
-                return MockQuery(sample)
-            elif self.call_count == 3:  # selected sample by ID query
-                return MockQuery(sample)
-            elif self.call_count == 4:  # all sample IDs query
-                return MockQuery([(sample.id,)])
-            elif self.call_count == 5:  # experiments query
-                return MockQuery([experiment])
-            elif self.call_count == 6:  # reads query
-                return MockQuery([read])
-            elif self.call_count == 7:  # latest assembly_run query
-                return MockQuery(assembly_run)
-            elif self.call_count == 8:  # sample metadata query for per-read manifest fields
-                return MockQuery([sample])
+            if self.call_count == 2:
+                return MockQuery(requested_assembly)
             return MockQuery([])
 
     app.dependency_overrides[assemblies.get_current_active_user] = lambda: SimpleNamespace(
@@ -269,13 +238,8 @@ def test_get_assembly_manifest_success(monkeypatch):
     resp = client.get("/api/v1/assemblies/manifest/172942")
 
     assert resp.status_code == 200
-    assert resp.headers["content-type"] == "application/x-yaml"
-    assert b"scientific_name: Test Species" in resp.content
-    assert b"taxon_id: 172942" in resp.content
-    assert b"sample_id: 550e8400-e29b-41d4-a716-446655440000" in resp.content
-    assert b"bpa_sample_id: 102.100.100/9000" in resp.content
-    assert b"specimen_id: SPEC-001" in resp.content
-    assert b"PACBIO_SMRT:" in resp.content
+    assert resp.headers["content-type"].startswith("application/json")
+    assert resp.json() == manifest_json
 
 
 def test_get_assembly_manifest_organism_not_found():
@@ -309,33 +273,57 @@ def test_get_assembly_manifest_organism_not_found():
 def test_create_assembly_intent_invalid_data_types_returns_app_error(monkeypatch):
     client = TestClient(app)
 
-    organism = SimpleNamespace(
-        scientific_name="Test Species",
-        taxon_id=172942,
+    organism = SimpleNamespace(scientific_name="Test Species", taxon_id=172942)
+    long_read_sample_id = uuid4()
+    long_read_sample = SimpleNamespace(id=long_read_sample_id, taxon_id=172942, kind="specimen")
+    invalid_long_read_exp = SimpleNamespace(
+        id="e1",
+        sample_id=long_read_sample_id,
+        platform="PACBIO_SMRT",
+        library_strategy="RNA",
     )
-    reads = [SimpleNamespace(id="r1", experiment_id="e1")]
-    experiments = [SimpleNamespace(id="e1", platform="UNKNOWN", library_strategy="UNKNOWN")]
 
-    monkeypatch.setattr(
-        assemblies,
-        "_get_manifest_inputs_by_taxon_id",
-        lambda db, taxon_id: (
-            organism,
-            SimpleNamespace(id="550e8400-e29b-41d4-a716-446655440000"),
-            reads,
-            experiments,
-        ),
-    )
+    class _Q:
+        def __init__(self, value):
+            self.value = value
+
+        def filter(self, *_a, **_k):
+            return self
+
+        def all(self):
+            return self.value if isinstance(self.value, list) else []
+
+        def first(self):
+            return self.value if not isinstance(self.value, list) else None
+
+    class _DB:
+        def __init__(self):
+            self.calls = 0
+
+        def query(self, _model):
+            self.calls += 1
+            if self.calls == 1:
+                return _Q(organism)
+            if self.calls == 2:
+                return _Q(long_read_sample)
+            if self.calls == 3:
+                return _Q([])
+            if self.calls == 4:
+                return _Q([invalid_long_read_exp])
+            if self.calls == 5:
+                return _Q([])
+            return _Q([])
 
     app.dependency_overrides[assemblies.get_current_active_user] = lambda: SimpleNamespace(
         is_active=True, roles=["curator"], is_superuser=False
     )
-    app.dependency_overrides[assemblies.get_db] = _override_db(_FakeSession())
+    app.dependency_overrides[assemblies.get_db] = _override_db(_DB())
 
     resp = client.post(
         "/api/v1/assemblies/intent/172942",
         json={
             "tol_id": "tol-123",
+            "long_read_specimen_sample_id": str(long_read_sample_id),
         },
     )
 
@@ -345,14 +333,300 @@ def test_create_assembly_intent_invalid_data_types_returns_app_error(monkeypatch
     assert "No valid data types detected in experiments" in body["error"]["message"]
 
 
-def test_create_assembly_intent_allows_empty_body(monkeypatch):
+def test_create_assembly_intent_requires_specimen_sample_id():
     client = TestClient(app)
 
-    organism = SimpleNamespace(
-        scientific_name="Test Species",
-        taxon_id=172942,
+    app.dependency_overrides[assemblies.get_current_active_user] = lambda: SimpleNamespace(
+        is_active=True, roles=["curator"], is_superuser=False
     )
-    selected_sample = SimpleNamespace(id="550e8400-e29b-41d4-a716-446655440000")
+    app.dependency_overrides[assemblies.get_db] = _override_db(_FakeSession())
+
+    resp = client.post(
+        "/api/v1/assemblies/intent/172942",
+        json={"tol_id": "tol-123"},
+    )
+
+    assert resp.status_code == 422
+
+
+def test_get_specimen_samples_for_assembly_returns_discovery_options():
+    client = TestClient(app)
+
+    organism = SimpleNamespace(scientific_name="Test Species", taxon_id=172942)
+    specimen_a_id = uuid4()
+    derived_a_id = uuid4()
+    specimen_b_id = uuid4()
+    specimen_c_id = uuid4()
+    specimen_d_id = uuid4()
+    specimen_a_pacbio_exp_id = uuid4()
+    specimen_a_hic_exp_id = uuid4()
+    specimen_b_ont_exp_id = uuid4()
+    specimen_d_rna_exp_id = uuid4()
+
+    specimen_a = SimpleNamespace(
+        id=specimen_a_id,
+        taxon_id=172942,
+        kind="specimen",
+        specimen_id="SPEC-001",
+        sex="female",
+    )
+    derived_a = SimpleNamespace(
+        id=derived_a_id,
+        taxon_id=172942,
+        kind="derived",
+        derived_from_sample_id=specimen_a_id,
+    )
+    specimen_b = SimpleNamespace(
+        id=specimen_b_id,
+        taxon_id=172942,
+        kind="specimen",
+        specimen_id=None,
+        sex="male",
+    )
+    specimen_c = SimpleNamespace(
+        id=specimen_c_id,
+        taxon_id=172942,
+        kind="specimen",
+        specimen_id="SPEC-003",
+        sex="unknown",
+    )
+    specimen_d = SimpleNamespace(
+        id=specimen_d_id,
+        taxon_id=172942,
+        kind="specimen",
+        specimen_id="SPEC-004",
+        sex="female",
+    )
+
+    specimen_a_experiments = [
+        SimpleNamespace(
+            id=specimen_a_pacbio_exp_id,
+            sample_id=derived_a_id,
+            platform="PACBIO_SMRT",
+            library_strategy="WGS",
+        ),
+        SimpleNamespace(
+            id=specimen_a_hic_exp_id,
+            sample_id=specimen_a_id,
+            platform="ILLUMINA",
+            library_strategy="Hi-C",
+        ),
+    ]
+    specimen_a_qc_reads = [
+        SimpleNamespace(
+            id=uuid4(),
+            experiment_id=specimen_a_pacbio_exp_id,
+            base_count=1000,
+            read_count=100,
+            qc_bases_removed=10,
+            qc_reads_removed=2,
+            mean_gc_content=0.45,
+            n50_length=5000,
+            created_at="2026-01-01T00:00:00Z",
+            updated_at="2026-01-01T00:00:00Z",
+            files=[],
+            submission_records=[],
+        )
+    ]
+    specimen_b_experiments = [
+        SimpleNamespace(
+            id=specimen_b_ont_exp_id,
+            sample_id=specimen_b_id,
+            platform="OXFORD_NANOPORE",
+            library_strategy="WGA",
+        )
+    ]
+    specimen_d_experiments = [
+        SimpleNamespace(
+            id=specimen_d_rna_exp_id,
+            sample_id=specimen_d_id,
+            platform="ILLUMINA",
+            library_strategy="RNA-Seq",
+        )
+    ]
+
+    class _Q:
+        def __init__(self, value):
+            self.value = value
+
+        def filter(self, *_a, **_k):
+            return self
+
+        def all(self):
+            return self.value if isinstance(self.value, list) else []
+
+        def first(self):
+            return self.value if not isinstance(self.value, list) else None
+
+    class _DB:
+        def __init__(self):
+            self.calls = 0
+
+        def query(self, _model):
+            self.calls += 1
+            if self.calls == 1:
+                return _Q(organism)
+            if self.calls == 2:
+                return _Q([specimen_a, specimen_b, specimen_c, specimen_d])
+            if self.calls == 3:
+                return _Q([derived_a])
+            if self.calls == 4:
+                return _Q(specimen_a_experiments)
+            if self.calls == 5:
+                return _Q(specimen_a_qc_reads)
+            if self.calls == 6:
+                return _Q([])
+            if self.calls == 7:
+                return _Q(specimen_b_experiments)
+            if self.calls == 8:
+                return _Q([])
+            if self.calls == 9:
+                return _Q([])
+            if self.calls == 10:
+                return _Q([])
+            if self.calls == 11:
+                return _Q([])
+            if self.calls == 12:
+                return _Q(specimen_d_experiments)
+            if self.calls == 13:
+                return _Q([])
+            return _Q([])
+
+    app.dependency_overrides[assemblies.get_current_active_user] = lambda: SimpleNamespace(
+        is_active=True, roles=["admin"], is_superuser=False
+    )
+    app.dependency_overrides[assemblies.get_db] = _override_db(_DB())
+
+    resp = client.get("/api/v1/assemblies/specimen-samples/172942")
+
+    assert resp.status_code == 200
+    body = resp.json()
+    assert body["taxon_id"] == 172942
+    assert body["specimen_samples"] == [
+        {
+            "sample_id": str(specimen_a_id),
+            "specimen_id": "SPEC-001",
+            "sex": "female",
+            "available_data_types": ["PACBIO_SMRT", "Hi-C"],
+            "qc_reads": [
+                {
+                    "id": str(specimen_a_qc_reads[0].id),
+                    "experiment_id": str(specimen_a_pacbio_exp_id),
+                    "base_count": 1000,
+                    "read_count": 100,
+                    "qc_bases_removed": 10,
+                    "qc_reads_removed": 2,
+                    "mean_gc_content": 0.45,
+                    "n50_length": 5000,
+                    "created_at": "2026-01-01T00:00:00Z",
+                    "updated_at": "2026-01-01T00:00:00Z",
+                    "files": [],
+                    "submission_records": [],
+                }
+            ],
+        },
+        {
+            "sample_id": str(specimen_b_id),
+            "specimen_id": None,
+            "sex": "male",
+            "available_data_types": ["OXFORD_NANOPORE"],
+            "qc_reads": [],
+        },
+        {
+            "sample_id": str(specimen_c_id),
+            "specimen_id": "SPEC-003",
+            "sex": "unknown",
+            "available_data_types": [],
+            "qc_reads": [],
+        },
+        {
+            "sample_id": str(specimen_d_id),
+            "specimen_id": "SPEC-004",
+            "sex": "female",
+            "available_data_types": ["RNA-Seq"],
+            "qc_reads": [],
+        },
+    ]
+
+
+def test_get_specimen_samples_for_assembly_returns_404_for_unknown_taxon():
+    client = TestClient(app)
+
+    class _Q:
+        def filter(self, *_a, **_k):
+            return self
+
+        def first(self):
+            return None
+
+    class _DB:
+        def query(self, _model):
+            return _Q()
+
+    app.dependency_overrides[assemblies.get_current_active_user] = lambda: SimpleNamespace(
+        is_active=True, roles=["admin"], is_superuser=False
+    )
+    app.dependency_overrides[assemblies.get_db] = _override_db(_DB())
+
+    resp = client.get("/api/v1/assemblies/specimen-samples/999999")
+
+    assert resp.status_code == 404
+    assert "not found" in resp.json()["error"]["message"]
+
+
+def test_create_assembly_intent_rejects_non_specimen_sample():
+    client = TestClient(app)
+
+    organism = SimpleNamespace(scientific_name="Test Species", taxon_id=172942)
+    derived_sample_id = uuid4()
+    derived_sample = SimpleNamespace(id=derived_sample_id, taxon_id=172942, kind="derived")
+
+    class _Q:
+        def __init__(self, value):
+            self.value = value
+
+        def filter(self, *_a, **_k):
+            return self
+
+        def first(self):
+            return self.value
+
+    class _DB:
+        def __init__(self):
+            self.calls = 0
+
+        def query(self, _model):
+            self.calls += 1
+            if self.calls == 1:
+                return _Q(organism)
+            return _Q(derived_sample)
+
+    app.dependency_overrides[assemblies.get_current_active_user] = lambda: SimpleNamespace(
+        is_active=True, roles=["curator"], is_superuser=False
+    )
+    app.dependency_overrides[assemblies.get_db] = _override_db(_DB())
+
+    resp = client.post(
+        "/api/v1/assemblies/intent/172942",
+        json={"long_read_specimen_sample_id": str(derived_sample_id)},
+    )
+
+    assert resp.status_code == 422
+    assert resp.json()["error"]["code"] == "specimen_sample_invalid_kind"
+
+
+def test_create_assembly_intent_success_returns_json_manifest(monkeypatch):
+    client = TestClient(app)
+
+    organism = SimpleNamespace(scientific_name="Test Species", taxon_id=172942)
+    long_read_sample_id = uuid4()
+    selected_sample = SimpleNamespace(
+        id=long_read_sample_id,
+        taxon_id=172942,
+        kind="specimen",
+        bpa_sample_id="102.100.100/9000",
+        specimen_id="SPEC-001",
+    )
     run_id = uuid4()
     reads = [
         SimpleNamespace(
@@ -368,7 +642,7 @@ def test_create_assembly_intent_allows_empty_body(monkeypatch):
     experiments = [
         SimpleNamespace(
             id="e1",
-            sample_id=selected_sample.id,
+            sample_id=long_read_sample_id,
             platform="PACBIO_SMRT",
             library_strategy="WGS",
             bpa_package_id="pkg-e1",
@@ -376,42 +650,61 @@ def test_create_assembly_intent_allows_empty_body(monkeypatch):
         )
     ]
 
-    monkeypatch.setattr(
-        assemblies,
-        "_get_manifest_inputs_by_taxon_id",
-        lambda db, taxon_id: (organism, selected_sample, reads, experiments),
+    mock_assembly = SimpleNamespace(
+        id=run_id,
+        version=1,
+        status="requested",
+        tol_id=None,
+        manifest_json=None,
     )
-    monkeypatch.setattr(assemblies.assembly_service, "get_next_version", lambda *_, **__: 1)
+    monkeypatch.setattr(
+        assemblies.assembly_service,
+        "create_from_intent",
+        lambda db, **kwargs: mock_assembly,
+    )
 
     class _FakeIntentDB:
         def __init__(self):
-            self.last_added = None
+            self.calls = 0
 
         def query(self, _model):
+            self.calls += 1
+
             class _Q:
+                def __init__(self, value):
+                    self.value = value
+
                 def filter(self, *_a, **_k):
                     return self
 
                 def all(self):
-                    return [
-                        SimpleNamespace(
-                            id=selected_sample.id,
-                            bpa_sample_id="102.100.100/9000",
-                            specimen_id="SPEC-001",
-                        )
-                    ]
+                    return self.value if isinstance(self.value, list) else []
 
-            return _Q()
+                def first(self):
+                    return self.value if not isinstance(self.value, list) else None
+
+            if self.calls == 1:
+                return _Q(organism)
+            if self.calls == 2:
+                return _Q(selected_sample)
+            if self.calls == 3:
+                return _Q([])
+            if self.calls == 4:
+                return _Q(experiments)
+            if self.calls == 5:
+                return _Q(reads)
+            return _Q([])
 
         def add(self, _obj):
-            self.last_added = _obj
             return None
 
         def commit(self):
             return None
 
-        def refresh(self, obj):
-            obj.id = run_id
+        def refresh(self, _obj):
+            return None
+
+        def delete(self, _obj):
             return None
 
     app.dependency_overrides[assemblies.get_current_active_user] = lambda: SimpleNamespace(
@@ -419,36 +712,149 @@ def test_create_assembly_intent_allows_empty_body(monkeypatch):
     )
     app.dependency_overrides[assemblies.get_db] = _override_db(_FakeIntentDB())
 
-    resp = client.post("/api/v1/assemblies/intent/172942")
+    resp = client.post(
+        "/api/v1/assemblies/intent/172942",
+        json={"long_read_specimen_sample_id": str(long_read_sample_id)},
+    )
 
     assert resp.status_code == 200
-    import yaml as _yaml
-
-    body = _yaml.safe_load(resp.content)
-    assert body["assembly_run_id"] == str(run_id)
+    body = resp.json()
+    assert body["assembly_id"] == str(run_id)
     assert body["version"] == 1
-    assert body["status"] == "reserved"
+    assert body["status"] == "requested"
     assert "manifest" in body
+
+
+def test_create_assembly_intent_resolves_reads_via_derived_samples(monkeypatch):
+    client = TestClient(app)
+
+    organism = SimpleNamespace(scientific_name="Test Species", taxon_id=172942)
+    long_read_sample_id = uuid4()
+    derived_sample_id = uuid4()
+    specimen_sample = SimpleNamespace(
+        id=long_read_sample_id,
+        taxon_id=172942,
+        kind="specimen",
+        bpa_sample_id="102.100.100/9000",
+        specimen_id="SPEC-001",
+    )
+    derived_sample = SimpleNamespace(
+        id=derived_sample_id,
+        taxon_id=172942,
+        kind="derived",
+        derived_from_sample_id=long_read_sample_id,
+    )
+    run_id = uuid4()
+    reads = [
+        SimpleNamespace(
+            id="r1",
+            experiment_id="e1",
+            file_name="sample.ccs.bam",
+            file_checksum="abc123",
+            bioplatforms_url="https://example.com/1",
+            read_number=None,
+            lane_number=None,
+        )
+    ]
+    experiments = [
+        SimpleNamespace(
+            id="e1",
+            sample_id=derived_sample_id,
+            platform="PACBIO_SMRT",
+            library_strategy="WGS",
+            bpa_package_id="pkg-e1",
+            bioplatforms_base_url=None,
+        )
+    ]
+
+    mock_assembly = SimpleNamespace(
+        id=run_id,
+        version=1,
+        status="requested",
+        tol_id=None,
+        manifest_json=None,
+    )
+    monkeypatch.setattr(
+        assemblies.assembly_service,
+        "create_from_intent",
+        lambda db, **kwargs: mock_assembly,
+    )
+
+    class _FakeIntentDB:
+        def __init__(self):
+            self.calls = 0
+
+        def query(self, _model):
+            self.calls += 1
+
+            class _Q:
+                def __init__(self, value):
+                    self.value = value
+
+                def filter(self, *_a, **_k):
+                    return self
+
+                def all(self):
+                    return self.value if isinstance(self.value, list) else []
+
+                def first(self):
+                    return self.value if not isinstance(self.value, list) else None
+
+            if self.calls == 1:
+                return _Q(organism)
+            if self.calls == 2:
+                return _Q(specimen_sample)
+            if self.calls == 3:
+                return _Q([derived_sample])
+            if self.calls == 4:
+                return _Q(experiments)
+            if self.calls == 5:
+                return _Q(reads)
+            return _Q([])
+
+        def add(self, _obj):
+            return None
+
+        def commit(self):
+            return None
+
+        def refresh(self, _obj):
+            return None
+
+        def delete(self, _obj):
+            return None
+
+    app.dependency_overrides[assemblies.get_current_active_user] = lambda: SimpleNamespace(
+        is_active=True, roles=["curator"], is_superuser=False
+    )
+    app.dependency_overrides[assemblies.get_db] = _override_db(_FakeIntentDB())
+
+    resp = client.post(
+        "/api/v1/assemblies/intent/172942",
+        json={"long_read_specimen_sample_id": str(long_read_sample_id)},
+    )
+
+    assert resp.status_code == 200
+    body = resp.json()
+    assert body["manifest"]["reads"]["PACBIO_SMRT"]["pkg-e1"]["sample_id"] == str(
+        long_read_sample_id
+    )
+    assert body["manifest"]["reads"]["PACBIO_SMRT"]["pkg-e1"]["specimen_id"] == "SPEC-001"
 
 
 def test_cancel_assembly_intent_success(monkeypatch):
     client = TestClient(app)
 
     organism = SimpleNamespace(taxon_id=172942)
-    selected_sample_id = "550e8400-e29b-41d4-a716-446655440000"
+    long_read_sample_id = uuid4()
     run_id = uuid4()
     run = SimpleNamespace(
         id=run_id,
         taxon_id=172942,
-        sample_id=selected_sample_id,
+        long_read_specimen_sample_id=long_read_sample_id,
+        hic_specimen_sample_id=None,
         version=2,
-        status="reserved",
-    )
-
-    monkeypatch.setattr(
-        assemblies,
-        "_get_optimal_sample_id_for_taxon_id",
-        lambda db, taxon_id, organism_taxon_id=None: selected_sample_id,
+        status="requested",
     )
 
     class _Q:
@@ -490,7 +896,7 @@ def test_cancel_assembly_intent_success(monkeypatch):
 
     resp = client.post(
         "/api/v1/assemblies/intent/172942/cancel",
-        json={"assembly_run_id": str(run_id)},
+        json={"assembly_id": str(run_id)},
     )
 
     assert resp.status_code == 200
@@ -503,13 +909,6 @@ def test_cancel_assembly_intent_not_found(monkeypatch):
     client = TestClient(app)
 
     organism = SimpleNamespace(taxon_id=172942)
-    selected_sample_id = "550e8400-e29b-41d4-a716-446655440000"
-
-    monkeypatch.setattr(
-        assemblies,
-        "_get_optimal_sample_id_for_taxon_id",
-        lambda db, taxon_id, organism_taxon_id=None: selected_sample_id,
-    )
 
     class _Q:
         def __init__(self, value):
@@ -541,8 +940,319 @@ def test_cancel_assembly_intent_not_found(monkeypatch):
 
     resp = client.post(
         "/api/v1/assemblies/intent/172942/cancel",
-        json={"assembly_run_id": str(uuid4())},
+        json={"assembly_id": str(uuid4())},
     )
 
     assert resp.status_code == 404
-    assert "No reserved assembly intent found" in resp.json()["error"]["message"]
+    assert "No requested assembly found to cancel" in resp.json()["error"]["message"]
+
+
+# ── New manifest-by-assembly-id tests ──────────────────────────────────────
+
+
+def test_get_manifest_by_assembly_id_success(monkeypatch):
+    """GET /{assembly_id}/manifest returns stored manifest JSON for a known assembly."""
+    from uuid import uuid4 as _uuid4
+
+    client = TestClient(app)
+    assembly_id = _uuid4()
+    manifest_json = {
+        "scientific_name": "Test Species",
+        "taxon_id": 172942,
+        "tolid": "tol-999",
+        "version": 3,
+        "reads": {"PACBIO_SMRT": {"pkg-exp-1": {"resources": []}}},
+    }
+
+    assembly = SimpleNamespace(
+        id=assembly_id,
+        taxon_id=172942,
+        tol_id="tol-999",
+        version=3,
+        status="requested",
+        manifest_json=manifest_json,
+    )
+
+    class MockQuery:
+        def __init__(self, rv):
+            self.rv = rv
+
+        def filter(self, *a, **k):
+            return self
+
+        def all(self):
+            return self.rv if isinstance(self.rv, list) else []
+
+        def first(self):
+            return self.rv if not isinstance(self.rv, list) else None
+
+    class MockDB:
+        def query(self, _m):
+            return MockQuery(assembly)
+
+    app.dependency_overrides[assemblies.get_current_active_user] = lambda: SimpleNamespace(
+        is_active=True, roles=["admin"], is_superuser=False
+    )
+    app.dependency_overrides[assemblies.get_db] = lambda: MockDB()
+
+    resp = client.get(f"/api/v1/assemblies/{assembly_id}/manifest")
+
+    assert resp.status_code == 200
+    assert resp.headers["content-type"].startswith("application/json")
+    assert resp.json() == manifest_json
+
+
+def test_get_manifest_by_assembly_id_not_found():
+    """GET /{assembly_id}/manifest returns 404 when assembly does not exist."""
+    from uuid import uuid4 as _uuid4
+
+    client = TestClient(app)
+
+    class MockDB:
+        def query(self, _m):
+            return self
+
+        def filter(self, *a, **k):
+            return self
+
+        def first(self):
+            return None
+
+    app.dependency_overrides[assemblies.get_current_active_user] = lambda: SimpleNamespace(
+        is_active=True, roles=["admin"], is_superuser=False
+    )
+    app.dependency_overrides[assemblies.get_db] = lambda: MockDB()
+
+    resp = client.get(f"/api/v1/assemblies/{_uuid4()}/manifest")
+    assert resp.status_code == 404
+    assert "Assembly not found" in resp.json()["error"]["message"]
+
+
+# ── Stage-run endpoint tests ────────────────────────────────────────────────
+
+
+def _make_stage_run(assembly_id=None):
+    """Return a SimpleNamespace that satisfies AssemblyStageRunOut."""
+    from datetime import datetime, timezone
+
+    return SimpleNamespace(
+        id=uuid4(),
+        assembly_id=assembly_id or uuid4(),
+        stage_name="genomeassembly",
+        status="succeeded",
+        external_run_id="ext-123",
+        attempt=1,
+        stats={"n50": 10000},
+        started_at=datetime(2026, 1, 1, tzinfo=timezone.utc),
+        completed_at=datetime(2026, 1, 2, tzinfo=timezone.utc),
+        created_at=datetime(2026, 1, 1, tzinfo=timezone.utc),
+        updated_at=datetime(2026, 1, 2, tzinfo=timezone.utc),
+        files=[],
+    )
+
+
+def test_list_stage_runs(monkeypatch):
+    """GET /{assembly_id}/stage-runs returns list of stage runs."""
+    client = TestClient(app)
+    assembly_id = uuid4()
+    stage_run = _make_stage_run(assembly_id=assembly_id)
+
+    monkeypatch.setattr(
+        assemblies.assembly_service, "get", lambda db, id: SimpleNamespace(id=assembly_id)
+    )
+    monkeypatch.setattr(
+        assemblies.assembly_stage_run_service,
+        "get_by_assembly_id",
+        lambda db, assembly_id: [stage_run],
+    )
+
+    app.dependency_overrides[assemblies.get_current_active_user] = lambda: SimpleNamespace(
+        is_active=True, roles=["admin"], is_superuser=False
+    )
+    app.dependency_overrides[assemblies.get_db] = _override_db(_FakeSession())
+
+    resp = client.get(f"/api/v1/assemblies/{assembly_id}/stage-runs")
+    assert resp.status_code == 200
+    body = resp.json()
+    assert isinstance(body, list)
+    assert len(body) == 1
+    assert body[0]["stage_name"] == "genomeassembly"
+    assert body[0]["status"] == "succeeded"
+
+
+def test_list_stage_runs_assembly_not_found(monkeypatch):
+    """GET /{assembly_id}/stage-runs returns 404 when assembly missing."""
+    client = TestClient(app)
+
+    monkeypatch.setattr(assemblies.assembly_service, "get", lambda db, id: None)
+
+    app.dependency_overrides[assemblies.get_current_active_user] = lambda: SimpleNamespace(
+        is_active=True, roles=["admin"], is_superuser=False
+    )
+    app.dependency_overrides[assemblies.get_db] = _override_db(_FakeSession())
+
+    resp = client.get(f"/api/v1/assemblies/{uuid4()}/stage-runs")
+    assert resp.status_code == 404
+
+
+def test_create_stage_run_success(monkeypatch):
+    """POST /{assembly_id}/stage-runs creates a stage run with files."""
+    client = TestClient(app)
+    assembly_id = uuid4()
+    stage_run = _make_stage_run(assembly_id=assembly_id)
+    stage_run.files = [
+        SimpleNamespace(
+            id=uuid4(),
+            assembly_stage_run_id=stage_run.id,
+            storage_type="s3",
+            storage_uri="s3://bucket/key",
+            storage_details={"region": "ap-southeast-2"},
+            sha256sum="deadbeef",
+            created_at=stage_run.created_at,
+        )
+    ]
+
+    monkeypatch.setattr(
+        assemblies.assembly_service, "get", lambda db, id: SimpleNamespace(id=assembly_id)
+    )
+    monkeypatch.setattr(
+        assemblies.assembly_stage_run_service,
+        "create_with_files",
+        lambda db, **kwargs: stage_run,
+    )
+
+    app.dependency_overrides[assemblies.get_current_active_user] = lambda: SimpleNamespace(
+        is_active=True, roles=["curator"], is_superuser=False
+    )
+    app.dependency_overrides[assemblies.get_db] = _override_db(_FakeSession())
+
+    resp = client.post(
+        f"/api/v1/assemblies/{assembly_id}/stage-runs",
+        json={
+            "stage_name": "genomeassembly",
+            "status": "succeeded",
+            "attempt": 1,
+            "stats": {"n50": 10000},
+            "files": [
+                {
+                    "storage_type": "s3",
+                    "storage_uri": "s3://bucket/key",
+                    "storage_details": {"region": "ap-southeast-2"},
+                    "sha256sum": "deadbeef",
+                }
+            ],
+        },
+    )
+
+    assert resp.status_code == 200
+    body = resp.json()
+    assert body["stage_name"] == "genomeassembly"
+    assert body["status"] == "succeeded"
+    assert len(body["files"]) == 1
+    assert body["files"][0]["storage_type"] == "s3"
+    assert body["files"][0]["sha256sum"] == "deadbeef"
+
+
+def test_update_stage_run_status(monkeypatch):
+    """PATCH /{assembly_id}/stage-runs/{stage_run_id} updates status."""
+    client = TestClient(app)
+    assembly_id = uuid4()
+    stage_run = _make_stage_run(assembly_id=assembly_id)
+    updated_run = _make_stage_run(assembly_id=assembly_id)
+    updated_run.id = stage_run.id
+    updated_run.status = "failed"
+
+    class _Q:
+        def filter(self, *_a, **_k):
+            return self
+
+        def first(self):
+            return stage_run
+
+    monkeypatch.setattr(
+        assemblies.assembly_stage_run_service,
+        "update_with_files",
+        lambda db, db_obj, update_in: updated_run,
+    )
+
+    app.dependency_overrides[assemblies.get_current_active_user] = lambda: SimpleNamespace(
+        is_active=True, roles=["curator"], id=uuid4(), is_superuser=False
+    )
+
+    class _DB:
+        def query(self, _m):
+            return _Q()
+
+    app.dependency_overrides[assemblies.get_db] = lambda: _DB()
+
+    resp = client.patch(
+        f"/api/v1/assemblies/{assembly_id}/stage-runs/{stage_run.id}",
+        json={"status": "failed"},
+    )
+
+    assert resp.status_code == 200
+    assert resp.json()["status"] == "failed"
+
+
+def test_update_stage_run_replaces_files(monkeypatch):
+    """PATCH replaces all files when files list is provided."""
+    from datetime import datetime, timezone
+
+    client = TestClient(app)
+    assembly_id = uuid4()
+    stage_run = _make_stage_run(assembly_id=assembly_id)
+    new_file = SimpleNamespace(
+        id=uuid4(),
+        assembly_stage_run_id=stage_run.id,
+        storage_type="gcs",
+        storage_uri="gs://bucket/new-key",
+        storage_details={},
+        sha256sum="cafebabe",
+        created_at=datetime(2026, 1, 3, tzinfo=timezone.utc),
+    )
+    updated_run = _make_stage_run(assembly_id=assembly_id)
+    updated_run.id = stage_run.id
+    updated_run.files = [new_file]
+
+    class _Q:
+        def filter(self, *_a, **_k):
+            return self
+
+        def first(self):
+            return stage_run
+
+    monkeypatch.setattr(
+        assemblies.assembly_stage_run_service,
+        "update_with_files",
+        lambda db, db_obj, update_in: updated_run,
+    )
+
+    app.dependency_overrides[assemblies.get_current_active_user] = lambda: SimpleNamespace(
+        is_active=True, roles=["curator"], id=uuid4(), is_superuser=False
+    )
+
+    class _DB:
+        def query(self, _m):
+            return _Q()
+
+    app.dependency_overrides[assemblies.get_db] = lambda: _DB()
+
+    resp = client.patch(
+        f"/api/v1/assemblies/{assembly_id}/stage-runs/{stage_run.id}",
+        json={
+            "files": [
+                {
+                    "storage_type": "gcs",
+                    "storage_uri": "gs://bucket/new-key",
+                    "storage_details": {},
+                    "sha256sum": "cafebabe",
+                }
+            ]
+        },
+    )
+
+    assert resp.status_code == 200
+    body = resp.json()
+    assert len(body["files"]) == 1
+    assert body["files"][0]["sha256sum"] == "cafebabe"
+    assert body["files"][0]["storage_type"] == "gcs"

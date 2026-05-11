@@ -9,6 +9,8 @@ from app.models.assembly import (
     AssemblyFile,
     AssemblyRead,
     AssemblyRun,
+    AssemblyStageRun,
+    AssemblyStageRunFile,
     AssemblySubmission,
 )
 from app.models.experiment import Experiment
@@ -18,6 +20,8 @@ from app.schemas.assembly import (
     AssemblyCreate,
     AssemblyFileCreate,
     AssemblyFileUpdate,
+    AssemblyStageRunCreate,
+    AssemblyStageRunUpdate,
     AssemblySubmissionCreate,
     AssemblySubmissionUpdate,
     AssemblyUpdate,
@@ -155,6 +159,10 @@ class AssemblyService(BaseService[Assembly, AssemblyCreate, AssemblyUpdate]):
         sample_id: UUID,
         data_types: str,
     ) -> int:
+        # Assembly is the primary source of truth for version numbers.
+        # AssemblyRun is also checked during the transition period to avoid conflicts
+        # with legacy reservations. Remove the AssemblyRun check once legacy records
+        # are resolved and the table is dropped.
         max_assembly = (
             db.query(func.max(Assembly.version))
             .filter(
@@ -174,6 +182,69 @@ class AssemblyService(BaseService[Assembly, AssemblyCreate, AssemblyUpdate]):
             .scalar()
         )
         return max(max_assembly or 0, max_run or 0) + 1
+
+    def get_next_version_for_intent(
+        self,
+        db: Session,
+        *,
+        taxon_id: int,
+        long_read_specimen_sample_id: UUID,
+    ) -> int:
+        """Return the next version scoped by (taxon_id, long_read_specimen_sample_id).
+
+        This is the versioning strategy for the intent flow. Versions are shared
+        across all assemblies for the same taxon + long-read specimen, regardless
+        of data_types or hic_specimen_sample_id.
+        """
+        max_version = (
+            db.query(func.max(Assembly.version))
+            .filter(
+                Assembly.taxon_id == taxon_id,
+                Assembly.long_read_specimen_sample_id == long_read_specimen_sample_id,
+            )
+            .scalar()
+        )
+        return (max_version or 0) + 1
+
+    def create_from_intent(
+        self,
+        db: Session,
+        *,
+        taxon_id: int,
+        long_read_specimen_sample_id: UUID,
+        hic_specimen_sample_id: Optional[UUID],
+        data_types: str,
+        tol_id: Optional[str],
+        project_id: Optional[UUID],
+        manifest_json: Optional[dict] = None,
+    ) -> Assembly:
+        """Create an Assembly at manifest-request time with status='requested'.
+
+        Versioning is scoped by (taxon_id, long_read_specimen_sample_id) only —
+        data_types and hic_specimen_sample_id are excluded from the version key.
+        sample_id is set to long_read_specimen_sample_id for backward compatibility.
+        """
+        version = self.get_next_version_for_intent(
+            db,
+            taxon_id=taxon_id,
+            long_read_specimen_sample_id=long_read_specimen_sample_id,
+        )
+        assembly = Assembly(
+            taxon_id=taxon_id,
+            sample_id=long_read_specimen_sample_id,
+            long_read_specimen_sample_id=long_read_specimen_sample_id,
+            hic_specimen_sample_id=hic_specimen_sample_id,
+            data_types=data_types,
+            version=version,
+            tol_id=tol_id,
+            project_id=project_id,
+            status="requested",
+            manifest_json=manifest_json,
+        )
+        db.add(assembly)
+        db.commit()
+        db.refresh(assembly)
+        return assembly
 
 
 class AssemblySubmissionService(
@@ -233,7 +304,93 @@ class AssemblyReadService(BaseService[AssemblyRead, AssemblyCreate, AssemblyUpda
         return db.query(AssemblyRead).filter(AssemblyRead.assembly_id == assembly_id).all()
 
 
+class AssemblyStageRunService(
+    BaseService[AssemblyStageRun, AssemblyStageRunCreate, AssemblyStageRunUpdate]
+):
+    """Service for AssemblyStageRun operations."""
+
+    def get_by_assembly_id(self, db: Session, assembly_id: UUID) -> List[AssemblyStageRun]:
+        return (
+            db.query(AssemblyStageRun)
+            .filter(AssemblyStageRun.assembly_id == assembly_id)
+            .order_by(AssemblyStageRun.created_at.desc())
+            .all()
+        )
+
+    def create_with_files(
+        self,
+        db: Session,
+        *,
+        assembly_id: UUID,
+        run_in: AssemblyStageRunCreate,
+    ) -> AssemblyStageRun:
+        run = AssemblyStageRun(
+            assembly_id=assembly_id,
+            stage_name=run_in.stage_name,
+            status=run_in.status,
+            external_run_id=run_in.external_run_id,
+            attempt=run_in.attempt,
+            stats=run_in.stats,
+            started_at=run_in.started_at,
+            completed_at=run_in.completed_at,
+        )
+        db.add(run)
+        db.flush()
+        for f in run_in.files:
+            db.add(
+                AssemblyStageRunFile(
+                    assembly_stage_run_id=run.id,
+                    storage_type=f.storage_type,
+                    storage_uri=f.storage_uri,
+                    storage_details=f.storage_details,
+                    sha256sum=f.sha256sum,
+                )
+            )
+        db.commit()
+        db.refresh(run)
+        return run
+
+    def update_with_files(
+        self,
+        db: Session,
+        *,
+        db_obj: AssemblyStageRun,
+        update_in: AssemblyStageRunUpdate,
+    ) -> AssemblyStageRun:
+        if update_in.status is not None:
+            db_obj.status = update_in.status
+        if update_in.external_run_id is not None:
+            db_obj.external_run_id = update_in.external_run_id
+        if update_in.stats is not None:
+            db_obj.stats = update_in.stats
+        if update_in.started_at is not None:
+            db_obj.started_at = update_in.started_at
+        if update_in.completed_at is not None:
+            db_obj.completed_at = update_in.completed_at
+
+        if update_in.files is not None:
+            # Replace all files
+            db.query(AssemblyStageRunFile).filter(
+                AssemblyStageRunFile.assembly_stage_run_id == db_obj.id
+            ).delete()
+            for f in update_in.files:
+                db.add(
+                    AssemblyStageRunFile(
+                        assembly_stage_run_id=db_obj.id,
+                        storage_type=f.storage_type,
+                        storage_uri=f.storage_uri,
+                        storage_details=f.storage_details,
+                        sha256sum=f.sha256sum,
+                    )
+                )
+
+        db.commit()
+        db.refresh(db_obj)
+        return db_obj
+
+
 assembly_service = AssemblyService(Assembly)
 assembly_submission_service = AssemblySubmissionService(AssemblySubmission)
 assembly_file_service = AssemblyFileService(AssemblyFile)
 assembly_read_service = AssemblyReadService(AssemblyRead)
+assembly_stage_run_service = AssemblyStageRunService(AssemblyStageRun)

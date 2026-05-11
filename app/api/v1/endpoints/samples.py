@@ -6,6 +6,7 @@ from typing import Any, Dict, List, Optional
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
+from sqlalchemy import or_
 from sqlalchemy.orm import Session
 from sqlalchemy.orm.attributes import flag_modified
 
@@ -15,6 +16,7 @@ from app.core.policy import policy
 from app.models.experiment import Experiment
 from app.models.organism import Organism
 from app.models.project import Project
+from app.models.read import Read
 from app.models.sample import Sample, SampleSubmission
 from app.models.user import User
 from app.schemas.bulk_import import BulkImportResponse, BulkSampleImport
@@ -25,6 +27,7 @@ from app.schemas.sample import (
     SampleSubmissionCreate,
     SampleSubmissionUpdate,
     SampleUpdate,
+    SpecimenSampleHierarchyResponse,
 )
 from app.schemas.sample import SampleSubmission as SampleSubmissionSchema
 from app.utils.mapping import to_float
@@ -69,7 +72,69 @@ def read_samples(
     return samples
 
 
-@router.get("/by-specimen/{taxon_id}/{specimen_id}", response_model=SampleSchema)
+@router.get(
+    "/by-specimen/{taxon_id}/{specimen_id:path}/related",
+    response_model=SpecimenSampleHierarchyResponse,
+)
+def get_samples_experiments_and_reads_for_specimen(
+    *,
+    db: Session = Depends(get_db),
+    taxon_id: int,
+    specimen_id: str,
+    current_user: User = Depends(get_current_active_user),
+) -> Any:
+    """Return the specimen sample, related samples, and nested experiments/reads."""
+    organism = db.query(Organism).filter(Organism.taxon_id == taxon_id).first()
+    if not organism:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Organism with taxon_id {taxon_id} not found",
+        )
+
+    specimen_sample = (
+        db.query(Sample)
+        .filter(
+            Sample.taxon_id == organism.taxon_id,
+            Sample.specimen_id == specimen_id,
+            Sample.kind == SampleKind.SPECIMEN,
+        )
+        .first()
+    )
+    if not specimen_sample:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Specimen sample not found for taxon_id {taxon_id} and specimen_id '{specimen_id}'",
+        )
+
+    related_samples = (
+        db.query(Sample)
+        .filter(
+            Sample.taxon_id == organism.taxon_id,
+            or_(
+                Sample.id == specimen_sample.id, Sample.derived_from_sample_id == specimen_sample.id
+            ),
+        )
+        .all()
+    )
+
+    related_payload = []
+    for sample in related_samples:
+        experiments = db.query(Experiment).filter(Experiment.sample_id == sample.id).all()
+        experiment_payload = []
+        for experiment in experiments:
+            reads = db.query(Read).filter(Read.experiment_id == experiment.id).all()
+            experiment_payload.append({"experiment": experiment, "reads": reads})
+
+        related_payload.append({"sample": sample, "experiments": experiment_payload})
+
+    return {
+        "taxon_id": organism.taxon_id,
+        "specimen_id": specimen_id,
+        "samples": related_payload,
+    }
+
+
+@router.get("/by-specimen/{taxon_id}/{specimen_id:path}", response_model=SampleSchema)
 def get_specimen_by_taxid_and_specimen_id(
     *,
     db: Session = Depends(get_db),
@@ -83,9 +148,6 @@ def get_specimen_by_taxid_and_specimen_id(
     This finds the unique specimen sample for a given organism (by taxon_id)
     and specimen_id combination.
     """
-    # All users can read samples
-
-    # First, find the organism by taxon_id
     organism = db.query(Organism).filter(Organism.taxon_id == taxon_id).first()
     if not organism:
         raise HTTPException(
@@ -93,7 +155,6 @@ def get_specimen_by_taxid_and_specimen_id(
             detail=f"Organism with taxon_id {taxon_id} not found",
         )
 
-    # Then find the specimen sample
     sample = (
         db.query(Sample)
         .filter(

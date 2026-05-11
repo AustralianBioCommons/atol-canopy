@@ -53,9 +53,7 @@ class TaxonomyInfoService:
         db.commit()
         return ti
 
-    def bulk_import(
-        self, db: Session, *, data: Dict[str, Dict[str, Any]]
-    ) -> BulkImportResponse:
+    def bulk_import(self, db: Session, *, data: Dict[str, Dict[str, Any]]) -> BulkImportResponse:
         created_count = 0
         skipped_count = 0
         errors: List[str] = []
@@ -87,9 +85,7 @@ class TaxonomyInfoService:
                     continue
 
                 # Reject duplicates
-                existing = (
-                    db.query(TaxonomyInfo).filter(TaxonomyInfo.taxon_id == taxon_id).first()
-                )
+                existing = db.query(TaxonomyInfo).filter(TaxonomyInfo.taxon_id == taxon_id).first()
                 if existing:
                     errors.append(f"{key}: taxonomy_info for taxon_id {taxon_id} already exists")
                     skipped_count += 1

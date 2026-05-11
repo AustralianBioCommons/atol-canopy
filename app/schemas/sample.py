@@ -1,12 +1,13 @@
 from datetime import datetime
-from enum import Enum
-from typing import Dict, Optional
+from typing import Dict, List, Optional
 from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict, Field
 
 # Enum for submission status
 from app.schemas.common import SampleKind, SubmissionStatus
+from app.schemas.experiment import ExperimentDetail as ExperimentDetailSchema
+from app.schemas.read import ReadDetail as ReadDetailSchema
 
 
 # Base Sample schema (aligns with schema.sql columns except id/timestamps/bpa_json)
@@ -89,6 +90,28 @@ class Sample(SampleInDBBase):
     """Schema for returning sample information."""
 
     pass
+
+
+class SampleExperimentReads(BaseModel):
+    """Nested experiment and read data for a sample."""
+
+    experiment: ExperimentDetailSchema
+    reads: List[ReadDetailSchema] = Field(default_factory=list)
+
+
+class SpecimenSampleHierarchyItem(BaseModel):
+    """A related sample and its nested experiments and reads."""
+
+    sample: Sample
+    experiments: List[SampleExperimentReads] = Field(default_factory=list)
+
+
+class SpecimenSampleHierarchyResponse(BaseModel):
+    """Response shape for all sample/experiment/read data linked to a specimen."""
+
+    taxon_id: int
+    specimen_id: str
+    samples: List[SpecimenSampleHierarchyItem] = Field(default_factory=list)
 
 
 # Base SampleSubmission schema

@@ -152,7 +152,9 @@ def test_create_taxonomy_info_success(monkeypatch):
         "taxonomy_info_service",
         SimpleNamespace(create=lambda db, ti_in: ti),
     )
-    resp = client.post("/api/v1/taxonomy-info/", json={"taxon_id": 5077, "augustus_dataset_name": "anidulans"})
+    resp = client.post(
+        "/api/v1/taxonomy-info/", json={"taxon_id": 5077, "augustus_dataset_name": "anidulans"}
+    )
     assert resp.status_code == 201
     assert resp.json()["taxon_id"] == 5077
 
@@ -352,9 +354,7 @@ def test_bulk_import_rejects_mismatched_inner_taxon_id(monkeypatch):
         "taxonomy_info_service",
         SimpleNamespace(bulk_import=lambda db, data: result),
     )
-    resp = client.post(
-        "/api/v1/taxonomy-info/bulk-import", json={"5077": {"taxon_id": 9999}}
-    )
+    resp = client.post("/api/v1/taxonomy-info/bulk-import", json={"5077": {"taxon_id": 9999}})
     assert resp.status_code == 200
     body = resp.json()
     assert body["skipped_count"] == 1

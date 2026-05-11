@@ -1,11 +1,12 @@
 from datetime import datetime
 from enum import Enum
-from typing import Dict, Optional
+from typing import Any, Dict, List, Optional
 from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict, Field
 
 from app.schemas.common import SubmissionStatus
+from app.schemas.qc_read import QcReadOut
 
 
 class AssemblyDataTypes(str, Enum):
@@ -17,6 +18,15 @@ class AssemblyDataTypes(str, Enum):
     OXFORD_NANOPORE_HIC = "OXFORD_NANOPORE_HIC"
     PACBIO_SMRT_OXFORD_NANOPORE = "PACBIO_SMRT_OXFORD_NANOPORE"
     PACBIO_SMRT_OXFORD_NANOPORE_HIC = "PACBIO_SMRT_OXFORD_NANOPORE_HIC"
+
+
+class AssemblySpecimenSampleDataType(str, Enum):
+    """Atomic data types exposed by specimen-sample discovery."""
+
+    PACBIO_SMRT = "PACBIO_SMRT"
+    OXFORD_NANOPORE = "OXFORD_NANOPORE"
+    HIC = "Hi-C"
+    RNASEQ = "RNA-Seq"
 
 
 class AssemblyFileType(str, Enum):
@@ -35,16 +45,17 @@ class AssemblyBase(BaseModel):
     taxon_id: int
     sample_id: UUID
     project_id: Optional[UUID] = None
-    assembly_name: str
+    assembly_name: Optional[str] = None
     assembly_type: str = "clone or isolate"
-    tol_id: str
+    tol_id: Optional[str] = None
     data_types: AssemblyDataTypes
-    coverage: float
-    program: str
+    coverage: Optional[float] = None
+    program: Optional[str] = None
     mingaplength: Optional[float] = None
     moleculetype: str = "genomic DNA"
     description: Optional[str] = None
     version: int = 1
+    status: str = "requested"
 
 
 # Schema for creating a new assembly
@@ -75,21 +86,40 @@ class AssemblyIntent(BaseModel):
     """Schema for reserving an assembly version and generating a manifest."""
 
     tol_id: Optional[str] = None
+    long_read_specimen_sample_id: UUID
+    hic_specimen_sample_id: Optional[UUID] = None
 
 
 class AssemblyIntentResponse(BaseModel):
     """Response envelope for assembly intent creation."""
 
-    assembly_run_id: UUID
+    assembly_id: UUID
     version: int
     status: str
-    manifest_yaml: str
+    manifest_json: Dict[str, Any]
+
+
+class AssemblySpecimenSampleOption(BaseModel):
+    """Assembly discovery metadata for a specimen sample."""
+
+    sample_id: UUID
+    specimen_id: Optional[str] = None
+    sex: Optional[str] = None
+    available_data_types: List[AssemblySpecimenSampleDataType] = Field(default_factory=list)
+    qc_reads: List[QcReadOut] = Field(default_factory=list)
+
+
+class AssemblySpecimenSampleDiscoveryResponse(BaseModel):
+    """Response schema for assembly specimen-sample discovery."""
+
+    taxon_id: int
+    specimen_samples: List[AssemblySpecimenSampleOption]
 
 
 class AssemblyIntentCancel(BaseModel):
     """Schema for cancelling an existing assembly intent."""
 
-    assembly_run_id: UUID
+    assembly_id: UUID
     version: Optional[int] = None
 
 
@@ -109,6 +139,7 @@ class AssemblyUpdate(BaseModel):
     moleculetype: Optional[str] = None
     version_number: Optional[int] = None
     description: Optional[str] = None
+    status: Optional[str] = None
 
 
 # Schema for assembly in DB
@@ -116,6 +147,9 @@ class AssemblyInDBBase(AssemblyBase):
     """Base schema for Assembly in DB, includes id and timestamps."""
 
     id: UUID
+    long_read_specimen_sample_id: Optional[UUID] = None
+    hic_specimen_sample_id: Optional[UUID] = None
+    manifest_json: Optional[Dict[str, Any]] = None
     created_at: datetime
     updated_at: datetime
 
@@ -252,3 +286,74 @@ class AssemblyFile(AssemblyFileInDBBase):
     """Schema for returning assembly file information."""
 
     pass
+
+
+# ==========================================
+# AssemblyStageRun schemas
+# ==========================================
+
+
+class AssemblyStageRunFileCreate(BaseModel):
+    """File payload for a stage run."""
+
+    storage_type: str
+    storage_uri: str
+    storage_details: Dict[str, Any] = {}
+    sha256sum: str
+
+
+class AssemblyStageRunCreate(BaseModel):
+    """Schema for reporting a stage run result."""
+
+    stage_name: str
+    status: str
+    external_run_id: Optional[str] = None
+    attempt: int = 1
+    stats: Dict[str, Any] = {}
+    started_at: Optional[datetime] = None
+    completed_at: Optional[datetime] = None
+    files: List[AssemblyStageRunFileCreate] = []
+
+
+class AssemblyStageRunUpdate(BaseModel):
+    """Schema for updating an existing stage run. If files is provided, replaces all existing files."""
+
+    status: Optional[str] = None
+    external_run_id: Optional[str] = None
+    stats: Optional[Dict[str, Any]] = None
+    started_at: Optional[datetime] = None
+    completed_at: Optional[datetime] = None
+    files: Optional[List[AssemblyStageRunFileCreate]] = None
+
+
+class AssemblyStageRunFileOut(BaseModel):
+    """Stage run file response schema."""
+
+    id: UUID
+    assembly_stage_run_id: UUID
+    storage_type: str
+    storage_uri: str
+    storage_details: Dict[str, Any]
+    sha256sum: str
+    created_at: datetime
+
+    model_config = ConfigDict(from_attributes=True)
+
+
+class AssemblyStageRunOut(BaseModel):
+    """Stage run response schema."""
+
+    id: UUID
+    assembly_id: UUID
+    stage_name: str
+    status: str
+    external_run_id: Optional[str]
+    attempt: int
+    stats: Dict[str, Any]
+    started_at: Optional[datetime]
+    completed_at: Optional[datetime]
+    created_at: datetime
+    updated_at: datetime
+    files: List[AssemblyStageRunFileOut] = []
+
+    model_config = ConfigDict(from_attributes=True)

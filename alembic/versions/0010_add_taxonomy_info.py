@@ -6,6 +6,7 @@ Create Date: 2026-05-01
 """
 
 import sqlalchemy as sa
+
 from alembic import op
 
 revision = "0010_add_taxonomy_info"
@@ -30,9 +31,7 @@ def upgrade() -> None:
         sa.Column("augustus_dataset_name", sa.Text(), nullable=True),
         sa.Column("genetic_code_id", sa.Integer(), nullable=True),
         sa.PrimaryKeyConstraint("taxon_id"),
-        sa.ForeignKeyConstraint(
-            ["taxon_id"], ["organism.taxon_id"], ondelete="CASCADE"
-        ),
+        sa.ForeignKeyConstraint(["taxon_id"], ["organism.taxon_id"], ondelete="CASCADE"),
     )
 
     # 2. Migrate existing augustus_dataset_name values from organism into taxonomy_info
