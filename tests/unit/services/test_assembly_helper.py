@@ -131,6 +131,10 @@ class TestGetAvailableAssemblyDataTypes:
         experiments = [Mock(platform="ILLUMINA", library_strategy="WGS")]
         assert get_available_assembly_data_types(experiments) == []
 
+    def test_rnaseq_is_reported_for_discovery(self):
+        experiments = [Mock(platform="ILLUMINA", library_strategy="RNA-Seq")]
+        assert get_available_assembly_data_types(experiments) == ["RNA-Seq"]
+
 
 class TestGetDetectedPlatforms:
     """Tests for get_detected_platforms function."""

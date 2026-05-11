@@ -25,6 +25,7 @@ class AssemblySpecimenSampleDataType(str, Enum):
     PACBIO_SMRT = "PACBIO_SMRT"
     OXFORD_NANOPORE = "OXFORD_NANOPORE"
     HIC = "Hi-C"
+    RNASEQ = "RNA-Seq"
 
 
 class AssemblyFileType(str, Enum):

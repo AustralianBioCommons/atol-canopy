@@ -12,11 +12,14 @@ from app.schemas.assembly import AssemblyDataTypes
 logger = logging.getLogger(__name__)
 
 
-def _detect_assembly_data_type_flags(experiments: List[Experiment]) -> Tuple[bool, bool, bool]:
+def _detect_assembly_data_type_flags(
+    experiments: List[Experiment],
+) -> Tuple[bool, bool, bool, bool]:
     """Return booleans for PacBio, ONT, and Hi-C using assembly classification rules."""
     has_pacbio = False
     has_nanopore = False
     has_hic = False
+    has_rnaseq = False
 
     for exp in experiments:
         platform = exp.platform.upper() if exp.platform else ""
@@ -28,8 +31,10 @@ def _detect_assembly_data_type_flags(experiments: List[Experiment]) -> Tuple[boo
             has_nanopore = True
         if platform == "ILLUMINA" and library_strategy == "HI-C":
             has_hic = True
+        if platform == "ILLUMINA" and library_strategy == "RNA-SEQ":
+            has_rnaseq = True
 
-    return has_pacbio, has_nanopore, has_hic
+    return has_pacbio, has_nanopore, has_hic, has_rnaseq
 
 
 def get_available_assembly_data_types(experiments: List[Experiment]) -> List[str]:
@@ -39,7 +44,7 @@ def get_available_assembly_data_types(experiments: List[Experiment]) -> List[str
     report ["Hi-C"] even though that combination is not sufficient for creating an
     assembly intent on its own.
     """
-    has_pacbio, has_nanopore, has_hic = _detect_assembly_data_type_flags(experiments)
+    has_pacbio, has_nanopore, has_hic, has_rnaseq = _detect_assembly_data_type_flags(experiments)
     available_data_types: List[str] = []
 
     if has_pacbio:
@@ -48,6 +53,8 @@ def get_available_assembly_data_types(experiments: List[Experiment]) -> List[str
         available_data_types.append("OXFORD_NANOPORE")
     if has_hic:
         available_data_types.append("Hi-C")
+    if has_rnaseq:
+        available_data_types.append("RNA-Seq")
 
     return available_data_types
 
@@ -63,7 +70,7 @@ def determine_assembly_data_types(experiments: List[Experiment]) -> AssemblyData
     Raises:
         ValueError: If no valid sequencing platforms are detected
     """
-    has_pacbio, has_nanopore, has_hic = _detect_assembly_data_type_flags(experiments)
+    has_pacbio, has_nanopore, has_hic, has_rnaseq = _detect_assembly_data_type_flags(experiments)
 
     if has_pacbio and has_nanopore and has_hic:
         return AssemblyDataTypes.PACBIO_SMRT_OXFORD_NANOPORE_HIC

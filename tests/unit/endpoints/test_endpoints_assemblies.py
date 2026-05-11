@@ -357,6 +357,7 @@ def test_get_specimen_samples_for_assembly_returns_discovery_options():
     derived_a_id = uuid4()
     specimen_b_id = uuid4()
     specimen_c_id = uuid4()
+    specimen_d_id = uuid4()
 
     specimen_a = SimpleNamespace(
         id=specimen_a_id,
@@ -385,6 +386,13 @@ def test_get_specimen_samples_for_assembly_returns_discovery_options():
         specimen_id="SPEC-003",
         sex="unknown",
     )
+    specimen_d = SimpleNamespace(
+        id=specimen_d_id,
+        taxon_id=172942,
+        kind="specimen",
+        specimen_id="SPEC-004",
+        sex="female",
+    )
 
     specimen_a_experiments = [
         SimpleNamespace(
@@ -406,6 +414,14 @@ def test_get_specimen_samples_for_assembly_returns_discovery_options():
             sample_id=specimen_b_id,
             platform="OXFORD_NANOPORE",
             library_strategy="WGA",
+        )
+    ]
+    specimen_d_experiments = [
+        SimpleNamespace(
+            id="exp-rna",
+            sample_id=specimen_d_id,
+            platform="ILLUMINA",
+            library_strategy="RNA-Seq",
         )
     ]
 
@@ -431,7 +447,7 @@ def test_get_specimen_samples_for_assembly_returns_discovery_options():
             if self.calls == 1:
                 return _Q(organism)
             if self.calls == 2:
-                return _Q([specimen_a, specimen_b, specimen_c])
+                return _Q([specimen_a, specimen_b, specimen_c, specimen_d])
             if self.calls == 3:
                 return _Q([derived_a])
             if self.calls == 4:
@@ -444,6 +460,10 @@ def test_get_specimen_samples_for_assembly_returns_discovery_options():
                 return _Q([])
             if self.calls == 8:
                 return _Q([])
+            if self.calls == 9:
+                return _Q([])
+            if self.calls == 10:
+                return _Q(specimen_d_experiments)
             return _Q([])
 
     app.dependency_overrides[assemblies.get_current_active_user] = lambda: SimpleNamespace(
@@ -474,6 +494,12 @@ def test_get_specimen_samples_for_assembly_returns_discovery_options():
             "specimen_id": "SPEC-003",
             "sex": "unknown",
             "available_data_types": [],
+        },
+        {
+            "sample_id": str(specimen_d_id),
+            "specimen_id": "SPEC-004",
+            "sex": "female",
+            "available_data_types": ["RNA-Seq"],
         },
     ]
 
