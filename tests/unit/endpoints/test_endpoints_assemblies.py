@@ -358,6 +358,10 @@ def test_get_specimen_samples_for_assembly_returns_discovery_options():
     specimen_b_id = uuid4()
     specimen_c_id = uuid4()
     specimen_d_id = uuid4()
+    specimen_a_pacbio_exp_id = uuid4()
+    specimen_a_hic_exp_id = uuid4()
+    specimen_b_ont_exp_id = uuid4()
+    specimen_d_rna_exp_id = uuid4()
 
     specimen_a = SimpleNamespace(
         id=specimen_a_id,
@@ -396,21 +400,37 @@ def test_get_specimen_samples_for_assembly_returns_discovery_options():
 
     specimen_a_experiments = [
         SimpleNamespace(
-            id="exp-pb",
+            id=specimen_a_pacbio_exp_id,
             sample_id=derived_a_id,
             platform="PACBIO_SMRT",
             library_strategy="WGS",
         ),
         SimpleNamespace(
-            id="exp-hic",
+            id=specimen_a_hic_exp_id,
             sample_id=specimen_a_id,
             platform="ILLUMINA",
             library_strategy="Hi-C",
         ),
     ]
+    specimen_a_qc_reads = [
+        SimpleNamespace(
+            id=uuid4(),
+            experiment_id=specimen_a_pacbio_exp_id,
+            base_count=1000,
+            read_count=100,
+            qc_bases_removed=10,
+            qc_reads_removed=2,
+            mean_gc_content=0.45,
+            n50_length=5000,
+            created_at="2026-01-01T00:00:00Z",
+            updated_at="2026-01-01T00:00:00Z",
+            files=[],
+            submission_records=[],
+        )
+    ]
     specimen_b_experiments = [
         SimpleNamespace(
-            id="exp-ont",
+            id=specimen_b_ont_exp_id,
             sample_id=specimen_b_id,
             platform="OXFORD_NANOPORE",
             library_strategy="WGA",
@@ -418,7 +438,7 @@ def test_get_specimen_samples_for_assembly_returns_discovery_options():
     ]
     specimen_d_experiments = [
         SimpleNamespace(
-            id="exp-rna",
+            id=specimen_d_rna_exp_id,
             sample_id=specimen_d_id,
             platform="ILLUMINA",
             library_strategy="RNA-Seq",
@@ -453,17 +473,23 @@ def test_get_specimen_samples_for_assembly_returns_discovery_options():
             if self.calls == 4:
                 return _Q(specimen_a_experiments)
             if self.calls == 5:
-                return _Q([])
+                return _Q(specimen_a_qc_reads)
             if self.calls == 6:
-                return _Q(specimen_b_experiments)
-            if self.calls == 7:
                 return _Q([])
+            if self.calls == 7:
+                return _Q(specimen_b_experiments)
             if self.calls == 8:
                 return _Q([])
             if self.calls == 9:
                 return _Q([])
             if self.calls == 10:
+                return _Q([])
+            if self.calls == 11:
+                return _Q([])
+            if self.calls == 12:
                 return _Q(specimen_d_experiments)
+            if self.calls == 13:
+                return _Q([])
             return _Q([])
 
     app.dependency_overrides[assemblies.get_current_active_user] = lambda: SimpleNamespace(
@@ -482,24 +508,43 @@ def test_get_specimen_samples_for_assembly_returns_discovery_options():
             "specimen_id": "SPEC-001",
             "sex": "female",
             "available_data_types": ["PACBIO_SMRT", "Hi-C"],
+            "qc_reads": [
+                {
+                    "id": str(specimen_a_qc_reads[0].id),
+                    "experiment_id": str(specimen_a_pacbio_exp_id),
+                    "base_count": 1000,
+                    "read_count": 100,
+                    "qc_bases_removed": 10,
+                    "qc_reads_removed": 2,
+                    "mean_gc_content": 0.45,
+                    "n50_length": 5000,
+                    "created_at": "2026-01-01T00:00:00Z",
+                    "updated_at": "2026-01-01T00:00:00Z",
+                    "files": [],
+                    "submission_records": [],
+                }
+            ],
         },
         {
             "sample_id": str(specimen_b_id),
             "specimen_id": None,
             "sex": "male",
             "available_data_types": ["OXFORD_NANOPORE"],
+            "qc_reads": [],
         },
         {
             "sample_id": str(specimen_c_id),
             "specimen_id": "SPEC-003",
             "sex": "unknown",
             "available_data_types": [],
+            "qc_reads": [],
         },
         {
             "sample_id": str(specimen_d_id),
             "specimen_id": "SPEC-004",
             "sex": "female",
             "available_data_types": ["RNA-Seq"],
+            "qc_reads": [],
         },
     ]
 

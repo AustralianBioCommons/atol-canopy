@@ -18,6 +18,7 @@ from app.models.assembly import (
 )
 from app.models.experiment import Experiment
 from app.models.organism import Organism
+from app.models.qc_read import QcRead
 from app.models.read import Read
 from app.models.sample import Sample
 from app.models.user import User
@@ -169,6 +170,12 @@ def get_specimen_samples_for_assembly(
         experiments = (
             db.query(Experiment).filter(Experiment.sample_id.in_(lineage_sample_ids)).all()
         )
+        experiment_ids = [experiment.id for experiment in experiments]
+        qc_reads = (
+            db.query(QcRead).filter(QcRead.experiment_id.in_(experiment_ids)).all()
+            if experiment_ids
+            else []
+        )
 
         specimen_sample_options.append(
             {
@@ -176,6 +183,7 @@ def get_specimen_samples_for_assembly(
                 "specimen_id": specimen_sample.specimen_id,
                 "sex": specimen_sample.sex,
                 "available_data_types": get_available_assembly_data_types(experiments),
+                "qc_reads": qc_reads,
             }
         )
 
