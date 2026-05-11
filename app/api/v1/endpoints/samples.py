@@ -24,10 +24,10 @@ from app.schemas.common import SampleKind, SubmissionJsonResponse, SubmissionSta
 from app.schemas.sample import Sample as SampleSchema
 from app.schemas.sample import (
     SampleCreate,
-    SpecimenSampleHierarchyResponse,
     SampleSubmissionCreate,
     SampleSubmissionUpdate,
     SampleUpdate,
+    SpecimenSampleHierarchyResponse,
 )
 from app.schemas.sample import SampleSubmission as SampleSubmissionSchema
 from app.utils.mapping import to_float
@@ -110,7 +110,9 @@ def get_samples_experiments_and_reads_for_specimen(
         db.query(Sample)
         .filter(
             Sample.taxon_id == organism.taxon_id,
-            or_(Sample.id == specimen_sample.id, Sample.derived_from_sample_id == specimen_sample.id),
+            or_(
+                Sample.id == specimen_sample.id, Sample.derived_from_sample_id == specimen_sample.id
+            ),
         )
         .all()
     )

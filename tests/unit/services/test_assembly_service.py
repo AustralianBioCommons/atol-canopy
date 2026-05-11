@@ -248,9 +248,7 @@ class TestGetNextVersionForIntent:
         )
         assert version == 5
 
-    def test_different_hic_sample_does_not_split_version_sequence(
-        self, mock_db, assembly_service
-    ):
+    def test_different_hic_sample_does_not_split_version_sequence(self, mock_db, assembly_service):
         """Two intents with the same long_read_specimen_sample_id but different hic_specimen_sample_id
         must share the same version counter (hic_specimen_sample_id is NOT part of the key)."""
         call_count = [0]

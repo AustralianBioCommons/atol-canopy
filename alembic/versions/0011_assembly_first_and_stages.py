@@ -6,8 +6,9 @@ Create Date: 2026-05-05
 """
 
 import sqlalchemy as sa
-from alembic import op
 from sqlalchemy.dialects.postgresql import JSONB, UUID
+
+from alembic import op
 
 revision = "0011_assembly_first_and_stages"
 down_revision = "0010_add_taxonomy_info"
@@ -100,7 +101,9 @@ def upgrade() -> None:
             "status IN ('running', 'succeeded', 'failed', 'cancelled')",
             name="ck_assembly_stage_run_status",
         ),
-        sa.UniqueConstraint("assembly_id", "stage_name", "attempt", name="uq_stage_run_assembly_stage_attempt"),
+        sa.UniqueConstraint(
+            "assembly_id", "stage_name", "attempt", name="uq_stage_run_assembly_stage_attempt"
+        ),
     )
     op.create_index("ix_assembly_stage_run_assembly_id", "assembly_stage_run", ["assembly_id"])
 

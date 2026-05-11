@@ -79,9 +79,7 @@ class Assembly(Base):
     # Relationships
     organism = relationship("Organism", backref="assemblies")
     sample = relationship("Sample", foreign_keys=[sample_id], backref="assemblies")
-    long_read_specimen_sample = relationship(
-        "Sample", foreign_keys=[long_read_specimen_sample_id]
-    )
+    long_read_specimen_sample = relationship("Sample", foreign_keys=[long_read_specimen_sample_id])
     hic_specimen_sample = relationship("Sample", foreign_keys=[hic_specimen_sample_id])
     project = relationship("Project", backref="assemblies")
 
@@ -291,7 +289,9 @@ class AssemblyStageRun(Base):
     )
 
     __table_args__ = (
-        UniqueConstraint("assembly_id", "stage_name", "attempt", name="uq_stage_run_assembly_stage_attempt"),
+        UniqueConstraint(
+            "assembly_id", "stage_name", "attempt", name="uq_stage_run_assembly_stage_attempt"
+        ),
     )
 
     assembly = relationship("Assembly", backref=backref("stage_runs", cascade="all, delete-orphan"))

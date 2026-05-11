@@ -9,7 +9,13 @@ from app.core.dependencies import get_current_active_user, get_db
 from app.core.errors import AppError
 from app.core.pagination import Pagination, apply_pagination, pagination_params
 from app.core.policy import policy
-from app.models.assembly import Assembly, AssemblyFile, AssemblyRun, AssemblyStageRun, AssemblySubmission
+from app.models.assembly import (
+    Assembly,
+    AssemblyFile,
+    AssemblyRun,
+    AssemblyStageRun,
+    AssemblySubmission,
+)
 from app.models.experiment import Experiment
 from app.models.organism import Organism
 from app.models.read import Read
@@ -54,6 +60,7 @@ from app.services.assembly_service import (
 from app.services.organism_service import organism_service
 
 router = APIRouter()
+
 
 # TODO remove tax_id refs and rely solely on taxon_id in organism table for all relationships and queries.
 def _organism_taxon_id(organism: Any) -> int:
@@ -159,7 +166,9 @@ def get_specimen_samples_for_assembly(
     specimen_sample_options = []
     for specimen_sample in specimen_samples:
         lineage_sample_ids = _get_lineage_sample_ids_for_specimen(db, specimen_sample)
-        experiments = db.query(Experiment).filter(Experiment.sample_id.in_(lineage_sample_ids)).all()
+        experiments = (
+            db.query(Experiment).filter(Experiment.sample_id.in_(lineage_sample_ids)).all()
+        )
 
         specimen_sample_options.append(
             {
@@ -390,8 +399,7 @@ def create_assembly_intent(
             .all()
         )
         hic_experiments = [
-            e for e in hic_experiments
-            if (e.library_strategy or "").upper() == "HI-C"
+            e for e in hic_experiments if (e.library_strategy or "").upper() == "HI-C"
         ]
         if not hic_experiments:
             raise AppError(

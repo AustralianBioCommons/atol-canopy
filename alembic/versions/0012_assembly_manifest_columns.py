@@ -13,8 +13,9 @@ All columns are nullable so existing rows are unaffected.
 """
 
 import sqlalchemy as sa
-from alembic import op
 from sqlalchemy.dialects.postgresql import JSONB, UUID
+
+from alembic import op
 
 revision = "0012_assembly_manifest_columns"
 down_revision = "0011_assembly_first_and_stages"

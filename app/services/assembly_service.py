@@ -304,12 +304,12 @@ class AssemblyReadService(BaseService[AssemblyRead, AssemblyCreate, AssemblyUpda
         return db.query(AssemblyRead).filter(AssemblyRead.assembly_id == assembly_id).all()
 
 
-class AssemblyStageRunService(BaseService[AssemblyStageRun, AssemblyStageRunCreate, AssemblyStageRunUpdate]):
+class AssemblyStageRunService(
+    BaseService[AssemblyStageRun, AssemblyStageRunCreate, AssemblyStageRunUpdate]
+):
     """Service for AssemblyStageRun operations."""
 
-    def get_by_assembly_id(
-        self, db: Session, assembly_id: UUID
-    ) -> List[AssemblyStageRun]:
+    def get_by_assembly_id(self, db: Session, assembly_id: UUID) -> List[AssemblyStageRun]:
         return (
             db.query(AssemblyStageRun)
             .filter(AssemblyStageRun.assembly_id == assembly_id)
