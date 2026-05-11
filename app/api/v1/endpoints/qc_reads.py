@@ -18,8 +18,7 @@ router = APIRouter()
 
 
 def _build_prepared_payload(qc_read: QcRead, files: list[QcReadFile]) -> dict:
-    """Build the ENA submission payload stored on QcReadSubmission.
-    """
+    """Build the ENA submission payload stored on QcReadSubmission."""
     return {
         "files": [
             {
