@@ -72,52 +72,8 @@ def read_samples(
     return samples
 
 
-@router.get("/by-specimen/{taxon_id}/{specimen_id}", response_model=SampleSchema)
-def get_specimen_by_taxid_and_specimen_id(
-    *,
-    db: Session = Depends(get_db),
-    taxon_id: int,
-    specimen_id: str,
-    current_user: User = Depends(get_current_active_user),
-) -> Any:
-    """
-    Lookup a specimen sample by taxon_id and specimen_id.
-
-    This finds the unique specimen sample for a given organism (by taxon_id)
-    and specimen_id combination.
-    """
-    # All users can read samples
-
-    # First, find the organism by taxon_id
-    organism = db.query(Organism).filter(Organism.taxon_id == taxon_id).first()
-    if not organism:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail=f"Organism with taxon_id {taxon_id} not found",
-        )
-
-    # Then find the specimen sample
-    sample = (
-        db.query(Sample)
-        .filter(
-            Sample.taxon_id == organism.taxon_id,
-            Sample.specimen_id == specimen_id,
-            Sample.kind == SampleKind.SPECIMEN,
-        )
-        .first()
-    )
-
-    if not sample:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail=f"Specimen sample not found for taxon_id {taxon_id} and specimen_id '{specimen_id}'",
-        )
-
-    return sample
-
-
 @router.get(
-    "/by-specimen/{taxon_id}/{specimen_id}/related",
+    "/by-specimen/{taxon_id}/{specimen_id:path}/related",
     response_model=SpecimenSampleHierarchyResponse,
 )
 def get_samples_experiments_and_reads_for_specimen(
@@ -174,6 +130,46 @@ def get_samples_experiments_and_reads_for_specimen(
         "specimen_id": specimen_id,
         "samples": related_payload,
     }
+
+
+@router.get("/by-specimen/{taxon_id}/{specimen_id:path}", response_model=SampleSchema)
+def get_specimen_by_taxid_and_specimen_id(
+    *,
+    db: Session = Depends(get_db),
+    taxon_id: int,
+    specimen_id: str,
+    current_user: User = Depends(get_current_active_user),
+) -> Any:
+    """
+    Lookup a specimen sample by taxon_id and specimen_id.
+
+    This finds the unique specimen sample for a given organism (by taxon_id)
+    and specimen_id combination.
+    """
+    organism = db.query(Organism).filter(Organism.taxon_id == taxon_id).first()
+    if not organism:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Organism with taxon_id {taxon_id} not found",
+        )
+
+    sample = (
+        db.query(Sample)
+        .filter(
+            Sample.taxon_id == organism.taxon_id,
+            Sample.specimen_id == specimen_id,
+            Sample.kind == SampleKind.SPECIMEN,
+        )
+        .first()
+    )
+
+    if not sample:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Specimen sample not found for taxon_id {taxon_id} and specimen_id '{specimen_id}'",
+        )
+
+    return sample
 
 
 @router.post("/", response_model=SampleSchema)

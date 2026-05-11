@@ -1,5 +1,6 @@
 import uuid
 from types import SimpleNamespace
+from urllib.parse import quote
 
 from fastapi.testclient import TestClient
 
@@ -325,3 +326,183 @@ def test_get_samples_experiments_and_reads_for_specimen_not_found():
 
     resp = client.get(f"/api/v1/samples/by-specimen/{taxon_id}/{specimen_id}/related")
     assert resp.status_code == 404
+
+
+def test_get_specimen_by_taxid_and_specimen_id_accepts_encoded_path_value():
+    client = TestClient(app)
+
+    taxon_id = 172942
+    specimen_id = "SPEC / 001"
+    encoded_specimen_id = quote(specimen_id, safe="")
+    specimen_sample_id = uuid.uuid4()
+
+    organism = SimpleNamespace(taxon_id=taxon_id, scientific_name="Test species")
+    specimen_sample = SimpleNamespace(
+        id=specimen_sample_id,
+        taxon_id=taxon_id,
+        specimen_id=specimen_id,
+        kind="specimen",
+        bpa_sample_id=None,
+        specimen_id_description=None,
+        identified_by=None,
+        specimen_custodian=None,
+        sample_custodian=None,
+        lifestage="adult",
+        sex="female",
+        organism_part="whole organism",
+        region_and_locality="region",
+        state_or_region=None,
+        country_or_sea="Australia",
+        indigenous_location=None,
+        latitude=None,
+        longitude=None,
+        elevation=None,
+        depth=None,
+        habitat="forest",
+        collection_method=None,
+        collection_date=None,
+        collected_by="collector",
+        collecting_institution="institution",
+        collection_permit=None,
+        data_context=None,
+        bioplatforms_project_id=None,
+        title=None,
+        sample_same_as=None,
+        sample_derived_from=None,
+        specimen_voucher=None,
+        tolid=None,
+        preservation_method=None,
+        preservation_temperature=None,
+        project_name=None,
+        biosample_accession=None,
+        derived_from_sample_id=None,
+        extensions=None,
+        created_at="2026-01-01T00:00:00Z",
+        updated_at="2026-01-01T00:00:00Z",
+    )
+
+    class _Q:
+        def __init__(self, value):
+            self.value = value
+
+        def filter(self, *_a, **_k):
+            return self
+
+        def first(self):
+            return self.value
+
+    class _DB:
+        def __init__(self):
+            self.calls = 0
+
+        def query(self, _model):
+            self.calls += 1
+            if self.calls == 1:
+                return _Q(organism)
+            return _Q(specimen_sample)
+
+    app.dependency_overrides[samples.get_current_active_user] = lambda: SimpleNamespace(
+        is_active=True, roles=["admin"], is_superuser=False
+    )
+    app.dependency_overrides[samples.get_db] = _override_db(_DB())
+
+    resp = client.get(f"/api/v1/samples/by-specimen/{taxon_id}/{encoded_specimen_id}")
+
+    assert resp.status_code == 200
+    body = resp.json()
+    assert body["specimen_id"] == specimen_id
+
+
+def test_get_samples_experiments_and_reads_for_specimen_accepts_encoded_path_value():
+    client = TestClient(app)
+
+    taxon_id = 172942
+    specimen_id = "SPEC / 001"
+    encoded_specimen_id = quote(specimen_id, safe="")
+    specimen_sample_id = uuid.uuid4()
+
+    organism = SimpleNamespace(taxon_id=taxon_id, scientific_name="Test species")
+    specimen_sample = SimpleNamespace(
+        id=specimen_sample_id,
+        taxon_id=taxon_id,
+        specimen_id=specimen_id,
+        kind="specimen",
+        bpa_sample_id=None,
+        specimen_id_description=None,
+        identified_by=None,
+        specimen_custodian=None,
+        sample_custodian=None,
+        lifestage="adult",
+        sex="female",
+        organism_part="whole organism",
+        region_and_locality="region",
+        state_or_region=None,
+        country_or_sea="Australia",
+        indigenous_location=None,
+        latitude=None,
+        longitude=None,
+        elevation=None,
+        depth=None,
+        habitat="forest",
+        collection_method=None,
+        collection_date=None,
+        collected_by="collector",
+        collecting_institution="institution",
+        collection_permit=None,
+        data_context=None,
+        bioplatforms_project_id=None,
+        title=None,
+        sample_same_as=None,
+        sample_derived_from=None,
+        specimen_voucher=None,
+        tolid=None,
+        preservation_method=None,
+        preservation_temperature=None,
+        project_name=None,
+        biosample_accession=None,
+        derived_from_sample_id=None,
+        extensions=None,
+        created_at="2026-01-01T00:00:00Z",
+        updated_at="2026-01-01T00:00:00Z",
+    )
+
+    class _Q:
+        def __init__(self, value):
+            self.value = value
+
+        def filter(self, *_a, **_k):
+            return self
+
+        def first(self):
+            return self.value if not isinstance(self.value, list) else None
+
+        def all(self):
+            return self.value if isinstance(self.value, list) else []
+
+    class _DB:
+        def __init__(self):
+            self.calls = 0
+
+        def query(self, _model):
+            self.calls += 1
+            if self.calls == 1:
+                return _Q(organism)
+            if self.calls == 2:
+                return _Q(specimen_sample)
+            if self.calls == 3:
+                return _Q([specimen_sample])
+            if self.calls == 4:
+                return _Q([])
+            return _Q([])
+
+    app.dependency_overrides[samples.get_current_active_user] = lambda: SimpleNamespace(
+        is_active=True, roles=["admin"], is_superuser=False
+    )
+    app.dependency_overrides[samples.get_db] = _override_db(_DB())
+
+    resp = client.get(f"/api/v1/samples/by-specimen/{taxon_id}/{encoded_specimen_id}/related")
+
+    assert resp.status_code == 200
+    body = resp.json()
+    assert body["specimen_id"] == specimen_id
+    assert body["samples"][0]["sample"]["specimen_id"] == specimen_id
