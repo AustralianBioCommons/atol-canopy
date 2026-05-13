@@ -1214,7 +1214,7 @@ def test_update_stage_run_replaces_files(monkeypatch):
     assert body["files"][0]["storage_type"] == "gcs"
 
 
-def test_update_assembly_accepts_legacy_version_number_and_manifest():
+def test_update_assembly_updates_version_and_manifest():
     client = TestClient(app)
     assembly_id = uuid4()
     now = datetime.now(timezone.utc)
@@ -1268,7 +1268,7 @@ def test_update_assembly_accepts_legacy_version_number_and_manifest():
 
     resp = client.put(
         f"/api/v1/assemblies/{assembly_id}",
-        json={"version_number": 3, "manifest_json": {"assembly": "manifest"}},
+        json={"version": 3, "manifest_json": {"assembly": "manifest"}},
     )
 
     assert resp.status_code == 200
@@ -1276,4 +1276,3 @@ def test_update_assembly_accepts_legacy_version_number_and_manifest():
     assert resp.json()["manifest_json"] == {"assembly": "manifest"}
     assert assembly.version == 3
     assert assembly.manifest_json == {"assembly": "manifest"}
-    assert not hasattr(assembly, "version_number")
