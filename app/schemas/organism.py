@@ -1,43 +1,27 @@
 from __future__ import annotations
 
 from datetime import datetime
-from typing import TYPE_CHECKING, Dict, Optional
+from typing import Dict, Optional
 
-from pydantic import BaseModel, ConfigDict, model_validator
+from pydantic import BaseModel, ConfigDict
 
-from app.schemas.common import SubmissionStatus  # noqa: F401 – kept for consumers
-
-if TYPE_CHECKING:
-    from app.schemas.taxonomy_info import TaxonomyInfo as TaxonomyInfoSchema
+from app.schemas.taxonomy_info import TaxonomyInfo as TaxonomyInfoSchema
 
 
 class OrganismBase(BaseModel):
     """Base Organism schema with common attributes."""
 
     taxon_id: int
+    bpa_scientific_name: Optional[str] = None
+    bpa_genus: Optional[str] = None
+    bpa_species: Optional[str] = None
+    bpa_common_name: Optional[str] = None
+    bpa_infraspecific_epithet: Optional[str] = None
+    bpa_culture_or_strain_id: Optional[str] = None
+    bpa_authority: Optional[str] = None
     scientific_name: Optional[str] = None
-    common_name: Optional[str] = None
-    common_name_source: Optional[str] = None
-    genus: Optional[str] = None
-    species: Optional[str] = None
-    infraspecific_epithet: Optional[str] = None
-    culture_or_strain_id: Optional[str] = None
-    authority: Optional[str] = None
     atol_scientific_name: Optional[str] = None
-    tax_string: Optional[str] = None
-    ncbi_order: Optional[str] = None
-    ncbi_family: Optional[str] = None
-    busco_dataset_name: Optional[str] = None
     bpa_json: Optional[Dict] = None
-    taxonomy_lineage_json: Optional[Dict] = None
-
-    @model_validator(mode="before")
-    @classmethod
-    def _coerce_legacy_keys(cls, data):
-        if isinstance(data, dict) and "taxon_id" not in data and "tax_id" in data:
-            data = dict(data)
-            data["taxon_id"] = data.pop("tax_id")
-        return data
 
 
 class OrganismCreate(OrganismBase):
@@ -49,21 +33,16 @@ class OrganismCreate(OrganismBase):
 class OrganismUpdate(BaseModel):
     """Schema for updating an existing organism."""
 
+    bpa_scientific_name: Optional[str] = None
+    bpa_genus: Optional[str] = None
+    bpa_species: Optional[str] = None
+    bpa_common_name: Optional[str] = None
+    bpa_infraspecific_epithet: Optional[str] = None
+    bpa_culture_or_strain_id: Optional[str] = None
+    bpa_authority: Optional[str] = None
     scientific_name: Optional[str] = None
-    common_name: Optional[str] = None
-    common_name_source: Optional[str] = None
-    genus: Optional[str] = None
-    species: Optional[str] = None
-    infraspecific_epithet: Optional[str] = None
-    culture_or_strain_id: Optional[str] = None
-    authority: Optional[str] = None
     atol_scientific_name: Optional[str] = None
-    tax_string: Optional[str] = None
-    ncbi_order: Optional[str] = None
-    ncbi_family: Optional[str] = None
-    busco_dataset_name: Optional[str] = None
     bpa_json: Optional[Dict] = None
-    taxonomy_lineage_json: Optional[Dict] = None
 
 
 class OrganismInDBBase(OrganismBase):
@@ -72,16 +51,10 @@ class OrganismInDBBase(OrganismBase):
     created_at: datetime
     updated_at: datetime
 
-    model_config = ConfigDict(from_attributes=True, populate_by_name=True)
+    model_config = ConfigDict(from_attributes=True)
 
 
 class Organism(OrganismInDBBase):
     """Schema for returning organism information."""
 
     taxonomy_info: Optional[TaxonomyInfoSchema] = None
-
-
-# Resolve forward references now that all schemas are defined.
-from app.schemas.taxonomy_info import TaxonomyInfo as TaxonomyInfoSchema  # noqa: E402
-
-Organism.model_rebuild()

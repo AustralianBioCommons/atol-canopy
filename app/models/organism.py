@@ -15,21 +15,16 @@ class Organism(Base):
     __tablename__ = "organism"
 
     taxon_id = Column(Integer, primary_key=True)
+    bpa_scientific_name = Column(Text, nullable=True)
+    bpa_genus = Column(Text, nullable=True)
+    bpa_species = Column(Text, nullable=True)
+    bpa_common_name = Column(Text, nullable=True)
+    bpa_infraspecific_epithet = Column(Text, nullable=True)
+    bpa_culture_or_strain_id = Column(Text, nullable=True)
+    bpa_authority = Column(Text, nullable=True)
     scientific_name = Column(Text, nullable=True)
-    common_name = Column(Text, nullable=True)
-    common_name_source = Column(Text, nullable=True)
-    genus = Column(Text, nullable=True)
-    species = Column(Text, nullable=True)
-    infraspecific_epithet = Column(Text, nullable=True)
-    culture_or_strain_id = Column(Text, nullable=True)
-    authority = Column(Text, nullable=True)
     atol_scientific_name = Column(Text, nullable=True)
-    tax_string = Column(Text, nullable=True)
-    ncbi_order = Column(Text, nullable=True)
-    ncbi_family = Column(Text, nullable=True)
-    busco_dataset_name = Column(Text, nullable=True)
     bpa_json = Column(JSONB, nullable=True)
-    taxonomy_lineage_json = Column(JSONB, nullable=True)
     created_at = Column(DateTime(timezone=True), nullable=False, server_default=func.now())
     updated_at = Column(
         DateTime(timezone=True),
