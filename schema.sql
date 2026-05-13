@@ -66,26 +66,23 @@ CREATE TABLE refresh_token (
 CREATE TABLE organism (
     taxon_id int PRIMARY KEY,
     -- We need to check that the scientific name = the tax id level, because we have a bunch of tax_ids that are the same for organisms which should have a more granular taxid level
-    scientific_name TEXT,
-    genus TEXT,
-    species TEXT,
-    common_name TEXT,
-    common_name_source TEXT,
+    bpa_scientific_name TEXT,
+    bpa_genus TEXT,
+    bpa_species TEXT,
+    bpa_common_name TEXT,
     -- TODO check common name is coming through from mapper, and set common_name_source
     -- family TEXT,
     -- order_or_group TEXT,
     -- class TEXT,
     -- phylum TEXT,
-    infraspecific_epithet TEXT,
-    culture_or_strain_id TEXT,
-    authority TEXT,
-    atol_scientific_name TEXT,
-    tax_string TEXT,
-    ncbi_order TEXT,
-    ncbi_family TEXT,
-    busco_dataset_name TEXT,
+    bpa_infraspecific_epithet TEXT,
+    bpa_culture_or_strain_id TEXT,
+    bpa_authority TEXT,
+    scientific_name TEXT,
+
+    -- # TODO delete bpa_json
     bpa_json JSONB,
-    taxonomy_lineage_json JSONB,
+    
     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
@@ -96,6 +93,23 @@ CREATE TABLE organism (
 
 CREATE TABLE taxonomy_info (
     taxon_id INT PRIMARY KEY REFERENCES organism(taxon_id) ON DELETE CASCADE,
+    ncbi_taxon_id INTEGER,
+    
+    ncbi_rank TEXT,
+    ncbi_scientific_name TEXT,
+    ncbi_authority TEXT,
+    ncbi_scientific_name TEXT, 
+    ncbi_authority TEXT, 
+    ncbi_common_name TEXT, 
+    ncbi_class TEXT, 
+    ncbi_order TEXT, 
+    ncbi_family TEXT, 
+    ncbi_lineage JSONB, 
+    ncbi_tax_string TEXT, 
+    ncbi_full_lineage TEXT, 
+    mito_ref TEXT
+
+    busco_dataset_name TEXT,
     busco_odb10_dataset_name TEXT,
     busco_odb12_dataset_name TEXT,
     find_plastid BOOLEAN,
@@ -103,7 +117,6 @@ CREATE TABLE taxonomy_info (
     mitochondrial_genetic_code_id INTEGER,
     mitohifi_reference_species TEXT,
     oatk_hmm_name TEXT,
-    defined_class TEXT,
     augustus_dataset_name TEXT,
     genetic_code_id INTEGER
 );

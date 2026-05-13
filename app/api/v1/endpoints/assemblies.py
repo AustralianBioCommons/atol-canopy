@@ -457,7 +457,7 @@ def create_assembly_intent(
         }
         manifest_data = generate_assembly_manifest_json(
             organism=organism,
-            taxonomy_information=getattr(organism, "taxonomy_info", None),
+            taxonomy_info=getattr(organism, "taxonomy_info", None),
             reads=all_reads,
             experiments=all_experiments,
             # TODO tolid from sample (reported by broker) not input from caller
