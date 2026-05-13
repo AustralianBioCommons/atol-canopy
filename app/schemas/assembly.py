@@ -3,7 +3,7 @@ from enum import Enum
 from typing import Any, Dict, List, Optional
 from uuid import UUID
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from app.schemas.common import SubmissionStatus
 
@@ -131,13 +131,25 @@ class AssemblyUpdate(BaseModel):
     assembly_name: Optional[str] = None
     assembly_type: Optional[str] = None
     tol_id: Optional[str] = None
+    data_types: Optional[AssemblyDataTypes] = None
     coverage: Optional[float] = None
     program: Optional[str] = None
     mingaplength: Optional[float] = None
     moleculetype: Optional[str] = None
-    version_number: Optional[int] = None
+    version: Optional[int] = None
     description: Optional[str] = None
     status: Optional[str] = None
+    long_read_specimen_sample_id: Optional[UUID] = None
+    hic_specimen_sample_id: Optional[UUID] = None
+    manifest_json: Optional[Dict[str, Any]] = None
+
+    @model_validator(mode="before")
+    @classmethod
+    def _coerce_legacy_version_number(cls, data):
+        if isinstance(data, dict) and "version" not in data and "version_number" in data:
+            data = dict(data)
+            data["version"] = data.pop("version_number")
+        return data
 
 
 # Schema for assembly in DB

@@ -7,6 +7,7 @@ from pydantic import BaseModel, ConfigDict, Field
 # Enum for submission status
 from app.schemas.common import SampleKind, SubmissionStatus
 from app.schemas.experiment import ExperimentDetail as ExperimentDetailSchema
+from app.schemas.qc_read import QcReadDetail as QcReadDetailSchema
 from app.schemas.read import ReadDetail as ReadDetailSchema
 
 
@@ -97,6 +98,7 @@ class SampleExperimentReads(BaseModel):
 
     experiment: ExperimentDetailSchema
     reads: List[ReadDetailSchema] = Field(default_factory=list)
+    qc_reads: List[QcReadDetailSchema] = Field(default_factory=list)
 
 
 class SpecimenSampleHierarchyItem(BaseModel):
@@ -158,6 +160,7 @@ class SampleSubmissionInDBBase(SampleSubmissionBase):
 
     id: UUID
     sample_id: UUID
+    project_id: UUID
     prepared_payload: Optional[Dict] = None
     response_payload: Optional[Dict] = None
     accession: Optional[str] = None

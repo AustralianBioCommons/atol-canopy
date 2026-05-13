@@ -44,11 +44,7 @@ def create_bpa_initiative(
     """
     Create new BPA initiative.
     """
-    initiative = BPAInitiative(
-        project_code=getattr(initiative_in, "project_code", None),
-        title=getattr(initiative_in, "title", None),
-        url=getattr(initiative_in, "url", None),
-    )
+    initiative = BPAInitiative(**initiative_in.model_dump())
     db.add(initiative)
     db.commit()
     db.refresh(initiative)
@@ -88,7 +84,7 @@ def update_bpa_initiative(
     if not initiative:
         raise HTTPException(status_code=404, detail="BPA initiative not found")
 
-    update_data = initiative_in.dict(exclude_unset=True)
+    update_data = initiative_in.model_dump(exclude_unset=True)
     for field, value in update_data.items():
         setattr(initiative, field, value)
 

@@ -20,6 +20,12 @@ from app.utils.mapping import map_to_model_columns, to_bool
 class ExperimentService(BaseService[Experiment, ExperimentCreate, ExperimentUpdate]):
     """Service for Experiment operations."""
 
+    _PAYLOAD_ONLY_FIELDS = {
+        "material_extraction_date",
+        "library_prepared_date",
+        "sample_access_date",
+    }
+
     def get_by_sample_id(self, db: Session, sample_id: UUID) -> List[Experiment]:
         """Get experiments by sample ID."""
         return db.query(Experiment).filter(Experiment.sample_id == sample_id).all()
@@ -121,6 +127,16 @@ class ExperimentService(BaseService[Experiment, ExperimentCreate, ExperimentUpda
         db.refresh(experiment_submission)
         return experiment
 
+    @staticmethod
+    def _build_prepared_payload(
+        mapping: Dict[str, Any], source_data: Dict[str, Any]
+    ) -> Dict[str, Any]:
+        prepared_payload: Dict[str, Any] = {}
+        for ena_key, atol_key in mapping.get("experiment", {}).items():
+            if atol_key in source_data and source_data[atol_key] is not None:
+                prepared_payload[ena_key] = source_data[atol_key]
+        return prepared_payload
+
     def get_experiment_prepared_payload(
         self, db: Session, *, experiment_id: UUID
     ) -> Optional[ExperimentSubmission]:
@@ -145,15 +161,41 @@ class ExperimentService(BaseService[Experiment, ExperimentCreate, ExperimentUpda
         if not experiment:
             return None
 
-        experiment_data = experiment_in.dict(exclude_unset=True)
+        experiment_data = experiment_in.model_dump(exclude_unset=True)
+        model_column_names = {column.name for column in Experiment.__table__.columns}
+
+        if "sample_id" in experiment_data:
+            sample = db.query(Sample).filter(Sample.id == experiment_data["sample_id"]).first()
+            if not sample:
+                raise RuntimeError(f"Sample not found: {experiment_data['sample_id']}")
+
+            project = (
+                db.query(Project)
+                .filter(
+                    Project.taxon_id == sample.taxon_id,
+                    Project.project_type == "genomic_data",
+                )
+                .first()
+            )
+            if not project:
+                raise RuntimeError(
+                    f"No genomic_data project found for taxon_id '{sample.taxon_id}'"
+                )
+            experiment.project_id = project.id
+
+        payload_source = {column: getattr(experiment, column) for column in model_column_names}
+        payload_source.update(
+            {
+                key: value
+                for key, value in experiment_data.items()
+                if key in model_column_names or key in self._PAYLOAD_ONLY_FIELDS
+            }
+        )
 
         # Load mapping and regenerate prepared payload
         with open(self._mapping_path(), "r") as f:
             ena_atol_map = json.load(f)
-        prepared_payload: Dict[str, Any] = {}
-        for ena_key, atol_key in ena_atol_map.get("experiment", {}).items():
-            if atol_key in experiment_data:
-                prepared_payload[ena_key] = experiment_data[atol_key]
+        prepared_payload = self._build_prepared_payload(ena_atol_map, payload_source)
 
         experiment_submission = (
             db.query(ExperimentSubmission)
@@ -186,7 +228,6 @@ class ExperimentService(BaseService[Experiment, ExperimentCreate, ExperimentUpda
                     prepared_payload=prepared_payload,
                     response_payload=None,
                     accession=latest_experiment_submission.accession,
-                    biosample_accession=latest_experiment_submission.biosample_accession,
                     status="draft",
                 )
                 db.add(new_experiment_submission)
@@ -201,7 +242,6 @@ class ExperimentService(BaseService[Experiment, ExperimentCreate, ExperimentUpda
                     prepared_payload=prepared_payload,
                     response_payload=None,
                     accession=latest_experiment_submission.accession,
-                    biosample_accession=latest_experiment_submission.biosample_accession,
                     status="draft",
                 )
                 db.add(new_experiment_submission)
@@ -211,10 +251,14 @@ class ExperimentService(BaseService[Experiment, ExperimentCreate, ExperimentUpda
                 db.add(latest_experiment_submission)
 
         # Update core experiment fields
-        if experiment_in.bpa_package_id is not None:
-            experiment.bpa_package_id = experiment_in.bpa_package_id
-        if experiment_in.sample_id is not None:
-            experiment.sample_id = experiment_in.sample_id
+        for field, value in experiment_data.items():
+            if field in model_column_names and field not in {
+                "id",
+                "project_id",
+                "created_at",
+                "updated_at",
+            }:
+                setattr(experiment, field, value)
         db.add(experiment)
         db.commit()
         db.refresh(experiment)

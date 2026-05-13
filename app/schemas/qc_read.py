@@ -10,6 +10,7 @@ from pydantic import BaseModel, field_validator, model_validator
 _MD5_RE = re.compile(r"^[a-f0-9]{32}$")
 _SHA256_RE = re.compile(r"^[a-f0-9]{64}$")
 
+# TODO loosen this when we support more file types
 FileType = Literal["cram", "fastq_r1", "fastq_r2"]
 
 
@@ -114,3 +115,9 @@ class QcReadOut(BaseModel):
     submission_records: List[QcReadSubmissionOut] = []
 
     model_config = {"from_attributes": True}
+
+
+class QcReadDetail(QcReadOut):
+    """Detailed QC read schema used by nested aggregate endpoints."""
+
+    pass

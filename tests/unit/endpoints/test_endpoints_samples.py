@@ -403,9 +403,13 @@ def test_get_samples_experiments_and_reads_for_specimen():
             if self.calls == 5:
                 return _Q([read_1])
             if self.calls == 6:
-                return _Q([experiment_2])
+                return _Q([])
             if self.calls == 7:
+                return _Q([experiment_2])
+            if self.calls == 8:
                 return _Q([read_2])
+            if self.calls == 9:
+                return _Q([])
             return _Q([])
 
     app.dependency_overrides[samples.get_current_active_user] = lambda: SimpleNamespace(

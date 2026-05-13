@@ -15,6 +15,7 @@ from app.core.policy import policy
 from app.models.experiment import Experiment
 from app.models.organism import Organism
 from app.models.project import Project
+from app.models.qc_read import QcRead
 from app.models.read import Read
 from app.models.sample import Sample, SampleSubmission
 from app.models.user import User
@@ -244,7 +245,10 @@ def get_samples_experiments_and_reads_for_specimen(
         experiment_payload = []
         for experiment in experiments:
             reads = db.query(Read).filter(Read.experiment_id == experiment.id).all()
-            experiment_payload.append({"experiment": experiment, "reads": reads})
+            qc_reads = db.query(QcRead).filter(QcRead.experiment_id == experiment.id).all()
+            experiment_payload.append(
+                {"experiment": experiment, "reads": reads, "qc_reads": qc_reads}
+            )
 
         related_payload.append({"sample": sample, "experiments": experiment_payload})
 

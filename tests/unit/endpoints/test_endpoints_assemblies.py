@@ -1,3 +1,4 @@
+from datetime import datetime, timezone
 from types import SimpleNamespace
 from uuid import uuid4
 
@@ -1211,3 +1212,68 @@ def test_update_stage_run_replaces_files(monkeypatch):
     assert len(body["files"]) == 1
     assert body["files"][0]["sha256sum"] == "cafebabe"
     assert body["files"][0]["storage_type"] == "gcs"
+
+
+def test_update_assembly_accepts_legacy_version_number_and_manifest():
+    client = TestClient(app)
+    assembly_id = uuid4()
+    now = datetime.now(timezone.utc)
+    assembly = SimpleNamespace(
+        id=assembly_id,
+        taxon_id=172942,
+        sample_id=uuid4(),
+        project_id=None,
+        assembly_name="Assembly 1",
+        assembly_type="clone or isolate",
+        tol_id="tol-123",
+        data_types="PACBIO_SMRT",
+        coverage=50.0,
+        program="hifiasm",
+        mingaplength=None,
+        moleculetype="genomic DNA",
+        description=None,
+        version=1,
+        status="requested",
+        long_read_specimen_sample_id=None,
+        hic_specimen_sample_id=None,
+        manifest_json=None,
+        created_at=now,
+        updated_at=now,
+    )
+
+    class _Q:
+        def filter(self, *_a, **_k):
+            return self
+
+        def first(self):
+            return assembly
+
+    class _DB:
+        def query(self, _m):
+            return _Q()
+
+        def add(self, obj):
+            pass
+
+        def commit(self):
+            pass
+
+        def refresh(self, obj):
+            obj.updated_at = now
+
+    app.dependency_overrides[assemblies.get_current_active_user] = lambda: SimpleNamespace(
+        is_active=True, roles=["curator"], is_superuser=False
+    )
+    app.dependency_overrides[assemblies.get_db] = _override_db(_DB())
+
+    resp = client.put(
+        f"/api/v1/assemblies/{assembly_id}",
+        json={"version_number": 3, "manifest_json": {"assembly": "manifest"}},
+    )
+
+    assert resp.status_code == 200
+    assert resp.json()["version"] == 3
+    assert resp.json()["manifest_json"] == {"assembly": "manifest"}
+    assert assembly.version == 3
+    assert assembly.manifest_json == {"assembly": "manifest"}
+    assert not hasattr(assembly, "version_number")

@@ -61,6 +61,12 @@ from app.services.organism_service import organism_service
 
 router = APIRouter()
 
+_ASSEMBLY_MUTABLE_FIELDS = {
+    column.name
+    for column in Assembly.__table__.columns
+    if column.name not in {"id", "created_at", "updated_at"}
+}
+
 
 # TODO remove tax_id refs and rely solely on taxon_id in organism table for all relationships and queries.
 def _organism_taxon_id(organism: Any) -> int:
@@ -658,8 +664,10 @@ def update_assembly(
     if not assembly:
         raise HTTPException(status_code=404, detail="Assembly not found")
 
-    update_data = assembly_in.dict(exclude_unset=True)
+    update_data = assembly_in.model_dump(exclude_unset=True)
     for field, value in update_data.items():
+        if field not in _ASSEMBLY_MUTABLE_FIELDS:
+            continue
         setattr(assembly, field, value)
 
     db.add(assembly)
