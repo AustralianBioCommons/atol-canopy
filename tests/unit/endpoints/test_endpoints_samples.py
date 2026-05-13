@@ -1,4 +1,5 @@
 import uuid
+from datetime import datetime, timezone
 from types import SimpleNamespace
 from urllib.parse import quote
 
@@ -6,6 +7,7 @@ from fastapi.testclient import TestClient
 
 from app.api.v1.endpoints import samples
 from app.main import app
+from app.schemas.sample import SampleCreate, SampleUpdate
 
 
 class _FakeSession:
@@ -35,6 +37,144 @@ def test_sample_not_found():
 
     resp = client.get(f"/api/v1/samples/{uuid.uuid4()}")
     assert resp.status_code == 404
+
+
+class _SampleQuery:
+    def __init__(self, values):
+        self.values = list(values)
+        self.index = 0
+
+    def filter(self, *_a, **_k):
+        return self
+
+    def order_by(self, *_a, **_k):
+        return self
+
+    def first(self):
+        if self.index >= len(self.values):
+            return None
+        value = self.values[self.index]
+        self.index += 1
+        return value
+
+
+class _SampleMutationSession:
+    def __init__(self, sample=None, submission=None, project=None, parent=None):
+        self.sample_query = _SampleQuery([sample, sample if sample else None, parent])
+        self.submission_query = _SampleQuery([submission])
+        self.project_query = _SampleQuery([project])
+        self.added = []
+        self.committed = False
+
+    def query(self, model):
+        if model is samples.Sample:
+            return self.sample_query
+        if model is samples.SampleSubmission:
+            return self.submission_query
+        if model is samples.Project:
+            return self.project_query
+        raise AssertionError(f"Unexpected model query: {model}")
+
+    def add(self, obj):
+        self.added.append(obj)
+
+    def commit(self):
+        self.committed = True
+
+    def refresh(self, obj):
+        if getattr(obj, "created_at", None) is None:
+            obj.created_at = datetime.now(timezone.utc)
+        if getattr(obj, "updated_at", None) is None:
+            obj.updated_at = datetime.now(timezone.utc)
+
+    def rollback(self):
+        pass
+
+
+def test_create_sample_uses_model_fields_and_creates_submission():
+    project = SimpleNamespace(id=uuid.uuid4())
+    db = _SampleMutationSession(project=project)
+    sample_in = SampleCreate(taxon_id=1729, specimen_id="SPEC-1")
+
+    out = samples.create_sample(
+        db=db,
+        sample_in=sample_in,
+        current_user=SimpleNamespace(is_active=True, roles=["admin"], is_superuser=False),
+    )
+
+    assert out.taxon_id == 1729
+    assert out.specimen_id == "SPEC-1"
+    assert out.lifestage == "unknown"
+    submission = next(obj for obj in db.added if isinstance(obj, samples.SampleSubmission))
+    assert submission.authority == "ENA"
+    assert submission.project_id == project.id
+
+
+def test_update_sample_applies_requested_field_changes():
+    sample_id = uuid.uuid4()
+    sample = SimpleNamespace(
+        id=sample_id,
+        taxon_id=1729,
+        bpa_sample_id="BPA-1",
+        specimen_id="SPEC-1",
+        specimen_id_description=None,
+        identified_by=None,
+        specimen_custodian=None,
+        sample_custodian=None,
+        lifestage="adult",
+        sex="female",
+        organism_part="leaf",
+        region_and_locality="old region",
+        state_or_region=None,
+        country_or_sea="Australia",
+        indigenous_location=None,
+        latitude=None,
+        longitude=None,
+        elevation=None,
+        depth=None,
+        habitat="forest",
+        collection_method=None,
+        collection_date="2026-01-01",
+        collected_by="collector",
+        collecting_institution="institution",
+        collection_permit=None,
+        data_context=None,
+        bioplatforms_project_id=None,
+        title=None,
+        sample_same_as=None,
+        sample_derived_from=None,
+        specimen_voucher=None,
+        tolid=None,
+        preservation_method=None,
+        preservation_temperature=None,
+        project_name=None,
+        biosample_accession=None,
+        derived_from_sample_id=None,
+        kind="specimen",
+        extensions=None,
+        created_at=datetime.now(timezone.utc),
+        updated_at=datetime.now(timezone.utc),
+    )
+    submission = SimpleNamespace(
+        id=uuid.uuid4(),
+        sample_id=sample_id,
+        status="draft",
+        authority="ENA",
+        accession=None,
+        biosample_accession=None,
+        prepared_payload={},
+    )
+    db = _SampleMutationSession(sample=sample, submission=submission)
+
+    out = samples.update_sample(
+        db=db,
+        sample_id=sample_id,
+        sample_in=SampleUpdate(region_and_locality="new region", latitude="12.34"),
+        current_user=SimpleNamespace(is_active=True, roles=["admin"], is_superuser=False),
+    )
+
+    assert out.region_and_locality == "new region"
+    assert out.latitude == 12.34
 
 
 def test_get_samples_experiments_and_reads_for_specimen():
@@ -263,9 +403,13 @@ def test_get_samples_experiments_and_reads_for_specimen():
             if self.calls == 5:
                 return _Q([read_1])
             if self.calls == 6:
-                return _Q([experiment_2])
+                return _Q([])
             if self.calls == 7:
+                return _Q([experiment_2])
+            if self.calls == 8:
                 return _Q([read_2])
+            if self.calls == 9:
+                return _Q([])
             return _Q([])
 
     app.dependency_overrides[samples.get_current_active_user] = lambda: SimpleNamespace(

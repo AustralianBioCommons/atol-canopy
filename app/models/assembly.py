@@ -162,7 +162,6 @@ class AssemblySubmission(Base):
 
     # Submission payloads
     manifest_json = Column(JSONB, nullable=True)
-    submission_xml = Column(Text, nullable=True)
     response_payload = Column(JSONB, nullable=True)
 
     # Metadata

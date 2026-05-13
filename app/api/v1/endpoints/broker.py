@@ -1976,9 +1976,11 @@ def claim_drafts_for_organism(
 
 
 @router.post("/leases/expire")
+@policy("admin:expire_leases")
 def expire_leases(
     *,
     db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_active_user),
 ) -> Dict[str, Any]:
     """Manually expire all submissions with expired leases.
 
@@ -1995,11 +1997,13 @@ def expire_leases(
 
 
 @router.post("/attempts/{attempt_id}/lease/renew")
+@policy("broker:claim")
 def renew_attempt_lease(
     *,
     attempt_id: UUID,
     extend_minutes: int = Query(15, ge=1, le=180),
     db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_active_user),
 ) -> Dict[str, Any]:
     """Extend the lease for an attempt and its claimed items."""
     attempt = db.query(SubmissionAttempt).filter(SubmissionAttempt.id == attempt_id).first()
@@ -2048,10 +2052,12 @@ def renew_attempt_lease(
 
 
 @router.post("/attempts/{attempt_id}/finalise")
+@policy("broker:claim")
 def finalise_attempt(
     *,
     attempt_id: UUID,
     db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_active_user),
 ) -> Dict[str, Any]:
     """Finalize an attempt: release any remaining 'submitting' items back to 'draft' and close the attempt."""
     attempt = db.query(SubmissionAttempt).filter(SubmissionAttempt.id == attempt_id).first()
@@ -2154,11 +2160,13 @@ def finalise_attempt(
 
 
 @router.post("/attempts/{attempt_id}/report", response_model=ReportResult)
+@policy("broker:claim")
 def report_results(
     *,
     attempt_id: UUID,
     payload: ReportRequest,
     db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_active_user),
 ) -> ReportResult:
     """Apply broker results: update statuses/payloads and register accessions (samples only for now)."""
     updated_samples = 0
@@ -2969,12 +2977,14 @@ def _get_attempt_items_with_relationships(
 
 
 @router.get("/attempts")
+@policy("broker:read")
 def list_attempts(
     *,
     db: Session = Depends(get_db),
     active_only: bool = Query(False),
     page: int = Query(1, ge=1),
     page_size: int = Query(20, ge=1, le=200),
+    current_user: User = Depends(get_current_active_user),
 ) -> Dict[str, Any]:
     q = db.query(SubmissionAttempt)
     total = q.count()
@@ -3007,11 +3017,13 @@ def list_attempts(
 
 
 @router.get("/attempts/{attempt_id}")
+@policy("broker:read")
 def get_attempt(
     *,
     attempt_id: UUID,
     db: Session = Depends(get_db),
     include_items: bool = Query(False),
+    current_user: User = Depends(get_current_active_user),
 ) -> Dict[str, Any]:
     a = db.query(SubmissionAttempt).filter(SubmissionAttempt.id == attempt_id).first()
     if not a:
@@ -3036,21 +3048,25 @@ def get_attempt(
 
 
 @router.get("/attempts/{attempt_id}/items")
+@policy("broker:read")
 def get_attempt_items(
     *,
     attempt_id: UUID,
     db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_active_user),
 ) -> Dict[str, Any]:
     items = _get_attempt_items_with_relationships(db, attempt_id)
     return {k: [e.model_dump() for e in v] for k, v in items.items()}
 
 
 @router.get("/organisms/{taxon_id}/summary")
+@policy("broker:read")
 def organism_summary(
     *,
     taxon_id: str,
     db: Session = Depends(get_db),
     recent_attempts: int = Query(5, ge=1, le=50),
+    current_user: User = Depends(get_current_active_user),
 ) -> Dict[str, Any]:
     # latest attempts for this organism
     attempts = (

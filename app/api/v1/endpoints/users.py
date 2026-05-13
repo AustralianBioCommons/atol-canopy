@@ -153,9 +153,11 @@ def update_user_me(
 
 
 @router.get("/{user_id}", response_model=UserSchema)
+@policy("users:read")
 def read_user_by_id(
     user_id: UUID,
     db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_active_user),
 ) -> Any:
     """
     Get a specific user by id.
@@ -186,11 +188,13 @@ def read_user_by_id(
 
 
 @router.put("/{user_id}", response_model=UserSchema)
+@policy("users:update")
 def update_user(
     *,
     db: Session = Depends(get_db),
     user_id: UUID,
     user_in: UserUpdate,
+    current_user: User = Depends(get_current_active_user),
 ) -> Any:
     """
     Update a user.

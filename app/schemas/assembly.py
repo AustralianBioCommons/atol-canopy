@@ -6,7 +6,6 @@ from uuid import UUID
 from pydantic import BaseModel, ConfigDict, Field
 
 from app.schemas.common import SubmissionStatus
-from app.schemas.qc_read import QcReadOut
 
 
 class AssemblyDataTypes(str, Enum):
@@ -106,7 +105,6 @@ class AssemblySpecimenSampleOption(BaseModel):
     specimen_id: Optional[str] = None
     sex: Optional[str] = None
     available_data_types: List[AssemblySpecimenSampleDataType] = Field(default_factory=list)
-    qc_reads: List[QcReadOut] = Field(default_factory=list)
 
 
 class AssemblySpecimenSampleDiscoveryResponse(BaseModel):
@@ -133,13 +131,17 @@ class AssemblyUpdate(BaseModel):
     assembly_name: Optional[str] = None
     assembly_type: Optional[str] = None
     tol_id: Optional[str] = None
+    data_types: Optional[AssemblyDataTypes] = None
     coverage: Optional[float] = None
     program: Optional[str] = None
     mingaplength: Optional[float] = None
     moleculetype: Optional[str] = None
-    version_number: Optional[int] = None
+    version: Optional[int] = None
     description: Optional[str] = None
     status: Optional[str] = None
+    long_read_specimen_sample_id: Optional[UUID] = None
+    hic_specimen_sample_id: Optional[UUID] = None
+    manifest_json: Optional[Dict[str, Any]] = None
 
 
 # Schema for assembly in DB
@@ -182,7 +184,6 @@ class AssemblySubmissionCreate(AssemblySubmissionBase):
     """Schema for creating a new assembly submission."""
 
     manifest_json: Optional[Dict] = None
-    submission_xml: Optional[str] = None
     response_payload: Optional[Dict] = None
     submitted_at: Optional[datetime] = None
     submitted_by: Optional[UUID] = None
@@ -199,7 +200,6 @@ class AssemblySubmissionUpdate(BaseModel):
     sample_accession: Optional[str] = None
     project_accession: Optional[str] = None
     manifest_json: Optional[Dict] = None
-    submission_xml: Optional[str] = None
     response_payload: Optional[Dict] = None
     submitted_at: Optional[datetime] = None
     submitted_by: Optional[UUID] = None
@@ -211,7 +211,6 @@ class AssemblySubmissionInDBBase(AssemblySubmissionBase):
 
     id: UUID
     manifest_json: Optional[Dict] = None
-    submission_xml: Optional[str] = None
     response_payload: Optional[Dict] = None
     submitted_at: Optional[datetime] = None
     submitted_by: Optional[UUID] = None

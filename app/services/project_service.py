@@ -13,7 +13,7 @@ class ProjectService(BaseService[Project, ProjectCreate, ProjectUpdate]):
 
     def get_by_accession(self, db: Session, accession: str) -> Optional[Project]:
         """Get project by accession."""
-        return db.query(Project).filter(Project.accession == accession).first()
+        return db.query(Project).filter(Project.project_accession == accession).first()
 
     def get_by_title(self, db: Session, title: str) -> List[Project]:
         """Get projects by title."""
@@ -38,7 +38,7 @@ class ProjectService(BaseService[Project, ProjectCreate, ProjectUpdate]):
         if title:
             query = query.filter(Project.title.ilike(f"%{title}%"))
         if accession:
-            query = query.filter(Project.accession == accession)
+            query = query.filter(Project.project_accession == accession)
         if description:
             query = query.filter(Project.description.ilike(f"%{description}%"))
         return query.offset(skip).limit(limit).all()

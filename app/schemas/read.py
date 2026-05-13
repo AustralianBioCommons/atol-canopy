@@ -5,56 +5,37 @@ from uuid import UUID
 from pydantic import BaseModel, ConfigDict
 
 
-# Base Read schema
 class ReadBase(BaseModel):
-    """Base Read schema with common attributes."""
-
     experiment_id: UUID
     bpa_resource_id: str
-    # bpa_json: Optional[Dict] = None
-
-
-# Schema for creating a new Read
-class ReadCreate(ReadBase):
-    """Schema for creating a new Read."""
-
-    file_name: str
-    file_checksum: str
-    file_format: str
-    optional_file: Optional[str]
-    bioplatforms_url: Optional[str]
-    read_number: Optional[str]
-    lane_number: Optional[str]
-    run_read_count: Optional[str]
-    run_base_count: Optional[str]
-    project_id: Optional[UUID] = None  # Used by the attached submission object
-    # TODO standardise submission table FKs across the application ^
-
-
-# Schema for updating an existing Read
-class ReadUpdate(BaseModel):
-    """Schema for updating an existing Read."""
-
-    experiment_id: Optional[UUID] = None
-    bpa_resource_id: Optional[str] = None
-    # bpa_json: Optional[Dict[str, Any]] = None
+    bpa_dataset_id: Optional[str] = None
     file_name: Optional[str] = None
     file_checksum: Optional[str] = None
     file_format: Optional[str] = None
-    optional_file: Optional[str] = None
+    optional_file: Optional[bool] = None
     bioplatforms_url: Optional[str] = None
     read_number: Optional[str] = None
     lane_number: Optional[str] = None
-    run_read_count: Optional[str] = None
-    run_base_count: Optional[str] = None
-    project_id: Optional[UUID] = None  # Used by the attached submission object
-    # TODO standardise submission table FKs across the application ^
 
 
-# Schema for Read in DB
+class ReadCreate(ReadBase):
+    """Schema for creating a new Read."""
+
+
+class ReadUpdate(BaseModel):
+    experiment_id: Optional[UUID] = None
+    bpa_resource_id: Optional[str] = None
+    bpa_dataset_id: Optional[str] = None
+    file_name: Optional[str] = None
+    file_checksum: Optional[str] = None
+    file_format: Optional[str] = None
+    optional_file: Optional[bool] = None
+    bioplatforms_url: Optional[str] = None
+    read_number: Optional[str] = None
+    lane_number: Optional[str] = None
+
+
 class ReadInDBBase(ReadBase):
-    """Base schema for Read in DB, includes id and timestamps."""
-
     id: UUID
     created_at: datetime
     updated_at: datetime
@@ -62,24 +43,12 @@ class ReadInDBBase(ReadBase):
     model_config = ConfigDict(from_attributes=True)
 
 
-# Schema for returning Read information
 class Read(ReadInDBBase):
-    """Schema for returning Read information."""
-
     pass
 
 
 class ReadDetail(ReadInDBBase):
     """Detailed read schema used by nested aggregate endpoints."""
-
-    bpa_dataset_id: Optional[str] = None
-    file_name: Optional[str] = None
-    file_checksum: Optional[str] = None
-    file_format: Optional[str] = None
-    optional_file: bool
-    bioplatforms_url: Optional[str] = None
-    read_number: Optional[str] = None
-    lane_number: Optional[str] = None
 
 
 # Base ReadSubmission schema

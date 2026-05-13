@@ -1,39 +1,47 @@
-import json
-import os
-import uuid
-from typing import Any, Dict, List, Optional
+from typing import Any, List, Optional
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, HTTPException, Query, status
+from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.orm import Session
-from sqlalchemy.orm.attributes import flag_modified
 
 from app.core.dependencies import get_current_active_user, get_db
 from app.core.pagination import Pagination, apply_pagination, pagination_params
 from app.core.policy import policy
-from app.models.experiment import Experiment
-from app.models.organism import Organism
+from app.models.project import Project
 from app.models.sample import Sample, SampleSubmission
 from app.models.user import User
-from app.schemas.bulk_import import BulkImportResponse, BulkSampleImport
-from app.schemas.common import SubmissionJsonResponse
-from app.schemas.sample import (
-    Sample as SampleSchema,
-)
-from app.schemas.sample import (
-    SampleCreate,
-    SampleSubmissionCreate,
-    SampleSubmissionUpdate,
-    SampleUpdate,
-)
 from app.schemas.sample import (
     SampleSubmission as SampleSubmissionSchema,
+)
+from app.schemas.sample import (
+    SampleSubmissionCreate,
 )
 from app.schemas.sample import (
     SubmissionStatus as SchemaSubmissionStatus,
 )
 
 router = APIRouter()
+
+
+def _resolve_sample_submission_project_id(db: Session, sample_id: UUID) -> UUID:
+    sample = db.query(Sample).filter(Sample.id == sample_id).first()
+    if not sample:
+        raise HTTPException(status_code=404, detail="Sample not found")
+
+    project = (
+        db.query(Project)
+        .filter(
+            Project.taxon_id == sample.taxon_id,
+            Project.project_type == "genomic_data",
+        )
+        .first()
+    )
+    if not project:
+        raise HTTPException(
+            status_code=404,
+            detail=f"No genomic_data project found for taxon_id '{sample.taxon_id}'",
+        )
+    return project.id
 
 
 @router.get("/", response_model=List[SampleSubmissionSchema])
@@ -61,7 +69,7 @@ def read_sample_submissions(
 
 @router.get("/{submission_id}", response_model=SampleSubmissionSchema)
 @policy("sample_submissions:read")
-def read_sample_submissions(
+def read_sample_submission(
     submission_id: UUID,
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_active_user),
@@ -71,9 +79,7 @@ def read_sample_submissions(
     """
     submission = db.query(SampleSubmission).filter(SampleSubmission.id == submission_id).first()
     if not submission:
-        raise HTTPException(
-            status_code=404, detail="Sample submission not found for sample: {sample_id}"
-        )
+        raise HTTPException(status_code=404, detail="Sample submission not found")
     return submission
 
 
@@ -97,6 +103,7 @@ def create_sample_submission(
         accession=submission_in.accession,
         biosample_accession=submission_in.biosample_accession,
         status=submission_in.status,
+        project_id=_resolve_sample_submission_project_id(db, submission_in.sample_id),
         submitted_at=submission_in.submitted_at,
     )
     db.add(submission)

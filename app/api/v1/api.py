@@ -17,7 +17,6 @@ from app.api.v1.endpoints import (
     samples,
     taxonomy_info,
     users,
-    xml_export,
 )
 
 # Main API router
@@ -49,7 +48,5 @@ api_router.include_router(qc_reads.router, prefix="/qc-reads", tags=["qc-reads"]
 api_router.include_router(genome_notes.router, prefix="/genome-notes", tags=["genome-notes"])
 api_router.include_router(taxonomy_info.router, prefix="/taxonomy-info", tags=["taxonomy-info"])
 
-# XML export endpoints
-api_router.include_router(xml_export.router, prefix="/xml-export", tags=["xml-export"])
 # api_router.include_router(read_router, prefix="/reads", tags=["reads"])
 # api_router.include_router(genome_note_router, prefix="/genome-notes", tags=["genome-notes"])

@@ -8,7 +8,6 @@ from uuid import UUID
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy import or_
 from sqlalchemy.orm import Session
-from sqlalchemy.orm.attributes import flag_modified
 
 from app.core.dependencies import get_current_active_user, get_db
 from app.core.pagination import Pagination, apply_pagination, pagination_params
@@ -16,6 +15,7 @@ from app.core.policy import policy
 from app.models.experiment import Experiment
 from app.models.organism import Organism
 from app.models.project import Project
+from app.models.qc_read import QcRead
 from app.models.read import Read
 from app.models.sample import Sample, SampleSubmission
 from app.models.user import User
@@ -34,6 +34,53 @@ from app.utils.mapping import to_float
 
 router = APIRouter()
 
+_SAMPLE_MAPPING_PATH = os.path.join(
+    os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(__file__)))),
+    "config",
+    "ena-atol-map.json",
+)
+_SAMPLE_NUMERIC_FIELDS = {"latitude", "longitude", "elevation", "depth"}
+_SAMPLE_REQUIRED_TEXT_DEFAULTS = {
+    "lifestage": "unknown",
+    "sex": "unknown",
+    "organism_part": "unknown",
+    "region_and_locality": "unknown",
+    "country_or_sea": "unknown",
+    "habitat": "unknown",
+    "collected_by": "unknown",
+    "collecting_institution": "unknown",
+}
+_SAMPLE_TEXT_FIELDS = {
+    "bpa_sample_id",
+    "specimen_id",
+    "specimen_id_description",
+    "identified_by",
+    "specimen_custodian",
+    "sample_custodian",
+    "collection_method",
+    "collection_date",
+    "collection_permit",
+    "data_context",
+    "bioplatforms_project_id",
+    "title",
+    "sample_same_as",
+    "sample_derived_from",
+    "specimen_voucher",
+    "tolid",
+    "preservation_method",
+    "preservation_temperature",
+    "project_name",
+    "biosample_accession",
+    "state_or_region",
+    "indigenous_location",
+}
+_SAMPLE_MUTABLE_FIELDS = (
+    set(_SAMPLE_REQUIRED_TEXT_DEFAULTS)
+    | _SAMPLE_TEXT_FIELDS
+    | _SAMPLE_NUMERIC_FIELDS
+    | {"taxon_id", "derived_from_sample_id", "kind", "extensions"}
+)
+
 
 def _organism_taxon_id(organism: Any) -> int:
     return organism.taxon_id if hasattr(organism, "taxon_id") else organism.tax_id
@@ -51,6 +98,81 @@ def _get_genomic_data_project_id(db: Session, taxon_id: int) -> UUID:
             status_code=404, detail=f"No genomic_data project found for taxon_id {taxon_id}"
         )
     return project.id
+
+
+def _load_sample_mapping() -> Dict[str, Any]:
+    with open(_SAMPLE_MAPPING_PATH, "r") as f:
+        return json.load(f)
+
+
+def _build_sample_prepared_payload(sample_data: Dict[str, Any]) -> Dict[str, Any]:
+    ena_atol_map = _load_sample_mapping()
+    prepared_payload = {}
+    for ena_key, atol_key in ena_atol_map["sample"].items():
+        if atol_key in sample_data:
+            prepared_payload[ena_key] = sample_data[atol_key]
+    return prepared_payload
+
+
+def _validate_sample_lineage(
+    db: Session,
+    *,
+    sample_id: Optional[UUID],
+    taxon_id: Optional[int],
+    kind: SampleKind,
+    specimen_id: Optional[str],
+    derived_from_sample_id: Optional[UUID],
+) -> None:
+    if kind == SampleKind.DERIVED and not derived_from_sample_id:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Derived samples must have a parent sample (derived_from_sample_id)",
+        )
+    if kind == SampleKind.SPECIMEN and derived_from_sample_id:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Specimen samples cannot have a parent sample",
+        )
+    if sample_id and derived_from_sample_id == sample_id:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="A sample cannot be its own parent",
+        )
+
+    if kind == SampleKind.SPECIMEN and specimen_id:
+        existing_specimen = (
+            db.query(Sample)
+            .filter(
+                Sample.taxon_id == taxon_id,
+                Sample.specimen_id == specimen_id,
+                Sample.kind == SampleKind.SPECIMEN,
+            )
+            .first()
+        )
+        if existing_specimen and existing_specimen.id != sample_id:
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail=f"Specimen sample already exists for taxon_id '{taxon_id}' "
+                f"and specimen_id '{specimen_id}' (sample_id: {existing_specimen.id})",
+            )
+
+    if derived_from_sample_id:
+        parent_sample = db.query(Sample).filter(Sample.id == derived_from_sample_id).first()
+        if not parent_sample:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail=f"Parent sample with id {derived_from_sample_id} not found",
+            )
+        if parent_sample.kind != SampleKind.SPECIMEN:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Parent sample must be of kind 'specimen'",
+            )
+        if taxon_id is not None and parent_sample.taxon_id != taxon_id:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Parent sample must belong to the same taxon_id",
+            )
 
 
 @router.get("/", response_model=List[SampleSchema])
@@ -123,7 +245,10 @@ def get_samples_experiments_and_reads_for_specimen(
         experiment_payload = []
         for experiment in experiments:
             reads = db.query(Read).filter(Read.experiment_id == experiment.id).all()
-            experiment_payload.append({"experiment": experiment, "reads": reads})
+            qc_reads = db.query(QcRead).filter(QcRead.experiment_id == experiment.id).all()
+            experiment_payload.append(
+                {"experiment": experiment, "reads": reads, "qc_reads": qc_reads}
+            )
 
         related_payload.append({"sample": sample, "experiments": experiment_payload})
 
@@ -185,70 +310,22 @@ def create_sample(
     """
     Create new sample.
     """
-    sample_data = sample_in.dict(exclude_unset=True)
+    sample_data = sample_in.model_dump(exclude_unset=True)
     sample_id = uuid.uuid4()
-
-    # Compute required NOT NULL fields and fallbacks
-    lifestage = sample_in.get("lifestage") or "unknown"
-    sex = sample_in.get("sex") or "unknown"
-    organism_part = sample_in.get("organism_part") or "unknown"
-    region_and_locality = sample_in.get("region_and_locality") or "unknown"
-    country_or_sea = sample_in.get("country_or_sea") or "unknown"
-    habitat = sample_in.get("habitat") or "unknown"
-    collection_date_val = sample_in.get("collection_date") or "unknown"
-    collected_by = sample_in.get("collected_by") or "unknown"
-    collecting_institution = sample_in.get("collecting_institution") or "unknown"
-
-    # Accept raw string and allow missing collection_date
 
     # Build kwargs dynamically so we don't pass None for DB server_default columns
     # Determine sample kind and validate parent relationship
     kind = sample_in.kind or SampleKind.SPECIMEN
     derived_from_sample_id = sample_in.derived_from_sample_id
 
-    # Validate parent-child relationship constraints
-    if kind == SampleKind.DERIVED and not derived_from_sample_id:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Derived samples must have a parent sample (derived_from_sample_id)",
-        )
-    if kind == SampleKind.SPECIMEN and derived_from_sample_id:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Specimen samples cannot have a parent sample",
-        )
-
-    # Check for duplicate specimen: one specimen per (taxon_id, specimen_id)
-    if kind == SampleKind.SPECIMEN and sample_in.specimen_id:
-        existing_specimen = (
-            db.query(Sample)
-            .filter(
-                Sample.taxon_id == sample_in.taxon_id,
-                Sample.specimen_id == sample_in.specimen_id,
-                Sample.kind == SampleKind.SPECIMEN,
-            )
-            .first()
-        )
-        if existing_specimen:
-            raise HTTPException(
-                status_code=status.HTTP_409_CONFLICT,
-                detail=f"Specimen sample already exists for taxon_id '{sample_in.taxon_id}' "
-                f"and specimen_id '{sample_in.specimen_id}' (sample_id: {existing_specimen.id})",
-            )
-
-    # If parent is specified, verify it exists and is a specimen
-    if derived_from_sample_id:
-        parent_sample = db.query(Sample).filter(Sample.id == derived_from_sample_id).first()
-        if not parent_sample:
-            raise HTTPException(
-                status_code=status.HTTP_404_NOT_FOUND,
-                detail=f"Parent sample with id {derived_from_sample_id} not found",
-            )
-        if parent_sample.kind != SampleKind.SPECIMEN:
-            raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail="Parent sample must be of kind 'specimen'",
-            )
+    _validate_sample_lineage(
+        db,
+        sample_id=sample_id,
+        taxon_id=sample_in.taxon_id,
+        kind=kind,
+        specimen_id=sample_in.specimen_id,
+        derived_from_sample_id=derived_from_sample_id,
+    )
 
     sample_kwargs = dict(
         id=sample_id,
@@ -259,22 +336,22 @@ def create_sample(
         specimen_id_description=sample_in.specimen_id_description,
         specimen_custodian=sample_in.specimen_custodian,
         sample_custodian=sample_in.sample_custodian,
-        lifestage=lifestage,
-        sex=sex,
-        organism_part=organism_part,
-        region_and_locality=region_and_locality,
+        lifestage=sample_in.lifestage or "unknown",
+        sex=sample_in.sex or "unknown",
+        organism_part=sample_in.organism_part or "unknown",
+        region_and_locality=sample_in.region_and_locality or "unknown",
         state_or_region=sample_in.state_or_region,
-        country_or_sea=country_or_sea,
+        country_or_sea=sample_in.country_or_sea or "unknown",
         indigenous_location=sample_in.indigenous_location,
         latitude=to_float(sample_in.latitude),
         longitude=to_float(sample_in.longitude),
         elevation=to_float(sample_in.elevation),
         depth=to_float(sample_in.depth),
-        habitat=habitat,
-        collected_by=collected_by,
-        collecting_institution=collecting_institution,
+        habitat=sample_in.habitat or "unknown",
+        collected_by=sample_in.collected_by or "unknown",
+        collecting_institution=sample_in.collecting_institution or "unknown",
         collection_method=sample_in.collection_method,
-        collection_date=collection_date_val,
+        collection_date=sample_in.collection_date or "unknown",
         collection_permit=sample_in.collection_permit,
         data_context=sample_in.data_context,
         bioplatforms_project_id=sample_in.bioplatforms_project_id,
@@ -291,35 +368,18 @@ def create_sample(
         extensions=sample_in.extensions,
         # bpa_json=sample_in.model_dump(mode="json", exclude_unset=True),
     )
-    # Only set these if provided (DB has server defaults for NOT NULL)
-    if sample_in.collected_by:
-        sample_kwargs["collected_by"] = sample_in.collected_by
-    if sample_in.collector_institute:
-        sample_kwargs["collecting_institution"] = sample_in.collector_institute
 
     sample = Sample(**sample_kwargs)
     db.add(sample)
 
-    # Load the ENA-ATOL mapping file
-    ena_atol_map_path = os.path.join(
-        os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(__file__)))),
-        "config",
-        "ena-atol-map.json",
-    )
-    with open(ena_atol_map_path, "r") as f:
-        ena_atol_map = json.load(f)
-    # Generate ENA-mapped data for submission to ENA
-    prepared_payload = {}
-    for ena_key, atol_key in ena_atol_map["sample"].items():
-        if atol_key in sample_data:
-            prepared_payload[ena_key] = sample_data[atol_key]
+    prepared_payload = _build_sample_prepared_payload(sample_data)
 
     # Get project_id for this organism
     project_id = _get_genomic_data_project_id(db, sample.taxon_id)
 
     sample_submission = SampleSubmission(
         sample_id=sample_id,
-        authority=sample_in.authority,
+        authority="ENA",
         entity_type_const="sample",
         prepared_payload=prepared_payload,
         status=SubmissionStatus.DRAFT,
@@ -726,20 +786,8 @@ def update_sample(
         if not sample:
             raise HTTPException(status_code=404, detail="Sample not found")
 
-        sample_data = sample_in.dict(exclude_unset=True)
-        # Load the ENA-ATOL mapping file
-        ena_atol_map_path = os.path.join(
-            os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(__file__)))),
-            "config",
-            "ena-atol-map.json",
-        )
-        with open(ena_atol_map_path, "r") as f:
-            ena_atol_map = json.load(f)
-        # Generate ENA-mapped data for submission to ENA
-        prepared_payload = {}
-        for ena_key, atol_key in ena_atol_map["sample"].items():
-            if atol_key in sample_data:
-                prepared_payload[ena_key] = sample_data[atol_key]
+        sample_data = sample_in.model_dump(exclude_unset=True)
+        prepared_payload = _build_sample_prepared_payload(sample_data)
         sample_submission = (
             db.query(SampleSubmission)
             .filter(SampleSubmission.sample_id == sample_id)
@@ -813,22 +861,38 @@ def update_sample(
                 setattr(latest_sample_submission, "prepared_payload", prepared_payload)
                 setattr(latest_sample_submission, "status", "draft")
                 db.add(latest_sample_submission)
-                # update the sample_submission object
 
-        # initiate new bpa_json object to the previous bpa_json object
-        """
-        new_bpa_json = sample.bpa_json
-        setattr(sample, "taxon_id", sample_in.taxon_id)
-        setattr(sample, "bpa_sample_id", sample_in.bpa_sample_id)
+        target_kind = SampleKind(sample_data["kind"]) if "kind" in sample_data else sample.kind
+        target_taxon_id = sample_data.get("taxon_id", sample.taxon_id)
+        target_specimen_id = sample_data.get("specimen_id", sample.specimen_id)
+        target_parent_id = sample_data.get("derived_from_sample_id", sample.derived_from_sample_id)
+        _validate_sample_lineage(
+            db,
+            sample_id=sample.id,
+            taxon_id=target_taxon_id,
+            kind=target_kind,
+            specimen_id=target_specimen_id,
+            derived_from_sample_id=target_parent_id,
+        )
+
         for field, value in sample_data.items():
-            new_bpa_json[field] = value
-        sample.bpa_json = new_bpa_json
-        flag_modified(sample, "bpa_json")
-        """
+            if field not in _SAMPLE_MUTABLE_FIELDS:
+                continue
+            if field in _SAMPLE_NUMERIC_FIELDS:
+                value = to_float(value)
+            elif field == "kind" and value is not None:
+                value = SampleKind(value)
+            elif field in _SAMPLE_REQUIRED_TEXT_DEFAULTS and value in (None, ""):
+                value = _SAMPLE_REQUIRED_TEXT_DEFAULTS[field]
+            setattr(sample, field, value)
+
         db.add(sample)
         db.commit()
         db.refresh(sample)
         return sample
+    except HTTPException:
+        db.rollback()
+        raise
     except Exception as e:
         print(f"Error updating sample with sample_id: {sample_id}")
         print(e)

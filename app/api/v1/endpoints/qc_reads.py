@@ -18,11 +18,7 @@ router = APIRouter()
 
 
 def _build_prepared_payload(qc_read: QcRead, files: list[QcReadFile]) -> dict:
-    """Build the ENA submission payload stored on QcReadSubmission.
-
-    The broker's to_run_xml() expects a ``files`` list where each entry has:
-      filename, filetype, checksum (MD5), checksum_method.
-    """
+    """Build the ENA submission payload stored on QcReadSubmission."""
     return {
         "files": [
             {

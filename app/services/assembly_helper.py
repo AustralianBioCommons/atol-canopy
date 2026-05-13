@@ -7,6 +7,7 @@ from uuid import UUID
 from app.models.experiment import Experiment
 from app.models.organism import Organism
 from app.models.read import Read
+from app.models.taxonomy_info import TaxonomyInfo
 from app.schemas.assembly import AssemblyDataTypes
 
 logger = logging.getLogger(__name__)
@@ -123,6 +124,7 @@ def _normalize_read_number(read_number: str | None) -> str | None:
 
 def generate_assembly_manifest_json(
     organism: Organism,
+    taxonomy_information: Optional[TaxonomyInfo],
     reads: List[Read],
     experiments: List[Experiment],
     tol_id: str | None,
@@ -144,6 +146,7 @@ def generate_assembly_manifest_json(
 
     Args:
         organism: Organism object
+        taxonomy_information: TaxonomyInfo object related to the organism when available
         reads: Combined list of Read objects from both specimen samples
         experiments: Combined list of Experiment objects from both specimen samples
         tol_id: ToL ID for the assembly (optional)
@@ -308,10 +311,25 @@ def generate_assembly_manifest_json(
     if not reads_section:
         logger.warning("No reads matched the filtering criteria!")
 
-    return {
+    manifest = {
         "scientific_name": organism.scientific_name,
         "taxon_id": organism.taxon_id,
         "tolid": tol_id,
         "version": version,
+        "busco_odb10_dataset_name": getattr(taxonomy_information, "busco_odb10_dataset_name", None),
+        "busco_odb12_dataset_name": getattr(taxonomy_information, "busco_odb12_dataset_name", None),
+        "find_plastid": getattr(taxonomy_information, "find_plastid", None),
+        "hic_motif": getattr(taxonomy_information, "hic_motif", None),
+        "mitochondrial_genetic_code_id": getattr(
+            taxonomy_information, "mitochondrial_genetic_code_id", None
+        ),
+        "mitohifi_reference_species": getattr(
+            taxonomy_information, "mitohifi_reference_species", None
+        ),
+        "oatk_hmm_name": getattr(taxonomy_information, "oatk_hmm_name", None),
+        "augustus_dataset_name": getattr(taxonomy_information, "augustus_dataset_name", None),
+        "genetic_code_id": getattr(taxonomy_information, "genetic_code_id", None),
+        "defined_class": getattr(taxonomy_information, "defined_class", None),
         "reads": reads_section,
     }
+    return manifest

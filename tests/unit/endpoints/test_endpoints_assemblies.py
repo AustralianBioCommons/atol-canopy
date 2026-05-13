@@ -1,3 +1,4 @@
+from datetime import datetime, timezone
 from types import SimpleNamespace
 from uuid import uuid4
 
@@ -358,10 +359,6 @@ def test_get_specimen_samples_for_assembly_returns_discovery_options():
     specimen_b_id = uuid4()
     specimen_c_id = uuid4()
     specimen_d_id = uuid4()
-    specimen_a_pacbio_exp_id = uuid4()
-    specimen_a_hic_exp_id = uuid4()
-    specimen_b_ont_exp_id = uuid4()
-    specimen_d_rna_exp_id = uuid4()
 
     specimen_a = SimpleNamespace(
         id=specimen_a_id,
@@ -400,37 +397,21 @@ def test_get_specimen_samples_for_assembly_returns_discovery_options():
 
     specimen_a_experiments = [
         SimpleNamespace(
-            id=specimen_a_pacbio_exp_id,
+            id="exp-pb",
             sample_id=derived_a_id,
             platform="PACBIO_SMRT",
             library_strategy="WGS",
         ),
         SimpleNamespace(
-            id=specimen_a_hic_exp_id,
+            id="exp-hic",
             sample_id=specimen_a_id,
             platform="ILLUMINA",
             library_strategy="Hi-C",
         ),
     ]
-    specimen_a_qc_reads = [
-        SimpleNamespace(
-            id=uuid4(),
-            experiment_id=specimen_a_pacbio_exp_id,
-            base_count=1000,
-            read_count=100,
-            qc_bases_removed=10,
-            qc_reads_removed=2,
-            mean_gc_content=0.45,
-            n50_length=5000,
-            created_at="2026-01-01T00:00:00Z",
-            updated_at="2026-01-01T00:00:00Z",
-            files=[],
-            submission_records=[],
-        )
-    ]
     specimen_b_experiments = [
         SimpleNamespace(
-            id=specimen_b_ont_exp_id,
+            id="exp-ont",
             sample_id=specimen_b_id,
             platform="OXFORD_NANOPORE",
             library_strategy="WGA",
@@ -438,7 +419,7 @@ def test_get_specimen_samples_for_assembly_returns_discovery_options():
     ]
     specimen_d_experiments = [
         SimpleNamespace(
-            id=specimen_d_rna_exp_id,
+            id="exp-rna",
             sample_id=specimen_d_id,
             platform="ILLUMINA",
             library_strategy="RNA-Seq",
@@ -473,23 +454,17 @@ def test_get_specimen_samples_for_assembly_returns_discovery_options():
             if self.calls == 4:
                 return _Q(specimen_a_experiments)
             if self.calls == 5:
-                return _Q(specimen_a_qc_reads)
-            if self.calls == 6:
                 return _Q([])
-            if self.calls == 7:
+            if self.calls == 6:
                 return _Q(specimen_b_experiments)
+            if self.calls == 7:
+                return _Q([])
             if self.calls == 8:
                 return _Q([])
             if self.calls == 9:
                 return _Q([])
             if self.calls == 10:
-                return _Q([])
-            if self.calls == 11:
-                return _Q([])
-            if self.calls == 12:
                 return _Q(specimen_d_experiments)
-            if self.calls == 13:
-                return _Q([])
             return _Q([])
 
     app.dependency_overrides[assemblies.get_current_active_user] = lambda: SimpleNamespace(
@@ -508,43 +483,24 @@ def test_get_specimen_samples_for_assembly_returns_discovery_options():
             "specimen_id": "SPEC-001",
             "sex": "female",
             "available_data_types": ["PACBIO_SMRT", "Hi-C"],
-            "qc_reads": [
-                {
-                    "id": str(specimen_a_qc_reads[0].id),
-                    "experiment_id": str(specimen_a_pacbio_exp_id),
-                    "base_count": 1000,
-                    "read_count": 100,
-                    "qc_bases_removed": 10,
-                    "qc_reads_removed": 2,
-                    "mean_gc_content": 0.45,
-                    "n50_length": 5000,
-                    "created_at": "2026-01-01T00:00:00Z",
-                    "updated_at": "2026-01-01T00:00:00Z",
-                    "files": [],
-                    "submission_records": [],
-                }
-            ],
         },
         {
             "sample_id": str(specimen_b_id),
             "specimen_id": None,
             "sex": "male",
             "available_data_types": ["OXFORD_NANOPORE"],
-            "qc_reads": [],
         },
         {
             "sample_id": str(specimen_c_id),
             "specimen_id": "SPEC-003",
             "sex": "unknown",
             "available_data_types": [],
-            "qc_reads": [],
         },
         {
             "sample_id": str(specimen_d_id),
             "specimen_id": "SPEC-004",
             "sex": "female",
             "available_data_types": ["RNA-Seq"],
-            "qc_reads": [],
         },
     ]
 
@@ -1256,3 +1212,67 @@ def test_update_stage_run_replaces_files(monkeypatch):
     assert len(body["files"]) == 1
     assert body["files"][0]["sha256sum"] == "cafebabe"
     assert body["files"][0]["storage_type"] == "gcs"
+
+
+def test_update_assembly_updates_version_and_manifest():
+    client = TestClient(app)
+    assembly_id = uuid4()
+    now = datetime.now(timezone.utc)
+    assembly = SimpleNamespace(
+        id=assembly_id,
+        taxon_id=172942,
+        sample_id=uuid4(),
+        project_id=None,
+        assembly_name="Assembly 1",
+        assembly_type="clone or isolate",
+        tol_id="tol-123",
+        data_types="PACBIO_SMRT",
+        coverage=50.0,
+        program="hifiasm",
+        mingaplength=None,
+        moleculetype="genomic DNA",
+        description=None,
+        version=1,
+        status="requested",
+        long_read_specimen_sample_id=None,
+        hic_specimen_sample_id=None,
+        manifest_json=None,
+        created_at=now,
+        updated_at=now,
+    )
+
+    class _Q:
+        def filter(self, *_a, **_k):
+            return self
+
+        def first(self):
+            return assembly
+
+    class _DB:
+        def query(self, _m):
+            return _Q()
+
+        def add(self, obj):
+            pass
+
+        def commit(self):
+            pass
+
+        def refresh(self, obj):
+            obj.updated_at = now
+
+    app.dependency_overrides[assemblies.get_current_active_user] = lambda: SimpleNamespace(
+        is_active=True, roles=["curator"], is_superuser=False
+    )
+    app.dependency_overrides[assemblies.get_db] = _override_db(_DB())
+
+    resp = client.put(
+        f"/api/v1/assemblies/{assembly_id}",
+        json={"version": 3, "manifest_json": {"assembly": "manifest"}},
+    )
+
+    assert resp.status_code == 200
+    assert resp.json()["version"] == 3
+    assert resp.json()["manifest_json"] == {"assembly": "manifest"}
+    assert assembly.version == 3
+    assert assembly.manifest_json == {"assembly": "manifest"}

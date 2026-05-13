@@ -3,7 +3,7 @@ from uuid import UUID
 
 from fastapi import APIRouter, Body, Depends, HTTPException, Query
 from fastapi.responses import JSONResponse
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, joinedload
 
 from app.core.dependencies import get_current_active_user, get_db
 from app.core.errors import AppError
@@ -18,7 +18,6 @@ from app.models.assembly import (
 )
 from app.models.experiment import Experiment
 from app.models.organism import Organism
-from app.models.qc_read import QcRead
 from app.models.read import Read
 from app.models.sample import Sample
 from app.models.user import User
@@ -62,6 +61,12 @@ from app.services.organism_service import organism_service
 
 router = APIRouter()
 
+_ASSEMBLY_MUTABLE_FIELDS = {
+    column.name
+    for column in Assembly.__table__.columns
+    if column.name not in {"id", "created_at", "updated_at"}
+}
+
 
 # TODO remove tax_id refs and rely solely on taxon_id in organism table for all relationships and queries.
 def _organism_taxon_id(organism: Any) -> int:
@@ -91,6 +96,7 @@ def _build_specimen_metadata(*samples: Sample) -> Dict[str, Dict[str, Any]]:
         str(sample.id): {
             "bpa_sample_id": getattr(sample, "bpa_sample_id", None),
             "specimen_id": getattr(sample, "specimen_id", None),
+            "tolid": getattr(sample, "tolid", None),
         }
         for sample in samples
         if sample is not None
@@ -170,12 +176,6 @@ def get_specimen_samples_for_assembly(
         experiments = (
             db.query(Experiment).filter(Experiment.sample_id.in_(lineage_sample_ids)).all()
         )
-        experiment_ids = [experiment.id for experiment in experiments]
-        qc_reads = (
-            db.query(QcRead).filter(QcRead.experiment_id.in_(experiment_ids)).all()
-            if experiment_ids
-            else []
-        )
 
         specimen_sample_options.append(
             {
@@ -183,7 +183,6 @@ def get_specimen_samples_for_assembly(
                 "specimen_id": specimen_sample.specimen_id,
                 "sex": specimen_sample.sex,
                 "available_data_types": get_available_assembly_data_types(experiments),
-                "qc_reads": qc_reads,
             }
         )
 
@@ -348,7 +347,10 @@ def create_assembly_intent(
     Returns JSON with assembly_id, version, status, and the generated manifest.
     """
     # 1. Resolve organism
-    organism = db.query(Organism).filter(Organism.taxon_id == taxon_id).first()
+    organism_query = db.query(Organism)
+    if hasattr(organism_query, "options"):
+        organism_query = organism_query.options(joinedload(Organism.taxonomy_info))
+    organism = organism_query.filter(Organism.taxon_id == taxon_id).first()
     if not organism:
         raise HTTPException(status_code=404, detail=f"Organism with taxon_id {taxon_id} not found")
     org_taxon_id = _organism_taxon_id(organism)
@@ -420,6 +422,7 @@ def create_assembly_intent(
         hic_reads = db.query(Read).filter(Read.experiment_id.in_(hic_exp_ids)).all()
 
     # 6. Determine data_types from the relevant experiments
+    # TODO review and remove this step now that we pass in the specimen_id
     all_experiments = long_read_experiments + hic_experiments
     try:
         data_types = determine_assembly_data_types(all_experiments)
@@ -437,6 +440,7 @@ def create_assembly_intent(
         taxon_id=org_taxon_id,
         long_read_specimen_sample_id=long_read_sample.id,
         hic_specimen_sample_id=hic_sample.id if hic_sample else None,
+        # TODO review if we need data_types when creating experiment
         data_types=data_types,
         tol_id=intent_in.tol_id,
         project_id=None,
@@ -453,8 +457,10 @@ def create_assembly_intent(
         }
         manifest_data = generate_assembly_manifest_json(
             organism=organism,
+            taxonomy_information=getattr(organism, "taxonomy_info", None),
             reads=all_reads,
             experiments=all_experiments,
+            # TODO tolid from sample (reported by broker) not input from caller
             tol_id=assembly.tol_id,
             version=assembly.version,
             long_read_sample_id=long_read_sample.id,
@@ -658,8 +664,10 @@ def update_assembly(
     if not assembly:
         raise HTTPException(status_code=404, detail="Assembly not found")
 
-    update_data = assembly_in.dict(exclude_unset=True)
+    update_data = assembly_in.model_dump(exclude_unset=True)
     for field, value in update_data.items():
+        if field not in _ASSEMBLY_MUTABLE_FIELDS:
+            continue
         setattr(assembly, field, value)
 
     db.add(assembly)

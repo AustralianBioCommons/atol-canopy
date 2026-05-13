@@ -323,7 +323,10 @@ def test_expire_leases_endpoint():
         }
     )
 
-    result = broker.expire_leases(db=db)
+    result = broker.expire_leases(
+        db=db,
+        current_user=SimpleNamespace(is_superuser=False, roles=["admin"], is_active=True),
+    )
 
     assert result["expired_counts"]["samples"] == 1
     assert result["expired_counts"]["experiments"] == 1

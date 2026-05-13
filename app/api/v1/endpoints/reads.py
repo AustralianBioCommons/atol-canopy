@@ -20,6 +20,12 @@ from app.schemas.read import (
 
 router = APIRouter()
 
+_READ_MUTABLE_FIELDS = {
+    column.name
+    for column in Read.__table__.columns
+    if column.name not in {"id", "created_at", "updated_at"}
+}
+
 
 @router.get("/", response_model=List[ReadSchema])
 def read_reads(
@@ -53,9 +59,7 @@ def create_read(
     read_id = uuid.uuid4()
 
     read_data = read_in.model_dump(exclude_unset=True)
-    allowed_cols = {c.name for c in Read.__table__.columns}
-    exclude_keys = {"id", "created_at", "updated_at", "bpa_json"}
-    read_kwargs = {k: v for k, v in read_data.items() if k in (allowed_cols - exclude_keys)}
+    read_kwargs = {k: v for k, v in read_data.items() if k in _READ_MUTABLE_FIELDS}
     if "optional_file" in read_kwargs and read_kwargs["optional_file"] is not None:
         val = read_kwargs["optional_file"]
         if not isinstance(val, bool):
@@ -100,8 +104,12 @@ def update_read(
     if not read:
         raise HTTPException(status_code=404, detail="Read not found")
 
-    read_data = read_in.dict(exclude_unset=True)
+    read_data = read_in.model_dump(exclude_unset=True)
     for field, value in read_data.items():
+        if field not in _READ_MUTABLE_FIELDS:
+            continue
+        if field == "optional_file" and value is not None and not isinstance(value, bool):
+            value = str(value).lower() in ("true", "1", "yes")
         setattr(read, field, value)
 
     db.add(read)

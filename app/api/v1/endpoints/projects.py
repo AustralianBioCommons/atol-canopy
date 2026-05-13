@@ -45,14 +45,7 @@ def create_project(
     """
     Create new project.
     """
-    project = Project(
-        project_accession=project_in.project_accession,
-        alias=project_in.alias,
-        alias_md5=project_in.alias_md5,
-        study_name=project_in.study_name,
-        new_study_type=project_in.new_study_type,
-        study_abstract=project_in.study_abstract,
-    )
+    project = Project(**project_in.model_dump(exclude_none=True))
     db.add(project)
     db.commit()
     db.refresh(project)
@@ -92,7 +85,7 @@ def update_project(
     if not project:
         raise HTTPException(status_code=404, detail="Project not found")
 
-    update_data = project_in.dict(exclude_unset=True)
+    update_data = project_in.model_dump(exclude_unset=True)
     for field, value in update_data.items():
         setattr(project, field, value)
 
