@@ -6,6 +6,7 @@ from app.models.organism import Organism
 from app.models.taxonomy_info import TaxonomyInfo
 from app.schemas.bulk_import import BulkImportResponse
 from app.schemas.taxonomy_info import TaxonomyInfoCreate, TaxonomyInfoUpdate
+from app.services.ncbi_taxonomy_service import ncbi_taxonomy_service
 
 
 class TaxonomyInfoService:
@@ -21,12 +22,19 @@ class TaxonomyInfoService:
         organism = db.query(Organism).filter(Organism.taxon_id == ti_in.taxon_id).first()
         if not organism:
             raise ValueError(f"Organism with taxon_id {ti_in.taxon_id} does not exist")
-
         existing = db.query(TaxonomyInfo).filter(TaxonomyInfo.taxon_id == ti_in.taxon_id).first()
         if existing:
             raise ValueError(f"TaxonomyInfo for taxon_id {ti_in.taxon_id} already exists")
 
         ti = TaxonomyInfo(**ti_in.model_dump())
+        ncbi_taxon_service = NCBITaxonomyService()
+        mapped, unmapped = ncbi_taxonomy_service.process_taxa(ti_in.taxon_id)
+        if not mapped:
+            raise ValueError(f"No mapped lineage found for taxon_id {ti_in.taxon_id}")
+        for field, value in mapped[0].items():
+            setattr(ti, field, value)
+
+        # TODO: Map the lineage to the taxonomy info
         db.add(ti)
         db.commit()
         db.refresh(ti)
@@ -52,6 +60,13 @@ class TaxonomyInfoService:
         db.delete(ti)
         db.commit()
         return ti
+
+    """def upsert_info_from_ncbi(self, db: Session, *, taxon_id: int) -> Optional[TaxonomyInfo]:
+        organism = db.query(Organism).filter(Organism.taxon_id == taxon_id).first()
+        if not organism:
+            raise ValueError(f"Organism with taxon_id {taxon_id} does not exist")
+
+        if """
 
     def bulk_import(self, db: Session, *, data: Dict[str, Dict[str, Any]]) -> BulkImportResponse:
         created_count = 0

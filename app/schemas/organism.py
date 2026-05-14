@@ -19,8 +19,6 @@ class OrganismBase(BaseModel):
     bpa_infraspecific_epithet: Optional[str] = None
     bpa_culture_or_strain_id: Optional[str] = None
     bpa_authority: Optional[str] = None
-    scientific_name: Optional[str] = None
-    atol_scientific_name: Optional[str] = None
     bpa_json: Optional[Dict] = None
 
 
@@ -40,7 +38,7 @@ class OrganismUpdate(BaseModel):
     bpa_infraspecific_epithet: Optional[str] = None
     bpa_culture_or_strain_id: Optional[str] = None
     bpa_authority: Optional[str] = None
-    scientific_name: Optional[str] = None
+    bpa_scientific_name: Optional[str] = None
     atol_scientific_name: Optional[str] = None
     bpa_json: Optional[Dict] = None
 

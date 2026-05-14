@@ -22,8 +22,6 @@ class Organism(Base):
     bpa_infraspecific_epithet = Column(Text, nullable=True)
     bpa_culture_or_strain_id = Column(Text, nullable=True)
     bpa_authority = Column(Text, nullable=True)
-    scientific_name = Column(Text, nullable=True)
-    atol_scientific_name = Column(Text, nullable=True)
     bpa_json = Column(JSONB, nullable=True)
     created_at = Column(DateTime(timezone=True), nullable=False, server_default=func.now())
     updated_at = Column(
