@@ -403,15 +403,6 @@ def process_taxa(
     return mapped, unmapped
 
 
-def fetch_taxonomy_for_taxon_id(
-    taxon_id: int,
-    scientific_name: Optional[str] = None,
-) -> tuple[Optional[dict[str, Any]], list[dict[str, Any]]]:
-    input_taxa = [{"tax_id": taxon_id, "scientific_name": scientific_name}]
-    mapped, unmapped = process_taxa(input_taxa, batch_size=1)
-    return (mapped[0] if mapped else None), unmapped
-
-
 def fetch_taxonomy_for_taxon_ids(
     taxa: dict[int, Optional[str]],
     *,

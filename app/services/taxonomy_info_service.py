@@ -7,10 +7,7 @@ from app.models.organism import Organism
 from app.models.taxonomy_info import TaxonomyInfo
 from app.schemas.bulk_import import BulkImportResponse
 from app.schemas.taxonomy_info import TaxonomyInfoCreate, TaxonomyInfoUpdate
-from app.services.ncbi_taxonomy_service import (
-    fetch_taxonomy_for_taxon_id,
-    fetch_taxonomy_for_taxon_ids,
-)
+from app.services.ncbi_taxonomy_service import fetch_taxonomy_for_taxon_ids
 
 logger = logging.getLogger(__name__)
 
@@ -54,6 +51,7 @@ class TaxonomyInfoService:
             db,
             taxon_id=ti_in.taxon_id,
             scientific_name=getattr(organism, "bpa_scientific_name", None),
+            organism=organism,
             commit=False,
         )
         if ti is None:
@@ -71,14 +69,17 @@ class TaxonomyInfoService:
         *,
         taxon_id: int,
         scientific_name: Optional[str] = None,
+        organism: Optional[Organism] = None,
         commit: bool = False,
     ) -> Optional[TaxonomyInfo]:
-        organism = db.query(Organism).filter(Organism.taxon_id == taxon_id).first()
+        if organism is None:
+            organism = db.query(Organism).filter(Organism.taxon_id == taxon_id).first()
         if not organism:
             raise ValueError(f"Organism with taxon_id {taxon_id} does not exist")
 
         logger.info("Starting NCBI taxonomy enrichment for organism taxon_id=%s", taxon_id)
-        mapped, unmapped = fetch_taxonomy_for_taxon_id(taxon_id, scientific_name=scientific_name)
+        mapped_dict, unmapped = fetch_taxonomy_for_taxon_ids({taxon_id: scientific_name})
+        mapped = mapped_dict.get(taxon_id)
         if not mapped:
             logger.warning(
                 "NCBI enrichment returned no mapped taxonomy for taxon_id=%s; unmapped=%s",
