@@ -1,6 +1,8 @@
 from typing import Any, Dict, List, Optional
 
-from pydantic import BaseModel
+from pydantic import BaseModel, RootModel
+
+from app.schemas.taxonomy_info import TaxonomyInfoUpdate
 
 
 class BulkOrganismImport(BaseModel):
@@ -34,6 +36,10 @@ class BulkExperimentImport(BaseModel):
     """
 
     experiments: Dict[str, Dict[str, Any]]  # Dictionary of experiment data keyed by package_id
+
+
+class BulkTaxonomyInfoImport(RootModel[Dict[int, TaxonomyInfoUpdate]]):
+    """Bulk taxonomy info import keyed by taxon_id."""
 
 
 class BulkImportResponse(BaseModel):

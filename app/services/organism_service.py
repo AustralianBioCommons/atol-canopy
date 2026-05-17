@@ -1,3 +1,4 @@
+import logging
 from typing import Any, Dict, List, Optional
 from uuid import UUID
 
@@ -13,6 +14,8 @@ from app.schemas.aggregate import OrganismSubmissionJsonResponse
 from app.schemas.bulk_import import BulkImportResponse
 from app.schemas.organism import OrganismCreate, OrganismUpdate
 from app.services.base_service import BaseService
+
+logger = logging.getLogger(__name__)
 
 
 class OrganismService(BaseService[Organism, OrganismCreate, OrganismUpdate]):
@@ -167,6 +170,7 @@ class OrganismService(BaseService[Organism, OrganismCreate, OrganismUpdate]):
     def create_organism(self, db: Session, *, organism_in: OrganismCreate) -> Organism:
         """Create a new organism and draft projects + submissions."""
         organism_label = organism_in.bpa_scientific_name or str(organism_in.taxon_id)
+        logger.info("Creating organism taxon_id=%s label=%s", organism_in.taxon_id, organism_label)
         organism = Organism(
             taxon_id=organism_in.taxon_id,
             bpa_scientific_name=organism_in.bpa_scientific_name,
@@ -250,6 +254,7 @@ class OrganismService(BaseService[Organism, OrganismCreate, OrganismUpdate]):
 
         db.commit()
         db.refresh(organism)
+        logger.info("Created organism taxon_id=%s", organism.taxon_id)
         return organism
 
     def update_organism(
@@ -321,7 +326,9 @@ class OrganismService(BaseService[Organism, OrganismCreate, OrganismUpdate]):
                     skipped_count += 1
                     continue
 
-                scientific_name = organism_data.get("bpa_scientific_name")
+                scientific_name = organism_data.get("bpa_scientific_name") or organism_data.get(
+                    "scientific_name"
+                )
                 organism_label = scientific_name or str(taxon_id)
 
                 # Create organism and projects
@@ -333,7 +340,7 @@ class OrganismService(BaseService[Organism, OrganismCreate, OrganismUpdate]):
                     bpa_infraspecific_epithet=organism_data.get("bpa_infraspecific_epithet"),
                     bpa_culture_or_strain_id=organism_data.get("bpa_culture_or_strain_id"),
                     bpa_authority=organism_data.get("bpa_authority"),
-                    bpa_scientific_name=organism_data.get("bpa_scientific_name"),
+                    bpa_scientific_name=scientific_name,
                     bpa_json=organism_data,
                 )
                 root_project = Project(
@@ -400,6 +407,7 @@ class OrganismService(BaseService[Organism, OrganismCreate, OrganismUpdate]):
                         project_id=genomic_data_project.id, prepared_payload=genomic_payload
                     )
                 )
+
                 db.commit()
                 created_count += 1
             except Exception as e:
