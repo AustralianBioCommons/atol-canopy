@@ -59,18 +59,22 @@ class _Session:
 def test_populate_from_ncbi_lookup_creates_taxonomy_info(monkeypatch):
     organism = Organism(taxon_id=5077, bpa_scientific_name="Penicillium")
     db = _Session({Organism: {5077: organism}, TaxonomyInfo: {}})
+    calls = []
 
     monkeypatch.setattr(
         ti_service_module,
-        "fetch_taxonomy_for_taxon_id",
-        lambda taxon_id, scientific_name=None: (
-            {
-                "taxon_id": taxon_id,
-                "ncbi_taxon_id": taxon_id,
-                "ncbi_rank": "species",
-                "ncbi_scientific_name": "Penicillium test",
-                "ncbi_order": "Eurotiales",
-                "mito_ref": "Penicillium chrysogenum",
+        "fetch_taxonomy_for_taxon_ids",
+        lambda taxa, batch_size=20: (
+            calls.append((taxa, batch_size))
+            or {
+                5077: {
+                    "taxon_id": 5077,
+                    "ncbi_taxon_id": 5077,
+                    "ncbi_rank": "species",
+                    "ncbi_scientific_name": "Penicillium test",
+                    "ncbi_order": "Eurotiales",
+                    "mito_ref": "Penicillium chrysogenum",
+                }
             },
             [],
         ),
@@ -84,6 +88,7 @@ def test_populate_from_ncbi_lookup_creates_taxonomy_info(monkeypatch):
     )
 
     assert ti is not None
+    assert calls == [({5077: "Penicillium"}, 20)]
     assert ti.taxon_id == 5077
     assert ti.ncbi_taxon_id == 5077
     assert ti.ncbi_rank == "species"
@@ -97,16 +102,20 @@ def test_populate_from_ncbi_lookup_creates_taxonomy_info(monkeypatch):
 def test_create_taxonomy_info_fetches_ncbi_and_applies_payload(monkeypatch):
     organism = Organism(taxon_id=5303, bpa_scientific_name="Agaricus")
     db = _Session({Organism: {5303: organism}, TaxonomyInfo: {}})
+    calls = []
 
     monkeypatch.setattr(
         ti_service_module,
-        "fetch_taxonomy_for_taxon_id",
-        lambda taxon_id, scientific_name=None: (
-            {
-                "taxon_id": taxon_id,
-                "ncbi_taxon_id": taxon_id,
-                "ncbi_rank": "species",
-                "ncbi_scientific_name": "Agaricus test",
+        "fetch_taxonomy_for_taxon_ids",
+        lambda taxa, batch_size=20: (
+            calls.append((taxa, batch_size))
+            or {
+                5303: {
+                    "taxon_id": 5303,
+                    "ncbi_taxon_id": 5303,
+                    "ncbi_rank": "species",
+                    "ncbi_scientific_name": "Agaricus test",
+                }
             },
             [],
         ),
@@ -122,6 +131,7 @@ def test_create_taxonomy_info_fetches_ncbi_and_applies_payload(monkeypatch):
     )
 
     assert ti.taxon_id == 5303
+    assert calls == [({5303: "Agaricus"}, 20)]
     assert ti.ncbi_taxon_id == 5303
     assert ti.ncbi_rank == "species"
     assert ti.genetic_code_id == 11
