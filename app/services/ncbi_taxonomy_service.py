@@ -296,9 +296,18 @@ def extract_taxonomy_fields(report: dict[str, Any]) -> dict[str, Any]:
     current_name = (taxonomy.get("current_scientific_name") or {}).get("name")
     lineage = build_lineage(classification, current_rank=current_rank, current_name=current_name)
 
+    parents = taxonomy.get("parents")
+    species_taxid = taxonomy.get("tax_id")
+
+    with ThreadPoolExecutor(max_workers=2) as executor:
+        full_lineage_future = executor.submit(process_parents, parents)
+        mito_future = executor.submit(organelle_ref_lookup, parents, species_taxid, "Mitochondrion")
+        ncbi_full_lineage = full_lineage_future.result()
+        mito_ref = mito_future.result()
+
     return {
-        "taxon_id": taxonomy.get("tax_id"),
-        "ncbi_taxon_id": taxonomy.get("tax_id"),
+        "taxon_id": species_taxid,
+        "ncbi_taxon_id": species_taxid,
         "ncbi_rank": current_rank,
         "ncbi_scientific_name": current_name,
         "ncbi_authority": (taxonomy.get("current_scientific_name") or {}).get("authority"),
@@ -308,10 +317,8 @@ def extract_taxonomy_fields(report: dict[str, Any]) -> dict[str, Any]:
         "ncbi_family": (classification.get("family") or {}).get("name"),
         "ncbi_lineage": lineage,
         "ncbi_tax_string": lineage_to_string(lineage),
-        "ncbi_full_lineage": process_parents(taxonomy.get("parents")),
-        "mito_ref": organelle_ref_lookup(
-            taxonomy.get("parents"), taxonomy.get("tax_id"), organelle_type="Mitochondrion"
-        ),
+        "ncbi_full_lineage": ncbi_full_lineage,
+        "mito_ref": mito_ref,
     }
 
 
