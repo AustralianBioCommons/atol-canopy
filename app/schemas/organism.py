@@ -22,9 +22,29 @@ class OrganismWriteBase(BaseModel):
     @model_validator(mode="before")
     @classmethod
     def _coerce_scientific_name(cls, data):
-        if isinstance(data, dict) and "bpa_scientific_name" not in data and "scientific_name" in data:
+        # TODO: Remove this legacy field mapping once all callers send bpa_* organism fields.
+        if not isinstance(data, dict):
+            return data
+
+        legacy_to_bpa = {
+            "scientific_name": "bpa_scientific_name",
+            "genus": "bpa_genus",
+            "species": "bpa_species",
+            "common_name": "bpa_common_name",
+            "infraspecific_epithet": "bpa_infraspecific_epithet",
+            "culture_or_strain_id": "bpa_culture_or_strain_id",
+            "authority": "bpa_authority",
+        }
+
+        needs_copy = any(
+            bpa_field not in data and legacy_field in data
+            for legacy_field, bpa_field in legacy_to_bpa.items()
+        )
+        if needs_copy:
             data = dict(data)
-            data["bpa_scientific_name"] = data["scientific_name"]
+            for legacy_field, bpa_field in legacy_to_bpa.items():
+                if bpa_field not in data and legacy_field in data:
+                    data[bpa_field] = data[legacy_field]
         return data
 
 

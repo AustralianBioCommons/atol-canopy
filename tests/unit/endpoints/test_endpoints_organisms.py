@@ -100,12 +100,19 @@ def test_create_organism(monkeypatch):
         "taxon_id": 1,
         "scientific_name": "Sci",
         "common_name": "Com",
+        "genus": "Canis",
+        "species": "lupus",
     }
 
     resp = client.post("/api/v1/organisms", json=payload)
     assert resp.status_code == 200
     body = resp.json()
     assert body["taxon_id"] == 1
+    assert body["scientific_name"] == "Sci"
+    assert body["bpa_scientific_name"] == "Sci"
+    assert body["bpa_common_name"] == "Com"
+    assert body["bpa_genus"] == "Canis"
+    assert body["bpa_species"] == "lupus"
 
 
 def test_create_organism_without_scientific_name(monkeypatch):

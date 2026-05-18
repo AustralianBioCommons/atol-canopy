@@ -362,12 +362,17 @@ class OrganismService(BaseService[Organism, OrganismCreate, OrganismUpdate]):
                 organism = Organism(
                     taxon_id=taxon_id,
                     scientific_name=scientific_name,
-                    bpa_common_name=organism_data.get("bpa_common_name"),
-                    bpa_genus=organism_data.get("bpa_genus"),
-                    bpa_species=organism_data.get("bpa_species"),
-                    bpa_infraspecific_epithet=organism_data.get("bpa_infraspecific_epithet"),
-                    bpa_culture_or_strain_id=organism_data.get("bpa_culture_or_strain_id"),
-                    bpa_authority=organism_data.get("bpa_authority"),
+                    # TODO: Remove these legacy fallbacks once bulk organism callers send bpa_* fields only.
+                    bpa_common_name=organism_data.get("bpa_common_name")
+                    or organism_data.get("common_name"),
+                    bpa_genus=organism_data.get("bpa_genus") or organism_data.get("genus"),
+                    bpa_species=organism_data.get("bpa_species") or organism_data.get("species"),
+                    bpa_infraspecific_epithet=organism_data.get("bpa_infraspecific_epithet")
+                    or organism_data.get("infraspecific_epithet"),
+                    bpa_culture_or_strain_id=organism_data.get("bpa_culture_or_strain_id")
+                    or organism_data.get("culture_or_strain_id"),
+                    bpa_authority=organism_data.get("bpa_authority")
+                    or organism_data.get("authority"),
                     bpa_scientific_name=scientific_name,
                     bpa_json=organism_data,
                 )
