@@ -177,7 +177,9 @@ class TaxonomyInfoService:
                     continue
                 existing = db.query(TaxonomyInfo).filter(TaxonomyInfo.taxon_id == taxon_id).first()
                 if existing:
-                    errors.append(f"{taxon_id}: taxonomy_info for taxon_id {taxon_id} already exists")
+                    errors.append(
+                        f"{taxon_id}: taxonomy_info for taxon_id {taxon_id} already exists"
+                    )
                     skipped_count += 1
                     continue
 
