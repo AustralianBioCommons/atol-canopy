@@ -43,9 +43,6 @@ class TaxonomyInfoService:
         organism = db.query(Organism).filter(Organism.taxon_id == ti_in.taxon_id).first()
         if not organism:
             raise ValueError(f"Organism with taxon_id {ti_in.taxon_id} does not exist")
-        existing = db.query(TaxonomyInfo).filter(TaxonomyInfo.taxon_id == ti_in.taxon_id).first()
-        if existing:
-            raise ValueError(f"TaxonomyInfo for taxon_id {ti_in.taxon_id} already exists")
 
         ti = self.populate_from_ncbi_lookup(
             db,
@@ -154,13 +151,6 @@ class TaxonomyInfoService:
                     skipped_count += 1
                     continue
 
-                existing = db.query(TaxonomyInfo).filter(TaxonomyInfo.taxon_id == taxon_id).first()
-                if existing:
-                    errors.append(
-                        f"{taxon_id}: taxonomy_info for taxon_id {taxon_id} already exists"
-                    )
-                    skipped_count += 1
-                    continue
             except Exception as e:
                 errors.append(f"{taxon_id}: {str(e)}")
                 db.rollback()
@@ -179,14 +169,19 @@ class TaxonomyInfoService:
 
         for taxon_id, row, _organism in candidates:
             try:
-                ti = TaxonomyInfo(taxon_id=taxon_id)
-                db.add(ti)
+                ti = db.query(TaxonomyInfo).filter(TaxonomyInfo.taxon_id == taxon_id).first()
+                created = False
+                if not ti:
+                    ti = TaxonomyInfo(taxon_id=taxon_id)
+                    db.add(ti)
+                    created = True
 
                 mapped = ncbi_by_taxon_id.get(taxon_id)
                 if mapped:
                     applied_fields = self._apply_ncbi_values(ti, mapped)
                     logger.info(
-                        "NCBI taxonomy enrichment created taxonomy_info for taxon_id=%s during bulk import; applied_fields=%s",
+                        "NCBI taxonomy enrichment %s taxonomy_info for taxon_id=%s; applied_fields=%s",
+                        "created" if created else "updated",
                         taxon_id,
                         applied_fields,
                     )
