@@ -1,4 +1,5 @@
 import logging
+from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional
 
 from sqlalchemy.orm import Session
@@ -8,6 +9,7 @@ from app.models.taxonomy_info import TaxonomyInfo
 from app.schemas.bulk_import import BulkImportResponse
 from app.schemas.taxonomy_info import TaxonomyInfoCreate, TaxonomyInfoUpdate
 from app.services.ncbi_taxonomy_service import fetch_taxonomy_for_taxon_ids
+from app.services.organism_service import sync_organism_scientific_name
 
 logger = logging.getLogger(__name__)
 
@@ -43,6 +45,9 @@ class TaxonomyInfoService:
         organism = db.query(Organism).filter(Organism.taxon_id == ti_in.taxon_id).first()
         if not organism:
             raise ValueError(f"Organism with taxon_id {ti_in.taxon_id} does not exist")
+        existing = db.query(TaxonomyInfo).filter(TaxonomyInfo.taxon_id == ti_in.taxon_id).first()
+        if existing:
+            raise ValueError(f"TaxonomyInfo for taxon_id {ti_in.taxon_id} already exists")
 
         ti = self.populate_from_ncbi_lookup(
             db,
@@ -56,6 +61,10 @@ class TaxonomyInfoService:
             db.add(ti)
 
         self._apply_payload_values(ti, ti_in.model_dump(exclude_unset=True))
+        sync_organism_scientific_name(
+            organism,
+            ncbi_scientific_name=getattr(ti, "ncbi_scientific_name", None),
+        )
         db.commit()
         db.refresh(ti)
         return ti
@@ -93,6 +102,11 @@ class TaxonomyInfoService:
             created = True
 
         applied_fields = self._apply_ncbi_values(ti, mapped)
+        ti.ncbi_last_synced_at = datetime.now(timezone.utc)
+        sync_organism_scientific_name(
+            organism,
+            ncbi_scientific_name=ti.ncbi_scientific_name,
+        )
         db.flush()
         logger.info(
             "NCBI taxonomy enrichment %s taxonomy_info for taxon_id=%s; applied_fields=%s",
@@ -113,8 +127,15 @@ class TaxonomyInfoService:
         ti = db.query(TaxonomyInfo).filter(TaxonomyInfo.taxon_id == taxon_id).first()
         if not ti:
             return None
+        organism = db.query(Organism).filter(Organism.taxon_id == taxon_id).first()
         for field, value in ti_in.model_dump(exclude_unset=True).items():
             setattr(ti, field, value)
+        if organism:
+            sync_organism_scientific_name(
+                organism,
+                ncbi_scientific_name=ti.ncbi_scientific_name,
+            )
+            db.add(organism)
         db.add(ti)
         db.commit()
         db.refresh(ti)
@@ -124,6 +145,10 @@ class TaxonomyInfoService:
         ti = db.query(TaxonomyInfo).filter(TaxonomyInfo.taxon_id == taxon_id).first()
         if not ti:
             return None
+        organism = db.query(Organism).filter(Organism.taxon_id == taxon_id).first()
+        if organism:
+            sync_organism_scientific_name(organism, ncbi_scientific_name=None)
+            db.add(organism)
         db.delete(ti)
         db.commit()
         return ti
@@ -150,6 +175,11 @@ class TaxonomyInfoService:
                     errors.append(f"{taxon_id}: organism with taxon_id {taxon_id} does not exist")
                     skipped_count += 1
                     continue
+                existing = db.query(TaxonomyInfo).filter(TaxonomyInfo.taxon_id == taxon_id).first()
+                if existing:
+                    errors.append(f"{taxon_id}: taxonomy_info for taxon_id {taxon_id} already exists")
+                    skipped_count += 1
+                    continue
 
             except Exception as e:
                 errors.append(f"{taxon_id}: {str(e)}")
@@ -167,21 +197,18 @@ class TaxonomyInfoService:
         if unmapped:
             logger.warning("NCBI bulk enrichment returned unmapped taxon_ids: %s", unmapped)
 
-        for taxon_id, row, _organism in candidates:
+        for taxon_id, row, organism in candidates:
             try:
-                ti = db.query(TaxonomyInfo).filter(TaxonomyInfo.taxon_id == taxon_id).first()
-                created = False
-                if not ti:
-                    ti = TaxonomyInfo(taxon_id=taxon_id)
-                    db.add(ti)
-                    created = True
+                ti = TaxonomyInfo(taxon_id=taxon_id)
+                db.add(ti)
 
                 mapped = ncbi_by_taxon_id.get(taxon_id)
                 if mapped:
                     applied_fields = self._apply_ncbi_values(ti, mapped)
+                    ti.ncbi_last_synced_at = datetime.now(timezone.utc)
                     logger.info(
                         "NCBI taxonomy enrichment %s taxonomy_info for taxon_id=%s; applied_fields=%s",
-                        "created" if created else "updated",
+                        "created",
                         taxon_id,
                         applied_fields,
                     )
@@ -192,6 +219,11 @@ class TaxonomyInfoService:
                     )
 
                 self._apply_payload_values(ti, row.model_dump(exclude_unset=True))
+                sync_organism_scientific_name(
+                    organism,
+                    ncbi_scientific_name=ti.ncbi_scientific_name,
+                )
+                db.add(organism)
                 db.commit()
                 created_count += 1
             except Exception as e:

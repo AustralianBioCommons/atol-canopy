@@ -1,4 +1,4 @@
-from sqlalchemy import Boolean, Column, ForeignKey, Integer, Text
+from sqlalchemy import Boolean, Column, DateTime, ForeignKey, Integer, Text
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import relationship
 
@@ -22,6 +22,7 @@ class TaxonomyInfo(Base):
     ncbi_lineage = Column(JSONB, nullable=True)
     ncbi_tax_string = Column(Text, nullable=True)
     ncbi_full_lineage = Column(Text, nullable=True)
+    ncbi_last_synced_at = Column(DateTime(timezone=True), nullable=True)
     mito_ref = Column(Text, nullable=True)
     busco_dataset_name = Column(Text, nullable=True)
     busco_odb10_dataset_name = Column(Text, nullable=True)

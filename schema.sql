@@ -94,10 +94,7 @@ CREATE TABLE organism (
 CREATE TABLE taxonomy_info (
     taxon_id INT PRIMARY KEY REFERENCES organism(taxon_id) ON DELETE CASCADE,
     ncbi_taxon_id INTEGER,
-
     ncbi_rank TEXT,
-    ncbi_scientific_name TEXT,
-    ncbi_authority TEXT,
     ncbi_scientific_name TEXT,
     ncbi_authority TEXT,
     ncbi_common_name TEXT,
@@ -107,8 +104,8 @@ CREATE TABLE taxonomy_info (
     ncbi_lineage JSONB,
     ncbi_tax_string TEXT,
     ncbi_full_lineage TEXT,
-    mito_ref TEXT
-
+    ncbi_last_synced_at TIMESTAMPTZ,
+    mito_ref TEXT,
     busco_dataset_name TEXT,
     busco_odb10_dataset_name TEXT,
     busco_odb12_dataset_name TEXT,
@@ -117,6 +114,7 @@ CREATE TABLE taxonomy_info (
     mitochondrial_genetic_code_id INTEGER,
     mitohifi_reference_species TEXT,
     oatk_hmm_name TEXT,
+    defined_class TEXT,
     augustus_dataset_name TEXT,
     genetic_code_id INTEGER
 );

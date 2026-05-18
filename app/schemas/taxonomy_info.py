@@ -1,3 +1,4 @@
+from datetime import datetime
 from typing import Any, Optional
 
 from pydantic import BaseModel, ConfigDict
@@ -15,6 +16,7 @@ class TaxonomyInfoBase(BaseModel):
     ncbi_lineage: Optional[list[dict[str, Any]]] = None
     ncbi_tax_string: Optional[str] = None
     ncbi_full_lineage: Optional[str] = None
+    ncbi_last_synced_at: Optional[datetime] = None
     mito_ref: Optional[str] = None
     busco_dataset_name: Optional[str] = None
     busco_odb10_dataset_name: Optional[str] = None

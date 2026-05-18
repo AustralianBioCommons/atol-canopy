@@ -51,20 +51,14 @@ def test_organisms_list_and_not_found(monkeypatch):
     base_org = {
         "taxon_id": 1,
         "scientific_name": "Sci",
-        "common_name": "Com",
-        "common_name_source": None,
-        "genus": None,
-        "species": None,
-        "infraspecific_epithet": None,
-        "culture_or_strain_id": None,
-        "authority": None,
-        "atol_scientific_name": None,
-        "tax_string": None,
-        "ncbi_order": None,
-        "ncbi_family": None,
-        "busco_dataset_name": None,
+        "bpa_scientific_name": "Sci",
+        "bpa_common_name": "Com",
+        "bpa_genus": None,
+        "bpa_species": None,
+        "bpa_infraspecific_epithet": None,
+        "bpa_culture_or_strain_id": None,
+        "bpa_authority": None,
         "bpa_json": None,
-        "taxonomy_lineage_json": None,
         "taxonomy_info": None,
         "created_at": now,
         "updated_at": now,
@@ -95,9 +89,8 @@ def test_create_organism(monkeypatch):
     fake_service = SimpleNamespace(
         create_organism=lambda db, organism_in: {
             **organism_in.model_dump(),
-            "common_name_source": None,
+            "scientific_name": organism_in.bpa_scientific_name,
             "bpa_json": None,
-            "taxonomy_lineage_json": None,
             "created_at": now,
             "updated_at": now,
         }
@@ -125,9 +118,8 @@ def test_create_organism_without_scientific_name(monkeypatch):
     fake_service = SimpleNamespace(
         create_organism=lambda db, organism_in: {
             **organism_in.model_dump(),
-            "common_name_source": None,
+            "scientific_name": organism_in.bpa_scientific_name,
             "bpa_json": None,
-            "taxonomy_lineage_json": None,
             "created_at": now,
             "updated_at": now,
         }

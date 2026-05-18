@@ -8,6 +8,7 @@ We are adding in NCBI taxonomy details for organisms, sourced through external A
 """
 
 import sqlalchemy as sa
+from sqlalchemy.dialects import postgresql
 
 from alembic import op
 
@@ -28,6 +29,7 @@ def upgrade() -> None:
     op.alter_column("organism", "culture_or_strain_id", new_column_name="bpa_culture_or_strain_id")
     op.alter_column("organism", "authority", new_column_name="bpa_authority")
     op.alter_column("organism", "scientific_name", new_column_name="bpa_scientific_name")
+    op.add_column("organism", sa.Column("scientific_name", sa.Text(), nullable=True))
 
     op.drop_column("organism", "tax_string")
     op.drop_column("organism", "ncbi_order")
@@ -47,8 +49,22 @@ def upgrade() -> None:
     op.add_column("taxonomy_info", sa.Column("ncbi_lineage", sa.JSON(), nullable=True))
     op.add_column("taxonomy_info", sa.Column("ncbi_tax_string", sa.String(), nullable=True))
     op.add_column("taxonomy_info", sa.Column("ncbi_full_lineage", sa.String(), nullable=True))
+    op.add_column(
+        "taxonomy_info",
+        sa.Column("ncbi_last_synced_at", sa.DateTime(timezone=True), nullable=True),
+    )
     op.add_column("taxonomy_info", sa.Column("mito_ref", sa.String(), nullable=True))
     op.add_column("taxonomy_info", sa.Column("busco_dataset_name", sa.String(), nullable=True))
+    op.execute("UPDATE organism SET scientific_name = bpa_scientific_name")
+    op.execute(
+        """
+        UPDATE organism
+        SET scientific_name = taxonomy_info.ncbi_scientific_name
+        FROM taxonomy_info
+        WHERE taxonomy_info.taxon_id = organism.taxon_id
+          AND taxonomy_info.ncbi_scientific_name IS NOT NULL
+        """
+    )
 
 
 def downgrade() -> None:
@@ -58,6 +74,7 @@ def downgrade() -> None:
     op.drop_column("taxonomy_info", "ncbi_full_lineage")
     op.drop_column("taxonomy_info", "ncbi_tax_string")
     op.drop_column("taxonomy_info", "ncbi_lineage")
+    op.drop_column("taxonomy_info", "ncbi_last_synced_at")
     op.drop_column("taxonomy_info", "ncbi_family")
     op.drop_column("taxonomy_info", "ncbi_order")
     op.drop_column("taxonomy_info", "ncbi_class")
@@ -76,6 +93,7 @@ def downgrade() -> None:
     op.add_column("organism", sa.Column("ncbi_family", sa.Text(), nullable=True))
     op.add_column("organism", sa.Column("ncbi_order", sa.Text(), nullable=True))
     op.add_column("organism", sa.Column("tax_string", sa.Text(), nullable=True))
+    op.drop_column("organism", "scientific_name")
 
     # Rename BPA columns back to their original names
     op.alter_column("organism", "bpa_scientific_name", new_column_name="scientific_name")

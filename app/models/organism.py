@@ -15,6 +15,7 @@ class Organism(Base):
     __tablename__ = "organism"
 
     taxon_id = Column(Integer, primary_key=True)
+    scientific_name = Column(Text, nullable=True)
     bpa_scientific_name = Column(Text, nullable=True)
     bpa_genus = Column(Text, nullable=True)
     bpa_species = Column(Text, nullable=True)

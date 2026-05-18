@@ -43,6 +43,10 @@ class _Session:
             self.data.setdefault(type(obj), {})
             self.data[type(obj)][obj.taxon_id] = obj
 
+    def delete(self, obj):
+        store = self.data.get(type(obj), {})
+        store.pop(obj.taxon_id, None)
+
     def commit(self):
         self.commit_count += 1
 
@@ -94,6 +98,8 @@ def test_populate_from_ncbi_lookup_creates_taxonomy_info(monkeypatch):
     assert ti.ncbi_rank == "species"
     assert ti.ncbi_order == "Eurotiales"
     assert ti.mito_ref == "Penicillium chrysogenum"
+    assert ti.ncbi_last_synced_at is not None
+    assert organism.scientific_name == "Penicillium test"
     assert db.data[TaxonomyInfo][5077] is ti
     assert db.flush_count == 1
     assert db.commit_count == 0
@@ -134,8 +140,10 @@ def test_create_taxonomy_info_fetches_ncbi_and_applies_payload(monkeypatch):
     assert calls == [({5303: "Agaricus"}, 20)]
     assert ti.ncbi_taxon_id == 5303
     assert ti.ncbi_rank == "species"
+    assert ti.ncbi_last_synced_at is not None
     assert ti.genetic_code_id == 11
     assert ti.augustus_dataset_name == "agaricus_aug"
+    assert organism.scientific_name == "Agaricus test"
     assert db.commit_count == 1
     assert db.refresh_count == 1
 
@@ -167,12 +175,14 @@ def test_bulk_import_batches_ncbi_lookup_and_creates_taxonomy_info(monkeypatch):
                     "taxon_id": 9612,
                     "ncbi_taxon_id": 9612,
                     "ncbi_rank": "species",
+                    "ncbi_scientific_name": "Canis lupus familiaris",
                     "mito_ref": "Canis lupus familiaris",
                 },
                 9685: {
                     "taxon_id": 9685,
                     "ncbi_taxon_id": 9685,
                     "ncbi_rank": "species",
+                    "ncbi_scientific_name": "Felis silvestris catus",
                     "mito_ref": "Felis silvestris catus",
                 },
             },
@@ -198,11 +208,31 @@ def test_bulk_import_batches_ncbi_lookup_and_creates_taxonomy_info(monkeypatch):
     assert saved_dog.ncbi_taxon_id == 9612
     assert saved_dog.ncbi_rank == "species"
     assert saved_dog.mito_ref == "Canis lupus familiaris"
+    assert saved_dog.ncbi_last_synced_at is not None
     assert saved_dog.genetic_code_id == 2
     assert saved_cat.ncbi_taxon_id == 9685
     assert saved_cat.ncbi_rank == "species"
     assert saved_cat.mito_ref == "Felis silvestris catus"
+    assert saved_cat.ncbi_last_synced_at is not None
     assert saved_cat.genetic_code_id == 1
+    assert organisms[9612].scientific_name == "Canis lupus familiaris"
+    assert organisms[9685].scientific_name == "Felis silvestris catus"
+
+
+def test_delete_taxonomy_info_falls_back_to_bpa_scientific_name():
+    organism = Organism(
+        taxon_id=5303,
+        scientific_name="Agaricus test",
+        bpa_scientific_name="Agaricus",
+    )
+    ti = TaxonomyInfo(taxon_id=5303, ncbi_scientific_name="Agaricus test")
+    db = _Session({Organism: {5303: organism}, TaxonomyInfo: {5303: ti}})
+
+    deleted = ti_service_module.taxonomy_info_service.delete(db, taxon_id=5303)
+
+    assert deleted is ti
+    assert organism.scientific_name == "Agaricus"
+    assert db.commit_count == 1
 
 
 def test_bulk_import_schema_rejects_ncbi_fields():
