@@ -1,14 +1,51 @@
 from __future__ import annotations
 
 from datetime import datetime
-from typing import TYPE_CHECKING, Dict, Optional
+from typing import Dict, Optional
 
 from pydantic import BaseModel, ConfigDict, model_validator
 
-from app.schemas.common import SubmissionStatus  # noqa: F401 – kept for consumers
+from app.schemas.taxonomy_info import TaxonomyInfo as TaxonomyInfoSchema
 
-if TYPE_CHECKING:
-    from app.schemas.taxonomy_info import TaxonomyInfo as TaxonomyInfoSchema
+
+class OrganismWriteBase(BaseModel):
+    bpa_scientific_name: Optional[str] = None
+    bpa_genus: Optional[str] = None
+    bpa_species: Optional[str] = None
+    bpa_common_name: Optional[str] = None
+    bpa_infraspecific_epithet: Optional[str] = None
+    bpa_culture_or_strain_id: Optional[str] = None
+    bpa_authority: Optional[str] = None
+    bpa_json: Optional[Dict] = None
+
+    # TODO this is for backwards compatability - we can change this once we update the data mapper field names
+    @model_validator(mode="before")
+    @classmethod
+    def _coerce_scientific_name(cls, data):
+        # TODO: Remove this legacy field mapping once all callers send bpa_* organism fields.
+        if not isinstance(data, dict):
+            return data
+
+        legacy_to_bpa = {
+            "scientific_name": "bpa_scientific_name",
+            "genus": "bpa_genus",
+            "species": "bpa_species",
+            "common_name": "bpa_common_name",
+            "infraspecific_epithet": "bpa_infraspecific_epithet",
+            "culture_or_strain_id": "bpa_culture_or_strain_id",
+            "authority": "bpa_authority",
+        }
+
+        needs_copy = any(
+            bpa_field not in data and legacy_field in data
+            for legacy_field, bpa_field in legacy_to_bpa.items()
+        )
+        if needs_copy:
+            data = dict(data)
+            for legacy_field, bpa_field in legacy_to_bpa.items():
+                if bpa_field not in data and legacy_field in data:
+                    data[bpa_field] = data[legacy_field]
+        return data
 
 
 class OrganismBase(BaseModel):
@@ -16,54 +53,24 @@ class OrganismBase(BaseModel):
 
     taxon_id: int
     scientific_name: Optional[str] = None
-    common_name: Optional[str] = None
-    common_name_source: Optional[str] = None
-    genus: Optional[str] = None
-    species: Optional[str] = None
-    infraspecific_epithet: Optional[str] = None
-    culture_or_strain_id: Optional[str] = None
-    authority: Optional[str] = None
-    atol_scientific_name: Optional[str] = None
-    tax_string: Optional[str] = None
-    ncbi_order: Optional[str] = None
-    ncbi_family: Optional[str] = None
-    busco_dataset_name: Optional[str] = None
+    bpa_scientific_name: Optional[str] = None
+    bpa_genus: Optional[str] = None
+    bpa_species: Optional[str] = None
+    bpa_common_name: Optional[str] = None
+    bpa_infraspecific_epithet: Optional[str] = None
+    bpa_culture_or_strain_id: Optional[str] = None
+    bpa_authority: Optional[str] = None
     bpa_json: Optional[Dict] = None
-    taxonomy_lineage_json: Optional[Dict] = None
-
-    @model_validator(mode="before")
-    @classmethod
-    def _coerce_legacy_keys(cls, data):
-        if isinstance(data, dict) and "taxon_id" not in data and "tax_id" in data:
-            data = dict(data)
-            data["taxon_id"] = data.pop("tax_id")
-        return data
 
 
-class OrganismCreate(OrganismBase):
+class OrganismCreate(OrganismWriteBase):
     """Schema for creating a new organism."""
 
-    pass
+    taxon_id: int
 
 
-class OrganismUpdate(BaseModel):
+class OrganismUpdate(OrganismWriteBase):
     """Schema for updating an existing organism."""
-
-    scientific_name: Optional[str] = None
-    common_name: Optional[str] = None
-    common_name_source: Optional[str] = None
-    genus: Optional[str] = None
-    species: Optional[str] = None
-    infraspecific_epithet: Optional[str] = None
-    culture_or_strain_id: Optional[str] = None
-    authority: Optional[str] = None
-    atol_scientific_name: Optional[str] = None
-    tax_string: Optional[str] = None
-    ncbi_order: Optional[str] = None
-    ncbi_family: Optional[str] = None
-    busco_dataset_name: Optional[str] = None
-    bpa_json: Optional[Dict] = None
-    taxonomy_lineage_json: Optional[Dict] = None
 
 
 class OrganismInDBBase(OrganismBase):
@@ -72,16 +79,10 @@ class OrganismInDBBase(OrganismBase):
     created_at: datetime
     updated_at: datetime
 
-    model_config = ConfigDict(from_attributes=True, populate_by_name=True)
+    model_config = ConfigDict(from_attributes=True)
 
 
 class Organism(OrganismInDBBase):
     """Schema for returning organism information."""
 
     taxonomy_info: Optional[TaxonomyInfoSchema] = None
-
-
-# Resolve forward references now that all schemas are defined.
-from app.schemas.taxonomy_info import TaxonomyInfo as TaxonomyInfoSchema  # noqa: E402
-
-Organism.model_rebuild()

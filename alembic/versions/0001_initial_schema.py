@@ -1,4 +1,4 @@
-"""Initial schema load from schema.sql."""
+"""Initial schema load from frozen bootstrap SQL."""
 
 from pathlib import Path
 
@@ -12,7 +12,7 @@ depends_on = None
 
 
 def upgrade() -> None:
-    schema_path = Path(__file__).resolve().parents[2] / "schema.sql"
+    schema_path = Path(__file__).resolve().parents[1] / "base_schema" / "0001_initial_schema.sql"
     op.execute(schema_path.read_text())
 
 

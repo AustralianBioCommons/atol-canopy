@@ -195,6 +195,17 @@ def test_create_taxonomy_info_duplicate(monkeypatch):
     assert "already exists" in resp.json()["error"]["message"]
 
 
+def test_create_taxonomy_info_rejects_ncbi_fields():
+    client = TestClient(app)
+    app.dependency_overrides[ti_module.get_current_active_user] = _override_user
+    app.dependency_overrides[ti_module.get_db] = _override_db(_FakeSession())
+    resp = client.post(
+        "/api/v1/taxonomy-info/",
+        json={"taxon_id": 5077, "ncbi_rank": "species"},
+    )
+    assert resp.status_code == 422
+
+
 # ---------------------------------------------------------------------------
 # Update
 # ---------------------------------------------------------------------------
@@ -339,26 +350,20 @@ def test_bulk_import_skips_duplicates(monkeypatch):
     assert any("already exists" in e for e in body["errors"])
 
 
-def test_bulk_import_rejects_mismatched_inner_taxon_id(monkeypatch):
+def test_bulk_import_rejects_inner_taxon_id_field(monkeypatch):
     client = TestClient(app)
     app.dependency_overrides[ti_module.get_current_active_user] = _override_user
     app.dependency_overrides[ti_module.get_db] = _override_db(_FakeSession())
-    result = BulkImportResponse(
-        created_count=0,
-        skipped_count=1,
-        message="TaxonomyInfo import complete. Created: 0, Skipped: 1",
-        errors=["5077: inner taxon_id (9999) does not match top-level key"],
-    )
-    monkeypatch.setattr(
-        ti_module,
-        "taxonomy_info_service",
-        SimpleNamespace(bulk_import=lambda db, data: result),
-    )
     resp = client.post("/api/v1/taxonomy-info/bulk-import", json={"5077": {"taxon_id": 9999}})
-    assert resp.status_code == 200
-    body = resp.json()
-    assert body["skipped_count"] == 1
-    assert any("does not match" in e for e in body["errors"])
+    assert resp.status_code == 422
+
+
+def test_bulk_import_rejects_ncbi_fields():
+    client = TestClient(app)
+    app.dependency_overrides[ti_module.get_current_active_user] = _override_user
+    app.dependency_overrides[ti_module.get_db] = _override_db(_FakeSession())
+    resp = client.post("/api/v1/taxonomy-info/bulk-import", json={"5077": {"ncbi_rank": "species"}})
+    assert resp.status_code == 422
 
 
 # ---------------------------------------------------------------------------

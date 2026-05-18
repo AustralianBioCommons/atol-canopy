@@ -1,4 +1,4 @@
-from typing import Any, Dict, List
+from typing import Any, List
 
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.orm import Session
@@ -8,7 +8,7 @@ from app.core.pagination import Pagination, apply_pagination, pagination_params
 from app.core.policy import policy
 from app.models.taxonomy_info import TaxonomyInfo
 from app.models.user import User
-from app.schemas.bulk_import import BulkImportResponse
+from app.schemas.bulk_import import BulkImportResponse, BulkTaxonomyInfoImport
 from app.schemas.taxonomy_info import (
     TaxonomyInfo as TaxonomyInfoSchema,
 )
@@ -38,7 +38,7 @@ def list_taxonomy_info(
 def bulk_import_taxonomy_info(
     *,
     db: Session = Depends(get_db),
-    data: Dict[str, Dict[str, Any]],
+    data: BulkTaxonomyInfoImport,
     current_user: User = Depends(get_current_active_user),
 ) -> Any:
     """
@@ -47,7 +47,7 @@ def bulk_import_taxonomy_info(
     Insert-only — existing rows are skipped and reported as errors.
     The taxon_id key must reference an existing organism.
     """
-    return taxonomy_info_service.bulk_import(db, data=data)
+    return taxonomy_info_service.bulk_import(db, data=data.root)
 
 
 @router.get("/{taxon_id}", response_model=TaxonomyInfoSchema)

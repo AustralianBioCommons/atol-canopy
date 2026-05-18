@@ -1,3 +1,4 @@
+import logging
 from typing import Any, Dict, List, Optional
 from uuid import UUID
 
@@ -13,6 +14,26 @@ from app.schemas.aggregate import OrganismSubmissionJsonResponse
 from app.schemas.bulk_import import BulkImportResponse
 from app.schemas.organism import OrganismCreate, OrganismUpdate
 from app.services.base_service import BaseService
+
+logger = logging.getLogger(__name__)
+
+
+def resolve_scientific_name(
+    bpa_scientific_name: Optional[str],
+    ncbi_scientific_name: Optional[str] = None,
+) -> Optional[str]:
+    return ncbi_scientific_name or bpa_scientific_name
+
+
+def sync_organism_scientific_name(
+    organism: Organism,
+    *,
+    ncbi_scientific_name: Optional[str] = None,
+) -> None:
+    organism.scientific_name = resolve_scientific_name(
+        organism.bpa_scientific_name,
+        ncbi_scientific_name,
+    )
 
 
 class OrganismService(BaseService[Organism, OrganismCreate, OrganismUpdate]):
@@ -32,13 +53,13 @@ class OrganismService(BaseService[Organism, OrganismCreate, OrganismUpdate]):
         *,
         skip: int = 0,
         limit: int = 100,
-        scientific_name: Optional[str] = None,
+        bpa_scientific_name: Optional[str] = None,
         taxon_id: Optional[int] = None,
     ) -> List[Organism]:
         """Get organisms with filters."""
         query = db.query(Organism)
-        if scientific_name:
-            query = query.filter(Organism.scientific_name.ilike(f"%{scientific_name}%"))
+        if bpa_scientific_name:
+            query = query.filter(Organism.bpa_scientific_name.ilike(f"%{bpa_scientific_name}%"))
         if taxon_id is not None:
             query = query.filter(Organism.taxon_id == taxon_id)
         return query.offset(skip).limit(limit).all()
@@ -166,23 +187,18 @@ class OrganismService(BaseService[Organism, OrganismCreate, OrganismUpdate]):
 
     def create_organism(self, db: Session, *, organism_in: OrganismCreate) -> Organism:
         """Create a new organism and draft projects + submissions."""
-        organism_label = organism_in.scientific_name or str(organism_in.taxon_id)
+        organism_label = organism_in.bpa_scientific_name or str(organism_in.taxon_id)
+        logger.info("Creating organism taxon_id=%s label=%s", organism_in.taxon_id, organism_label)
         organism = Organism(
             taxon_id=organism_in.taxon_id,
-            scientific_name=organism_in.scientific_name,
-            common_name=organism_in.common_name,
-            common_name_source=organism_in.common_name_source,
-            genus=organism_in.genus,
-            species=organism_in.species,
-            infraspecific_epithet=organism_in.infraspecific_epithet,
-            culture_or_strain_id=organism_in.culture_or_strain_id,
-            authority=organism_in.authority,
-            atol_scientific_name=organism_in.atol_scientific_name,
-            tax_string=organism_in.tax_string,
-            ncbi_order=organism_in.ncbi_order,
-            ncbi_family=organism_in.ncbi_family,
-            busco_dataset_name=organism_in.busco_dataset_name,
-            taxonomy_lineage_json=organism_in.taxonomy_lineage_json,
+            scientific_name=organism_in.bpa_scientific_name,
+            bpa_scientific_name=organism_in.bpa_scientific_name,
+            bpa_common_name=organism_in.bpa_common_name,
+            bpa_genus=organism_in.bpa_genus,
+            bpa_species=organism_in.bpa_species,
+            bpa_infraspecific_epithet=organism_in.bpa_infraspecific_epithet,
+            bpa_culture_or_strain_id=organism_in.bpa_culture_or_strain_id,
+            bpa_authority=organism_in.bpa_authority,
             bpa_json=organism_in.model_dump(exclude_unset=True),
         )
         db.add(organism)
@@ -257,6 +273,7 @@ class OrganismService(BaseService[Organism, OrganismCreate, OrganismUpdate]):
 
         db.commit()
         db.refresh(organism)
+        logger.info("Created organism taxon_id=%s", organism.taxon_id)
         return organism
 
     def update_organism(
@@ -288,6 +305,14 @@ class OrganismService(BaseService[Organism, OrganismCreate, OrganismUpdate]):
             new_bpa_json[field] = value
 
         organism.bpa_json = new_bpa_json
+        sync_organism_scientific_name(
+            organism,
+            ncbi_scientific_name=getattr(
+                getattr(organism, "taxonomy_info", None),
+                "ncbi_scientific_name",
+                None,
+            ),
+        )
         db.add(organism)
         db.commit()
         db.refresh(organism)
@@ -328,23 +353,27 @@ class OrganismService(BaseService[Organism, OrganismCreate, OrganismUpdate]):
                     skipped_count += 1
                     continue
 
-                scientific_name = organism_data.get("scientific_name")
+                scientific_name = organism_data.get("bpa_scientific_name") or organism_data.get(
+                    "scientific_name"
+                )
                 organism_label = scientific_name or str(taxon_id)
 
                 # Create organism and projects
                 organism = Organism(
                     taxon_id=taxon_id,
                     scientific_name=scientific_name,
-                    genus=organism_data.get("genus"),
-                    species=organism_data.get("species"),
-                    infraspecific_epithet=organism_data.get("infraspecific_epithet"),
-                    culture_or_strain_id=organism_data.get("culture_or_strain_id"),
-                    authority=organism_data.get("authority"),
-                    atol_scientific_name=organism_data.get("atol_scientific_name"),
-                    tax_string=organism_data.get("tax_string"),
-                    ncbi_order=organism_data.get("ncbi_order"),
-                    ncbi_family=organism_data.get("ncbi_family"),
-                    busco_dataset_name=organism_data.get("busco_dataset_name"),
+                    # TODO: Remove these legacy fallbacks once bulk organism callers send bpa_* fields only.
+                    bpa_common_name=organism_data.get("bpa_common_name")
+                    or organism_data.get("common_name"),
+                    bpa_genus=organism_data.get("bpa_genus") or organism_data.get("genus"),
+                    bpa_species=organism_data.get("bpa_species") or organism_data.get("species"),
+                    bpa_infraspecific_epithet=organism_data.get("bpa_infraspecific_epithet")
+                    or organism_data.get("infraspecific_epithet"),
+                    bpa_culture_or_strain_id=organism_data.get("bpa_culture_or_strain_id")
+                    or organism_data.get("culture_or_strain_id"),
+                    bpa_authority=organism_data.get("bpa_authority")
+                    or organism_data.get("authority"),
+                    bpa_scientific_name=scientific_name,
                     bpa_json=organism_data,
                 )
                 root_project = Project(
@@ -411,6 +440,7 @@ class OrganismService(BaseService[Organism, OrganismCreate, OrganismUpdate]):
                         project_id=genomic_data_project.id, prepared_payload=genomic_payload
                     )
                 )
+
                 db.commit()
                 created_count += 1
             except Exception as e:

@@ -30,6 +30,7 @@ def upgrade():
     op.add_column(
         "sample_submission",
         sa.Column("project_id", postgresql.UUID(as_uuid=True), nullable=False),
+        if_not_exists=True,
     )
     op.create_foreign_key(
         "fk_sample_submission_project_id",
@@ -43,12 +44,14 @@ def upgrade():
         "sample_submission",
         ["project_id"],
         unique=False,
+        if_not_exists=True,
     )
 
     # 2) Add experiment.project_id (NOT NULL, FK to project with CASCADE)
     op.add_column(
         "experiment",
         sa.Column("project_id", postgresql.UUID(as_uuid=True), nullable=False),
+        if_not_exists=True,
     )
     op.create_foreign_key(
         "fk_experiment_project_id",
@@ -63,6 +66,7 @@ def upgrade():
         "experiment",
         ["project_id"],
         unique=False,
+        if_not_exists=True,
     )
 
     # 3) Drop read_submission.project_id (derivable via experiment)
@@ -126,11 +130,13 @@ def downgrade():
     )
 
     # 2) Drop experiment.project_id
-    op.drop_index("idx_experiment_project_id", table_name="experiment")
+    op.drop_index("idx_experiment_project_id", table_name="experiment", if_exists=True)
     op.drop_constraint("fk_experiment_project_id", "experiment", type_="foreignkey")
-    op.drop_column("experiment", "project_id")
+    op.drop_column("experiment", "project_id", if_exists=True)
 
     # 1) Drop sample_submission.project_id
-    op.drop_index("idx_sample_submission_project_id", table_name="sample_submission")
+    op.drop_index(
+        "idx_sample_submission_project_id", table_name="sample_submission", if_exists=True
+    )
     op.drop_constraint("fk_sample_submission_project_id", "sample_submission", type_="foreignkey")
-    op.drop_column("sample_submission", "project_id")
+    op.drop_column("sample_submission", "project_id", if_exists=True)
