@@ -1,4 +1,13 @@
 
+## Schema files
+
+- `alembic/base_schema/0001_initial_schema.sql` is the frozen bootstrap schema used only by `0001_initial_schema.py`.
+- Do not edit that file after it has been established, unless you are intentionally rewriting migration history.
+- `schema.sql` is the mutable current schema snapshot for the present database shape.
+- New migrations should update the database schema and then `schema.sql` can be refreshed to match the current state.
+
+---
+
 ```bash
 # Check current migration version
 docker compose exec api alembic current

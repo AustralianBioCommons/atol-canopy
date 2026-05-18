@@ -17,8 +17,8 @@ depends_on = None
 
 
 def upgrade():
-    op.add_column("assembly", sa.Column("tol_id", sa.Text(), nullable=True))
+    op.add_column("assembly", sa.Column("tol_id", sa.Text(), nullable=True), if_not_exists=True)
 
 
 def downgrade():
-    op.drop_column("assembly", "tol_id")
+    op.drop_column("assembly", "tol_id", if_exists=True)

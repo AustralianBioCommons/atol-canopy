@@ -9,6 +9,50 @@ branch_labels = None
 depends_on = None
 
 
+def _alter_column_to_timestamptz(table: str, col: str) -> None:
+    op.execute(
+        f"""
+        DO $$ BEGIN
+            IF EXISTS (
+                SELECT 1
+                FROM information_schema.columns
+                WHERE table_schema = 'public'
+                  AND table_name = '{table}'
+                  AND column_name = '{col}'
+                  AND data_type = 'timestamp without time zone'
+            ) THEN
+                ALTER TABLE {table}
+                ALTER COLUMN {col}
+                TYPE TIMESTAMPTZ
+                USING {col} AT TIME ZONE 'UTC';
+            END IF;
+        END $$;
+        """
+    )
+
+
+def _alter_column_to_timestamp(table: str, col: str) -> None:
+    op.execute(
+        f"""
+        DO $$ BEGIN
+            IF EXISTS (
+                SELECT 1
+                FROM information_schema.columns
+                WHERE table_schema = 'public'
+                  AND table_name = '{table}'
+                  AND column_name = '{col}'
+                  AND data_type = 'timestamp with time zone'
+            ) THEN
+                ALTER TABLE {table}
+                ALTER COLUMN {col}
+                TYPE TIMESTAMP
+                USING {col}::timestamp;
+            END IF;
+        END $$;
+        """
+    )
+
+
 def upgrade() -> None:
     # Timestamp columns -> TIMESTAMPTZ (treat existing values as UTC)
     tables = {
@@ -42,6 +86,7 @@ def upgrade() -> None:
         ],
         "read": ["created_at", "updated_at"],
         "read_submission": ["created_at", "updated_at", "lock_acquired_at", "lock_expires_at"],
+        "qc_read_submission": ["created_at", "updated_at", "lock_acquired_at", "lock_expires_at"],
         "submission_attempt": ["lock_acquired_at", "lock_expires_at", "created_at", "updated_at"],
         "submission_event": ["at"],
         "assembly": ["created_at", "updated_at"],
@@ -53,9 +98,7 @@ def upgrade() -> None:
 
     for table, columns in tables.items():
         for col in columns:
-            op.execute(
-                f"ALTER TABLE {table} ALTER COLUMN {col} TYPE TIMESTAMPTZ USING {col} AT TIME ZONE 'UTC'"
-            )
+            _alter_column_to_timestamptz(table, col)
 
     # Sample latitude/longitude checks (skip if already exists from schema.sql)
     op.execute(
@@ -102,9 +145,25 @@ def upgrade() -> None:
     op.execute(
         "CREATE INDEX IF NOT EXISTS idx_experiment_submission_lock_expires_at ON experiment_submission (lock_expires_at)"
     )
-    op.execute("CREATE INDEX IF NOT EXISTS idx_read_submission_status ON read_submission (status)")
     op.execute(
-        "CREATE INDEX IF NOT EXISTS idx_read_submission_lock_expires_at ON read_submission (lock_expires_at)"
+        """
+        DO $$ BEGIN
+            IF to_regclass('public.read_submission') IS NOT NULL THEN
+                CREATE INDEX IF NOT EXISTS idx_read_submission_status ON read_submission (status);
+                CREATE INDEX IF NOT EXISTS idx_read_submission_lock_expires_at ON read_submission (lock_expires_at);
+            END IF;
+        END $$;
+        """
+    )
+    op.execute(
+        """
+        DO $$ BEGIN
+            IF to_regclass('public.qc_read_submission') IS NOT NULL THEN
+                CREATE INDEX IF NOT EXISTS idx_qc_read_submission_status ON qc_read_submission (status);
+                CREATE INDEX IF NOT EXISTS idx_qc_read_submission_lock_expires_at ON qc_read_submission (lock_expires_at);
+            END IF;
+        END $$;
+        """
     )
     op.execute(
         "CREATE INDEX IF NOT EXISTS idx_submission_attempt_status ON submission_attempt (status)"
@@ -118,6 +177,8 @@ def downgrade() -> None:
     # Drop indexes
     op.execute("DROP INDEX IF EXISTS idx_submission_attempt_lock_expires_at")
     op.execute("DROP INDEX IF EXISTS idx_submission_attempt_status")
+    op.execute("DROP INDEX IF EXISTS idx_qc_read_submission_lock_expires_at")
+    op.execute("DROP INDEX IF EXISTS idx_qc_read_submission_status")
     op.execute("DROP INDEX IF EXISTS idx_read_submission_lock_expires_at")
     op.execute("DROP INDEX IF EXISTS idx_read_submission_status")
     op.execute("DROP INDEX IF EXISTS idx_experiment_submission_lock_expires_at")
@@ -163,6 +224,7 @@ def downgrade() -> None:
         ],
         "read": ["created_at", "updated_at"],
         "read_submission": ["created_at", "updated_at", "lock_acquired_at", "lock_expires_at"],
+        "qc_read_submission": ["created_at", "updated_at", "lock_acquired_at", "lock_expires_at"],
         "submission_attempt": ["lock_acquired_at", "lock_expires_at", "created_at", "updated_at"],
         "submission_event": ["at"],
         "assembly": ["created_at", "updated_at"],
@@ -174,6 +236,4 @@ def downgrade() -> None:
 
     for table, columns in tables.items():
         for col in columns:
-            op.execute(
-                f"ALTER TABLE {table} ALTER COLUMN {col} TYPE TIMESTAMP USING {col}::timestamp"
-            )
+            _alter_column_to_timestamp(table, col)
