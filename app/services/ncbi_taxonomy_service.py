@@ -1,5 +1,7 @@
 import logging
+import threading
 import time
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from typing import Any, Optional
 
 import requests
@@ -11,6 +13,9 @@ logger = logging.getLogger(__name__)
 # - /Users/emilylm/Repositories/biocommons/tutorial-fetch-ncbi-data/src/parent_lineage_enrichment.py
 related_mitos: dict[int | str, str] = {}
 no_mitos: set[int | str] = set()
+
+# Cap concurrent in-flight NCBI HTTP requests to avoid rate-limiting
+_ncbi_semaphore = threading.Semaphore(10)
 
 
 def normalize_tax_id(value: int | str | None) -> int | str | None:
@@ -54,7 +59,8 @@ def fetch_reports(
 
     for attempt in range(1, max_retries + 1):
         try:
-            response = requests.get(url, timeout=timeout_seconds)
+            with _ncbi_semaphore:
+                response = requests.get(url, timeout=timeout_seconds)
             response.raise_for_status()
             payload = response.json()
             reports = payload.get("reports", [])
@@ -332,37 +338,57 @@ def process_batch(
         return mapped_batch, unmapped_batch
 
     received_query_taxids: set[int | str] = set()
+    report_query_pairs: list[tuple[dict[str, Any], int | str | None]] = []
     for report in reports:
         query_taxid = get_report_query_taxid(report)
         if query_taxid is not None:
             received_query_taxids.add(query_taxid)
+        report_query_pairs.append((report, query_taxid))
 
-        extracted = extract_taxonomy_fields(report)
-        if not has_useful_taxonomy_data(extracted):
+    with ThreadPoolExecutor(max_workers=len(report_query_pairs) or 1) as executor:
+        future_to_pair = {
+            executor.submit(extract_taxonomy_fields, report): (report, query_taxid)
+            for report, query_taxid in report_query_pairs
+        }
+        for future in as_completed(future_to_pair):
+            report, query_taxid = future_to_pair[future]
+            try:
+                extracted = future.result()
+            except Exception as exc:
+                unmapped_batch.append(
+                    {
+                        "taxon_id": query_taxid,
+                        "raw_scientific_name": raw_name_by_taxid.get(query_taxid),
+                        "error": str(exc),
+                    }
+                )
+                continue
+
+            if not has_useful_taxonomy_data(extracted):
+                unmapped_batch.append(
+                    {
+                        "taxon_id": query_taxid,
+                        "raw_scientific_name": raw_name_by_taxid.get(query_taxid),
+                        "error": "unexpected response structure",
+                    }
+                )
+                continue
+
+            if extracted.get("taxon_id") is not None:
+                extracted["supplied_taxon_id"] = query_taxid
+                extracted["supplied_name"] = raw_name_by_taxid.get(query_taxid)
+                mapped_batch.append(extracted)
+                logger.info("Mapped NCBI taxonomy for requested taxon_id=%s", query_taxid)
+                continue
+
+            error_reason = (((report.get("errors") or [{}])[0]).get("reason")) or "missing taxonomy"
             unmapped_batch.append(
                 {
                     "taxon_id": query_taxid,
                     "raw_scientific_name": raw_name_by_taxid.get(query_taxid),
-                    "error": "unexpected response structure",
+                    "error": error_reason,
                 }
             )
-            continue
-
-        if extracted.get("taxon_id") is not None:
-            extracted["supplied_taxon_id"] = query_taxid
-            extracted["supplied_name"] = raw_name_by_taxid.get(query_taxid)
-            mapped_batch.append(extracted)
-            logger.info("Mapped NCBI taxonomy for requested taxon_id=%s", query_taxid)
-            continue
-
-        error_reason = (((report.get("errors") or [{}])[0]).get("reason")) or "missing taxonomy"
-        unmapped_batch.append(
-            {
-                "taxon_id": query_taxid,
-                "raw_scientific_name": raw_name_by_taxid.get(query_taxid),
-                "error": error_reason,
-            }
-        )
 
     missing_taxids = [tax_id for tax_id in taxon_batch if tax_id not in received_query_taxids]
     for tax_id in missing_taxids:
@@ -394,10 +420,13 @@ def process_taxa(
         len(pre_collected_unmapped),
     )
 
-    for taxon_batch in chunked(unique_taxids, batch_size):
-        mapped_batch, unmapped_batch = process_batch(taxon_batch, raw_name_by_taxid)
-        mapped.extend(mapped_batch)
-        unmapped.extend(unmapped_batch)
+    batches = chunked(unique_taxids, batch_size)
+    with ThreadPoolExecutor(max_workers=len(batches) or 1) as executor:
+        futures = [executor.submit(process_batch, batch, raw_name_by_taxid) for batch in batches]
+        for future in as_completed(futures):
+            mapped_batch, unmapped_batch = future.result()
+            mapped.extend(mapped_batch)
+            unmapped.extend(unmapped_batch)
 
     logger.info("Finished NCBI processing: %s mapped, %s unmapped", len(mapped), len(unmapped))
     return mapped, unmapped
