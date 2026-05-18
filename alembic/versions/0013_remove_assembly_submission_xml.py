@@ -1,6 +1,6 @@
 """Remove submission_xml from assembly_submission table.
 
-Revision ID: 0013_remove_assembly_submission_xml
+Revision ID: 0013_remove_assembly_sub_col
 Revises: 0012_assembly_manifest_columns
 Create Date: 2026-05-11
 
@@ -12,7 +12,7 @@ import sqlalchemy as sa
 
 from alembic import op
 
-revision = "0013_remove_assembly_submission_xml"
+revision = "0013_remove_assembly_sub_col"
 down_revision = "0012_assembly_manifest_columns"
 branch_labels = None
 depends_on = None
