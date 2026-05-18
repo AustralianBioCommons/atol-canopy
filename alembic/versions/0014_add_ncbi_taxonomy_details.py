@@ -1,7 +1,7 @@
 """Remove submission_xml from assembly_submission table.
 
 Revision ID: 0014_add_ncbi_taxonomy_details
-Revises: 0013_remove_assembly_submission_xml
+Revises: 0013_remove_assembly_sub_col
 Create Date: 2026-05-13
 
 We are adding in NCBI taxonomy details for organisms, sourced through external API lookup to NCBI's Datasets API v2.
@@ -12,7 +12,7 @@ import sqlalchemy as sa
 from alembic import op
 
 revision = "0014_add_ncbi_taxonomy_details"
-down_revision = "0013_remove_assembly_submission_xml"
+down_revision = "0013_remove_assembly_sub_col"
 branch_labels = None
 depends_on = None
 
@@ -22,7 +22,9 @@ def upgrade() -> None:
     op.alter_column("organism", "genus", new_column_name="bpa_genus")
     op.alter_column("organism", "species", new_column_name="bpa_species")
     op.alter_column("organism", "common_name", new_column_name="bpa_common_name")
-    op.alter_column("organism", "infraspecific_epithet", new_column_name="bpa_infraspecific_epithet")
+    op.alter_column(
+        "organism", "infraspecific_epithet", new_column_name="bpa_infraspecific_epithet"
+    )
     op.alter_column("organism", "culture_or_strain_id", new_column_name="bpa_culture_or_strain_id")
     op.alter_column("organism", "authority", new_column_name="bpa_authority")
     op.alter_column("organism", "scientific_name", new_column_name="bpa_scientific_name")
@@ -32,7 +34,7 @@ def upgrade() -> None:
     op.drop_column("organism", "ncbi_family")
     op.drop_column("organism", "busco_dataset_name")
     op.drop_column("organism", "taxonomy_lineage_json")
-    
+
     # Add new columns for NCBI taxonomy details
     op.add_column("taxonomy_info", sa.Column("ncbi_taxon_id", sa.Integer(), nullable=True))
     op.add_column("taxonomy_info", sa.Column("ncbi_rank", sa.String(), nullable=True))
@@ -94,4 +96,3 @@ def downgrade() -> None:
 
     # Restore dropped BPA source column
     op.add_column("organism", sa.Column("common_name_source", sa.Text(), nullable=True))
-

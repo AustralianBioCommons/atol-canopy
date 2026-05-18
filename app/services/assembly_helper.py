@@ -323,9 +323,7 @@ def generate_assembly_manifest_json(
         "mitochondrial_genetic_code_id": getattr(
             taxonomy_info, "mitochondrial_genetic_code_id", None
         ),
-        "mitohifi_reference_species": getattr(
-            taxonomy_info, "mitohifi_reference_species", None
-        ),
+        "mitohifi_reference_species": getattr(taxonomy_info, "mitohifi_reference_species", None),
         "oatk_hmm_name": getattr(taxonomy_info, "oatk_hmm_name", None),
         "augustus_dataset_name": getattr(taxonomy_info, "augustus_dataset_name", None),
         "genetic_code_id": getattr(taxonomy_info, "genetic_code_id", None),

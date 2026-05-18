@@ -82,7 +82,7 @@ CREATE TABLE organism (
 
     -- # TODO delete bpa_json
     bpa_json JSONB,
-    
+
     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
@@ -94,19 +94,19 @@ CREATE TABLE organism (
 CREATE TABLE taxonomy_info (
     taxon_id INT PRIMARY KEY REFERENCES organism(taxon_id) ON DELETE CASCADE,
     ncbi_taxon_id INTEGER,
-    
+
     ncbi_rank TEXT,
     ncbi_scientific_name TEXT,
     ncbi_authority TEXT,
-    ncbi_scientific_name TEXT, 
-    ncbi_authority TEXT, 
-    ncbi_common_name TEXT, 
-    ncbi_class TEXT, 
-    ncbi_order TEXT, 
-    ncbi_family TEXT, 
-    ncbi_lineage JSONB, 
-    ncbi_tax_string TEXT, 
-    ncbi_full_lineage TEXT, 
+    ncbi_scientific_name TEXT,
+    ncbi_authority TEXT,
+    ncbi_common_name TEXT,
+    ncbi_class TEXT,
+    ncbi_order TEXT,
+    ncbi_family TEXT,
+    ncbi_lineage JSONB,
+    ncbi_tax_string TEXT,
+    ncbi_full_lineage TEXT,
     mito_ref TEXT
 
     busco_dataset_name TEXT,
