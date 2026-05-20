@@ -19,6 +19,15 @@ depends_on = None
 
 def upgrade() -> None:
     op.drop_column("taxonomy_info", "defined_class")
+    op.execute(
+        sa.text(
+            """
+            UPDATE taxonomy_info
+            SET mitohifi_reference_species = COALESCE(mitohifi_reference_species, mito_ref)
+            WHERE mito_ref IS NOT NULL
+            """
+        )
+    )
     op.drop_column("taxonomy_info", "mito_ref")
     op.drop_column("taxonomy_info", "busco_dataset_name")
 
