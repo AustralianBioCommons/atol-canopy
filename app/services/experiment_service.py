@@ -427,11 +427,29 @@ class ExperimentService(BaseService[Experiment, ExperimentCreate, ExperimentUpda
 
                 aliases = {"GAL": "gal", "extraction_protocol_DOI": "extraction_protocol_doi"}
                 transforms = {"insert_size": (lambda v: str(v) if v is not None else None)}
+
+                # bioplatforms_base_url lives on run objects in the ingest payload but belongs
+                # on the experiment — pull it from the first run that has it.
+                runs_list = experiment_data.get("runs") or []
+                bioplatforms_base_url = next(
+                    (
+                        r.get("bioplatforms_base_url")
+                        for r in runs_list
+                        if r.get("bioplatforms_base_url")
+                    ),
+                    None,
+                )
+
                 inject = {
                     "id": experiment_id,
                     "sample_id": sample_id,
                     "project_id": project_id,
                     "bpa_package_id": package_id,
+                    **(
+                        {"bioplatforms_base_url": bioplatforms_base_url}
+                        if bioplatforms_base_url
+                        else {}
+                    ),
                 }
                 experiment_kwargs = map_to_model_columns(
                     Experiment,

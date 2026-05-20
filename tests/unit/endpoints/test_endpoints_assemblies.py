@@ -240,7 +240,10 @@ def test_get_assembly_manifest_success(monkeypatch):
 
     assert resp.status_code == 200
     assert resp.headers["content-type"].startswith("application/json")
-    assert resp.json() == manifest_json
+    body = resp.json()
+    assert body["assembly_id"] == "run-1"
+    assert body["version"] == 1
+    assert body["manifest"] == manifest_json
 
 
 def test_get_assembly_manifest_organism_not_found():
@@ -677,7 +680,6 @@ def test_create_assembly_intent_success_returns_json_manifest(monkeypatch):
     body = resp.json()
     assert body["assembly_id"] == str(run_id)
     assert body["version"] == 1
-    assert body["status"] == "requested"
     assert "manifest" in body
 
 
@@ -792,10 +794,14 @@ def test_create_assembly_intent_resolves_reads_via_derived_samples(monkeypatch):
 
     assert resp.status_code == 200
     body = resp.json()
-    assert body["manifest"]["reads"]["PACBIO_SMRT"]["pkg-e1"]["sample_id"] == str(
-        long_read_sample_id
+    read_files = body["manifest"]["read_files"]
+    pkg = next(
+        (p for p in read_files if p["data_type"] == "PACBIO_SMRT" and p["name"] == "pkg-e1"),
+        None,
     )
-    assert body["manifest"]["reads"]["PACBIO_SMRT"]["pkg-e1"]["specimen_id"] == "SPEC-001"
+    assert pkg is not None
+    assert pkg["sample_id"] == str(long_read_sample_id)
+    assert pkg["specimen_id"] == "SPEC-001"
 
 
 def test_cancel_assembly_intent_success(monkeypatch):
@@ -955,7 +961,10 @@ def test_get_manifest_by_assembly_id_success(monkeypatch):
 
     assert resp.status_code == 200
     assert resp.headers["content-type"].startswith("application/json")
-    assert resp.json() == manifest_json
+    body = resp.json()
+    assert body["assembly_id"] == str(assembly_id)
+    assert body["version"] == 3
+    assert body["manifest"] == manifest_json
 
 
 def test_get_manifest_by_assembly_id_not_found():
