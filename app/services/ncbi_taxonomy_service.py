@@ -303,7 +303,7 @@ def extract_taxonomy_fields(report: dict[str, Any]) -> dict[str, Any]:
         full_lineage_future = executor.submit(process_parents, parents)
         mito_future = executor.submit(organelle_ref_lookup, parents, species_taxid, "Mitochondrion")
         ncbi_full_lineage = full_lineage_future.result()
-        mito_ref = mito_future.result()
+        mitohifi_reference_species = mito_future.result()
 
     return {
         "taxon_id": species_taxid,
@@ -318,7 +318,7 @@ def extract_taxonomy_fields(report: dict[str, Any]) -> dict[str, Any]:
         "ncbi_lineage": lineage,
         "ncbi_tax_string": lineage_to_string(lineage),
         "ncbi_full_lineage": ncbi_full_lineage,
-        "mito_ref": mito_ref,
+        "mitohifi_reference_species": mitohifi_reference_species,
     }
 
 

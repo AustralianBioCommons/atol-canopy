@@ -323,7 +323,13 @@ def get_assembly_manifest(
             detail="No manifest stored for this assembly. Re-submit an intent to generate one.",
         )
 
-    return JSONResponse(content=assembly.manifest_json)
+    return JSONResponse(
+        content={
+            "assembly_id": str(assembly.id),
+            "version": assembly.version,
+            "manifest": assembly.manifest_json,
+        }
+    )
 
 
 @router.post("/intent/{taxon_id}")
@@ -503,7 +509,6 @@ def create_assembly_intent(
         content={
             "assembly_id": str(assembly.id),
             "version": assembly.version,
-            "status": assembly.status,
             "manifest": manifest_data,
         }
     )
@@ -635,7 +640,13 @@ def get_manifest_by_assembly_id(
             detail="No manifest stored for this assembly. Re-submit an intent to generate one.",
         )
 
-    return JSONResponse(content=assembly.manifest_json)
+    return JSONResponse(
+        content={
+            "assembly_id": str(assembly.id),
+            "version": assembly.version,
+            "manifest": assembly.manifest_json,
+        }
+    )
 
 
 @router.get("/{assembly_id}", response_model=AssemblySchema)

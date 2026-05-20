@@ -288,12 +288,7 @@ class OrganismService(BaseService[Organism, OrganismCreate, OrganismUpdate]):
         if not organism:
             return None
         non_bpa_fields = [
-            "ncbi_order",
-            "ncbi_family",
-            "busco_dataset_name",
-            "common_name",
-            "common_name_source",
-            "tax_string",
+            "scientific_name",
         ]
         new_bpa_json: Dict[str, Any] = organism.bpa_json or {}
         update_data = organism_in.model_dump(exclude_unset=True)
