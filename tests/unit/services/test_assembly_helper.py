@@ -231,13 +231,25 @@ def _make_hic_experiment(
     )
 
 
+def _get_package(read_files: list, data_type: str, name: str) -> dict:
+    """Find a read_files entry by data_type and name."""
+    return next(
+        (p for p in read_files if p["data_type"] == data_type and p["name"] == name),
+        None,
+    )
+
+
+def _data_types(read_files: list) -> set:
+    return {p["data_type"] for p in read_files}
+
+
 class TestGenerateAssemblyManifestJson:
     """Tests for generate_assembly_manifest_json function."""
 
     # ── PacBio ────────────────────────────────────────────────────────────────
 
-    def test_pacbio_reads_filtered_by_extension(self):
-        """Only .ccs.bam and hifi_reads.bam files are included for PacBio."""
+    def test_pacbio_reads_included(self):
+        """All PacBio reads are included (no file extension filter)."""
         organism = Mock(scientific_name="Test Species", taxon_id=12345)
         experiments = [_make_pacbio_experiment()]
         reads = [
@@ -271,17 +283,23 @@ class TestGenerateAssemblyManifestJson:
         ]
 
         result = generate_assembly_manifest_json(
-            organism, _make_mock_taxonomy_info(), reads, experiments, "tol1", 1, LONG_READ_SAMPLE_ID
+            organism,
+            _make_mock_taxonomy_info(),
+            reads,
+            experiments,
+            tol_id="tol1",
+            assembly_id="asm-1",
+            version=1,
+            long_read_sample_id=LONG_READ_SAMPLE_ID,
         )
 
-        pacbio = result["reads"]["PACBIO_SMRT"]
-        assert "pkg-001" in pacbio
-        resources = pacbio["pkg-001"]["resources"]
-        urls = [r["url"] for r in resources]
+        pkg = _get_package(result["read_files"], "PACBIO_SMRT", "pkg-001")
+        assert pkg is not None
+        urls = [r["url"] for r in pkg["single_end"]]
         assert "https://example.com/1" in urls
         assert "https://example.com/2" in urls
-        assert "https://example.com/3" not in urls
-        assert all("md5sum" in r for r in resources)
+        assert "https://example.com/3" in urls
+        assert all("md5sum" in r for r in pkg["single_end"])
 
     def test_pacbio_read_without_file_name_skipped(self):
         """PacBio reads with no file_name are silently skipped."""
@@ -300,9 +318,16 @@ class TestGenerateAssemblyManifestJson:
         ]
 
         result = generate_assembly_manifest_json(
-            organism, _make_mock_taxonomy_info(), reads, experiments, "tol1", 1, LONG_READ_SAMPLE_ID
+            organism,
+            _make_mock_taxonomy_info(),
+            reads,
+            experiments,
+            tol_id="tol1",
+            assembly_id="asm-1",
+            version=1,
+            long_read_sample_id=LONG_READ_SAMPLE_ID,
         )
-        assert result["reads"] == {}
+        assert result["read_files"] == []
 
     # ── Oxford Nanopore ───────────────────────────────────────────────────────
 
@@ -332,12 +357,19 @@ class TestGenerateAssemblyManifestJson:
         ]
 
         result = generate_assembly_manifest_json(
-            organism, _make_mock_taxonomy_info(), reads, experiments, "tol1", 1, LONG_READ_SAMPLE_ID
+            organism,
+            _make_mock_taxonomy_info(),
+            reads,
+            experiments,
+            tol_id="tol1",
+            assembly_id="asm-1",
+            version=1,
+            long_read_sample_id=LONG_READ_SAMPLE_ID,
         )
 
-        assert "OXFORD_NANOPORE" in result["reads"]
-        resources = result["reads"]["OXFORD_NANOPORE"]["pkg-ont"]["resources"]
-        assert len(resources) == 2
+        pkg = _get_package(result["read_files"], "OXFORD_NANOPORE", "pkg-ont")
+        assert pkg is not None
+        assert len(pkg["single_end"]) == 2
 
     # ── Hi-C ─────────────────────────────────────────────────────────────────
 
@@ -362,18 +394,18 @@ class TestGenerateAssemblyManifestJson:
             _make_mock_taxonomy_info(),
             reads,
             experiments,
-            "tol1",
-            1,
-            LONG_READ_SAMPLE_ID,
-            HIC_SAMPLE_ID,
+            tol_id="tol1",
+            assembly_id="asm-1",
+            version=1,
+            long_read_sample_id=LONG_READ_SAMPLE_ID,
+            hic_sample_ids=[HIC_SAMPLE_ID],
         )
 
-        hic = result["reads"]["Hi-C"]
-        assert "pkg-002" in hic
-        r1_resources = hic["pkg-002"]["resources"]["r1"]
-        assert len(r1_resources) == 1
-        assert r1_resources[0]["lane_number"] == "001"
-        assert r1_resources[0]["md5sum"] == "abc123"
+        pkg = _get_package(result["read_files"], "Hi-C", "pkg-002")
+        assert pkg is not None
+        assert len(pkg["r1"]) == 1
+        assert pkg["r1"][0]["lane_number"] == "001"
+        assert pkg["r1"][0]["md5sum"] == "abc123"
 
     def test_hic_reads_split_into_r1_r2(self):
         """Hi-C reads with read_number 1 and 2 are split into r1 and r2."""
@@ -405,17 +437,19 @@ class TestGenerateAssemblyManifestJson:
             _make_mock_taxonomy_info(),
             reads,
             experiments,
-            "tol1",
-            1,
-            LONG_READ_SAMPLE_ID,
-            HIC_SAMPLE_ID,
+            tol_id="tol1",
+            assembly_id="asm-1",
+            version=1,
+            long_read_sample_id=LONG_READ_SAMPLE_ID,
+            hic_sample_ids=[HIC_SAMPLE_ID],
         )
 
-        resources = result["reads"]["Hi-C"]["pkg-002"]["resources"]
-        assert len(resources["r1"]) == 1
-        assert len(resources["r2"]) == 1
-        assert resources["r1"][0]["url"] == "https://example.com/r1"
-        assert resources["r2"][0]["url"] == "https://example.com/r2"
+        pkg = _get_package(result["read_files"], "Hi-C", "pkg-002")
+        assert pkg is not None
+        assert len(pkg["r1"]) == 1
+        assert len(pkg["r2"]) == 1
+        assert pkg["r1"][0]["url"] == "https://example.com/r1"
+        assert pkg["r2"][0]["url"] == "https://example.com/r2"
 
     def test_wgs_not_treated_as_hic(self):
         """ILLUMINA + WGS does not populate the Hi-C section."""
@@ -447,20 +481,21 @@ class TestGenerateAssemblyManifestJson:
             _make_mock_taxonomy_info(),
             reads,
             experiments,
-            "tol1",
-            1,
-            LONG_READ_SAMPLE_ID,
-            HIC_SAMPLE_ID,
+            tol_id="tol1",
+            assembly_id="asm-1",
+            version=1,
+            long_read_sample_id=LONG_READ_SAMPLE_ID,
+            hic_sample_ids=[HIC_SAMPLE_ID],
         )
 
-        assert "Hi-C" not in result["reads"]
+        assert "Hi-C" not in _data_types(result["read_files"])
 
-    def test_hic_section_omitted_when_no_hic_sample_id(self):
-        """Hi-C section is absent when hic_sample_id is not supplied."""
+    def test_hic_section_omitted_when_no_hic_sample_ids(self):
+        """Hi-C section is absent when hic_sample_ids is not supplied."""
         organism = Mock(scientific_name="Test Species", taxon_id=12345)
         experiments = [
             _make_pacbio_experiment(),
-            _make_hic_experiment(),  # hic experiment present but hic_sample_id not passed
+            _make_hic_experiment(),
         ]
         reads = [
             Mock(
@@ -483,25 +518,25 @@ class TestGenerateAssemblyManifestJson:
             ),
         ]
 
-        # hic_sample_id is None → Hi-C section must be absent
         result = generate_assembly_manifest_json(
             organism,
             _make_mock_taxonomy_info(),
             reads,
             experiments,
-            "tol1",
-            1,
-            LONG_READ_SAMPLE_ID,
-            hic_sample_id=None,
+            tol_id="tol1",
+            assembly_id="asm-1",
+            version=1,
+            long_read_sample_id=LONG_READ_SAMPLE_ID,
+            hic_sample_ids=None,
         )
 
-        assert "Hi-C" not in result["reads"]
-        assert "PACBIO_SMRT" in result["reads"]
+        types = _data_types(result["read_files"])
+        assert "Hi-C" not in types
+        assert "PACBIO_SMRT" in types
 
     def test_reads_routed_by_specimen_sample_not_platform(self):
         """Reads from long_read_sample_id are never placed in Hi-C even if ILLUMINA."""
         organism = Mock(scientific_name="Test Species", taxon_id=12345)
-        # An ILLUMINA experiment that belongs to the long_read_specimen_sample_id
         experiments = [
             Mock(
                 id="exp-ill",
@@ -509,7 +544,7 @@ class TestGenerateAssemblyManifestJson:
                 library_strategy="WGS",
                 bpa_package_id="pkg-ill",
                 bioplatforms_base_url=None,
-                sample_id=LONG_READ_SAMPLE_STR,  # belongs to long-read sample
+                sample_id=LONG_READ_SAMPLE_STR,
             )
         ]
         reads = [
@@ -524,19 +559,19 @@ class TestGenerateAssemblyManifestJson:
             ),
         ]
 
-        # Illumina experiment on long-read sample → should NOT appear in Hi-C section
         result = generate_assembly_manifest_json(
             organism,
             _make_mock_taxonomy_info(),
             reads,
             experiments,
-            "tol1",
-            1,
-            LONG_READ_SAMPLE_ID,
-            HIC_SAMPLE_ID,
+            tol_id="tol1",
+            assembly_id="asm-1",
+            version=1,
+            long_read_sample_id=LONG_READ_SAMPLE_ID,
+            hic_sample_ids=[HIC_SAMPLE_ID],
         )
 
-        assert result["reads"] == {}
+        assert result["read_files"] == []
 
     # ── Mixed long-read + Hi-C ────────────────────────────────────────────────
 
@@ -573,16 +608,18 @@ class TestGenerateAssemblyManifestJson:
             _make_mock_taxonomy_info(),
             reads,
             experiments,
-            "tol1",
-            1,
-            LONG_READ_SAMPLE_ID,
-            HIC_SAMPLE_ID,
+            tol_id="tol1",
+            assembly_id="asm-1",
+            version=1,
+            long_read_sample_id=LONG_READ_SAMPLE_ID,
+            hic_sample_ids=[HIC_SAMPLE_ID],
         )
 
-        assert "PACBIO_SMRT" in result["reads"]
-        assert "Hi-C" in result["reads"]
-        assert "pkg-pacbio" in result["reads"]["PACBIO_SMRT"]
-        assert "pkg-hic" in result["reads"]["Hi-C"]
+        types = _data_types(result["read_files"])
+        assert "PACBIO_SMRT" in types
+        assert "Hi-C" in types
+        assert _get_package(result["read_files"], "PACBIO_SMRT", "pkg-pacbio") is not None
+        assert _get_package(result["read_files"], "Hi-C", "pkg-hic") is not None
 
     def test_same_specimen_sample_can_supply_long_reads_and_hic(self):
         """When the same specimen sample ID is used for both roles, both sections are populated."""
@@ -625,14 +662,16 @@ class TestGenerateAssemblyManifestJson:
             _make_mock_taxonomy_info(),
             reads,
             experiments,
-            "tol1",
-            1,
-            LONG_READ_SAMPLE_ID,
-            LONG_READ_SAMPLE_ID,
+            tol_id="tol1",
+            assembly_id="asm-1",
+            version=1,
+            long_read_sample_id=LONG_READ_SAMPLE_ID,
+            hic_sample_ids=[LONG_READ_SAMPLE_ID],
         )
 
-        assert "PACBIO_SMRT" in result["reads"]
-        assert "Hi-C" in result["reads"]
+        types = _data_types(result["read_files"])
+        assert "PACBIO_SMRT" in types
+        assert "Hi-C" in types
 
     def test_derived_sample_reads_are_attributed_to_parent_specimen(self):
         """Reads from derived sequencing samples are routed to the selected parent specimen."""
@@ -668,21 +707,23 @@ class TestGenerateAssemblyManifestJson:
             _make_mock_taxonomy_info(),
             reads,
             experiments,
-            "tol1",
-            1,
-            LONG_READ_SAMPLE_ID,
+            tol_id="tol1",
+            assembly_id="asm-1",
+            version=1,
+            long_read_sample_id=LONG_READ_SAMPLE_ID,
             sample_metadata_by_id=sample_metadata_by_id,
             sequencing_sample_to_specimen_sample_id={
                 derived_sample_id: LONG_READ_SAMPLE_STR,
             },
         )
 
-        pkg = result["reads"]["PACBIO_SMRT"]["pkg-derived"]
+        pkg = _get_package(result["read_files"], "PACBIO_SMRT", "pkg-derived")
+        assert pkg is not None
         assert pkg["sample_id"] == LONG_READ_SAMPLE_STR
         assert pkg["specimen_id"] == "SPEC-001"
 
     def test_pacbio_and_ont_in_same_long_read_sample(self):
-        """Both PacBio and ONT reads from the same long-read specimen appear in separate sections."""
+        """Both PacBio and ONT reads from the same long-read specimen appear as separate entries."""
         organism = Mock(scientific_name="Test Species", taxon_id=12345)
         experiments = [
             _make_pacbio_experiment(exp_id="exp-pb", bpa_package_id="pkg-pb"),
@@ -710,31 +751,53 @@ class TestGenerateAssemblyManifestJson:
         ]
 
         result = generate_assembly_manifest_json(
-            organism, _make_mock_taxonomy_info(), reads, experiments, "tol1", 1, LONG_READ_SAMPLE_ID
+            organism,
+            _make_mock_taxonomy_info(),
+            reads,
+            experiments,
+            tol_id="tol1",
+            assembly_id="asm-1",
+            version=1,
+            long_read_sample_id=LONG_READ_SAMPLE_ID,
         )
 
-        assert "PACBIO_SMRT" in result["reads"]
-        assert "OXFORD_NANOPORE" in result["reads"]
+        types = _data_types(result["read_files"])
+        assert "PACBIO_SMRT" in types
+        assert "OXFORD_NANOPORE" in types
 
     # ── Metadata ──────────────────────────────────────────────────────────────
 
-    def test_empty_reads_dict(self):
-        """Empty reads result in an empty reads section."""
+    def test_empty_read_files_list(self):
+        """No matching reads produces an empty read_files list."""
         organism = Mock(scientific_name="Test Species", taxon_id=12345)
         result = generate_assembly_manifest_json(
-            organism, _make_mock_taxonomy_info(), [], [], "tol1", 1, LONG_READ_SAMPLE_ID
+            organism,
+            _make_mock_taxonomy_info(),
+            [],
+            [],
+            tol_id="tol1",
+            assembly_id="asm-1",
+            version=1,
+            long_read_sample_id=LONG_READ_SAMPLE_ID,
         )
-        assert result["reads"] == {}
+        assert result["read_files"] == []
 
     def test_organism_metadata_included(self):
         """Organism metadata is present in the manifest."""
         organism = Mock(scientific_name="Saiphos equalis", taxon_id=172942)
         result = generate_assembly_manifest_json(
-            organism, _make_mock_taxonomy_info(), [], [], "tol123", 2, LONG_READ_SAMPLE_ID
+            organism,
+            _make_mock_taxonomy_info(),
+            [],
+            [],
+            tol_id="tol123",
+            assembly_id="asm-1",
+            version=2,
+            long_read_sample_id=LONG_READ_SAMPLE_ID,
         )
         assert result["scientific_name"] == "Saiphos equalis"
         assert result["taxon_id"] == 172942
-        assert result["tolid"] == "tol123"
+        assert result["dataset_id"] == "tol123"
         assert result["version"] == 2
 
     def test_taxonomy_info_fields_included(self):
@@ -742,10 +805,16 @@ class TestGenerateAssemblyManifestJson:
         organism = Mock(scientific_name="Test Species", taxon_id=12345)
         taxonomy_info = _make_mock_taxonomy_info()
         result = generate_assembly_manifest_json(
-            organism, taxonomy_info, [], [], "tol1", 1, LONG_READ_SAMPLE_ID
+            organism,
+            taxonomy_info,
+            [],
+            [],
+            tol_id="tol1",
+            assembly_id="asm-1",
+            version=1,
+            long_read_sample_id=LONG_READ_SAMPLE_ID,
         )
 
-        # Verify all taxonomy fields are present
         assert result["busco_odb10_dataset_name"] == "test_odb10"
         assert result["busco_odb12_dataset_name"] == "test_odb12"
         assert result["find_plastid"] is False
@@ -782,18 +851,20 @@ class TestGenerateAssemblyManifestJson:
             _make_mock_taxonomy_info(),
             reads,
             experiments,
-            "tol123",
-            2,
-            LONG_READ_SAMPLE_ID,
+            tol_id="tol123",
+            assembly_id="asm-1",
+            version=2,
+            long_read_sample_id=LONG_READ_SAMPLE_ID,
             sample_metadata_by_id=sample_metadata_by_id,
         )
 
-        pkg = result["reads"]["PACBIO_SMRT"]["pkg-001"]
+        pkg = _get_package(result["read_files"], "PACBIO_SMRT", "pkg-001")
+        assert pkg is not None
         assert pkg["sample_id"] == LONG_READ_SAMPLE_STR
         assert pkg["bpa_sample_id"] == "102.100.100/9000"
         assert pkg["specimen_id"] == "SPEC-001"
 
-    def test_bioplatforms_base_url_included_when_set(self):
+    def test_base_url_included_when_set(self):
         organism = Mock(scientific_name="Test Species", taxon_id=12345)
         experiments = [
             _make_pacbio_experiment(bioplatforms_base_url="https://base.example.com/pkg-001")
@@ -811,12 +882,19 @@ class TestGenerateAssemblyManifestJson:
         ]
 
         result = generate_assembly_manifest_json(
-            organism, _make_mock_taxonomy_info(), reads, experiments, "tol1", 1, LONG_READ_SAMPLE_ID
+            organism,
+            _make_mock_taxonomy_info(),
+            reads,
+            experiments,
+            tol_id="tol1",
+            assembly_id="asm-1",
+            version=1,
+            long_read_sample_id=LONG_READ_SAMPLE_ID,
         )
-        pkg = result["reads"]["PACBIO_SMRT"]["pkg-001"]
-        assert pkg["bioplatforms_base_url"] == "https://base.example.com/pkg-001"
+        pkg = _get_package(result["read_files"], "PACBIO_SMRT", "pkg-001")
+        assert pkg["base_url"] == "https://base.example.com/pkg-001"
 
-    def test_bioplatforms_base_url_omitted_when_none(self):
+    def test_base_url_is_none_when_not_set(self):
         organism = Mock(scientific_name="Test Species", taxon_id=12345)
         experiments = [_make_pacbio_experiment(bioplatforms_base_url=None)]
         reads = [
@@ -832,10 +910,17 @@ class TestGenerateAssemblyManifestJson:
         ]
 
         result = generate_assembly_manifest_json(
-            organism, _make_mock_taxonomy_info(), reads, experiments, "tol1", 1, LONG_READ_SAMPLE_ID
+            organism,
+            _make_mock_taxonomy_info(),
+            reads,
+            experiments,
+            tol_id="tol1",
+            assembly_id="asm-1",
+            version=1,
+            long_read_sample_id=LONG_READ_SAMPLE_ID,
         )
-        pkg = result["reads"]["PACBIO_SMRT"]["pkg-001"]
-        assert "bioplatforms_base_url" not in pkg
+        pkg = _get_package(result["read_files"], "PACBIO_SMRT", "pkg-001")
+        assert pkg["base_url"] is None
 
     def test_reads_without_experiment_id_skipped(self):
         organism = Mock(scientific_name="Test Species", taxon_id=12345)
@@ -853,9 +938,16 @@ class TestGenerateAssemblyManifestJson:
         ]
 
         result = generate_assembly_manifest_json(
-            organism, _make_mock_taxonomy_info(), reads, experiments, "tol1", 1, LONG_READ_SAMPLE_ID
+            organism,
+            _make_mock_taxonomy_info(),
+            reads,
+            experiments,
+            tol_id="tol1",
+            assembly_id="asm-1",
+            version=1,
+            long_read_sample_id=LONG_READ_SAMPLE_ID,
         )
-        assert result["reads"] == {}
+        assert result["read_files"] == []
 
     def test_multiple_reads_same_package(self):
         """Multiple reads under the same experiment are grouped together."""
@@ -883,16 +975,30 @@ class TestGenerateAssemblyManifestJson:
         ]
 
         result = generate_assembly_manifest_json(
-            organism, _make_mock_taxonomy_info(), reads, experiments, "tol1", 1, LONG_READ_SAMPLE_ID
+            organism,
+            _make_mock_taxonomy_info(),
+            reads,
+            experiments,
+            tol_id="tol1",
+            assembly_id="asm-1",
+            version=1,
+            long_read_sample_id=LONG_READ_SAMPLE_ID,
         )
-        resources = result["reads"]["PACBIO_SMRT"]["pkg-001"]["resources"]
-        assert len(resources) == 2
+        pkg = _get_package(result["read_files"], "PACBIO_SMRT", "pkg-001")
+        assert len(pkg["single_end"]) == 2
 
     def test_manifest_is_dict_not_string(self):
         """generate_assembly_manifest_json returns a dict, not a YAML/JSON string."""
         organism = Mock(scientific_name="Test Species", taxon_id=12345)
         result = generate_assembly_manifest_json(
-            organism, _make_mock_taxonomy_info(), [], [], "tol1", 1, LONG_READ_SAMPLE_ID
+            organism,
+            _make_mock_taxonomy_info(),
+            [],
+            [],
+            tol_id="tol1",
+            assembly_id="asm-1",
+            version=1,
+            long_read_sample_id=LONG_READ_SAMPLE_ID,
         )
         assert isinstance(result, dict)
-        assert "reads" in result
+        assert "read_files" in result
