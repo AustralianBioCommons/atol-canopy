@@ -66,6 +66,8 @@ POLICY: Dict[str, List[str]] = {
     "taxonomy_info:update": ["curator", "admin"],
     "taxonomy_info:delete": ["admin", "superuser"],
     "taxonomy_info:bulk_import": ["curator", "admin"],
+    "taxonomy_info:bulk_upsert": ["curator", "admin"],
+    "taxonomy_info:bulk_ncbi_refresh": ["curator", "admin"],
 }
 
 

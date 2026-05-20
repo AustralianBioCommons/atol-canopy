@@ -17,8 +17,6 @@ class TaxonomyInfoBase(BaseModel):
     ncbi_tax_string: Optional[str] = None
     ncbi_full_lineage: Optional[str] = None
     ncbi_last_synced_at: Optional[datetime] = None
-    mito_ref: Optional[str] = None
-    busco_dataset_name: Optional[str] = None
     busco_odb10_dataset_name: Optional[str] = None
     busco_odb12_dataset_name: Optional[str] = None
     find_plastid: Optional[bool] = None
@@ -26,21 +24,17 @@ class TaxonomyInfoBase(BaseModel):
     mitochondrial_genetic_code_id: Optional[int] = None
     mitohifi_reference_species: Optional[str] = None
     oatk_hmm_name: Optional[str] = None
-    defined_class: Optional[str] = None
     augustus_dataset_name: Optional[str] = None
     genetic_code_id: Optional[int] = None
 
 
 class TaxonomyInfoWriteBase(BaseModel):
-    busco_dataset_name: Optional[str] = None
     busco_odb10_dataset_name: Optional[str] = None
     busco_odb12_dataset_name: Optional[str] = None
     find_plastid: Optional[bool] = None
     hic_motif: Optional[str] = None
     mitochondrial_genetic_code_id: Optional[int] = None
-    mitohifi_reference_species: Optional[str] = None
     oatk_hmm_name: Optional[str] = None
-    defined_class: Optional[str] = None
     augustus_dataset_name: Optional[str] = None
     genetic_code_id: Optional[int] = None
 

@@ -160,13 +160,75 @@ class TaxonomyInfoService:
 
         if """
 
+    def _bulk_process_rows(
+        self,
+        db: Session,
+        *,
+        candidates: List[
+            tuple[int, Optional[TaxonomyInfoUpdate], Organism, Optional[TaxonomyInfo]]
+        ],
+        ncbi_by_taxon_id: Dict[int, Any],
+        apply_payload: bool = True,
+    ) -> tuple[int, int, int, List[str]]:
+        """Apply NCBI data (and optionally payload values) to a list of validated candidates.
+
+        Returns (created_count, updated_count, skipped_count, errors).
+        """
+        created_count = 0
+        updated_count = 0
+        skipped_count = 0
+        errors: List[str] = []
+
+        for taxon_id, row, organism, existing_ti in candidates:
+            try:
+                is_new = existing_ti is None
+                ti = existing_ti if existing_ti else TaxonomyInfo(taxon_id=taxon_id)
+                if is_new:
+                    db.add(ti)
+
+                mapped = ncbi_by_taxon_id.get(taxon_id)
+                if mapped:
+                    applied_fields = self._apply_ncbi_values(ti, mapped)
+                    ti.ncbi_last_synced_at = datetime.now(timezone.utc)
+                    logger.info(
+                        "NCBI taxonomy enrichment %s taxonomy_info for taxon_id=%s; applied_fields=%s",
+                        "created" if is_new else "updated",
+                        taxon_id,
+                        applied_fields,
+                    )
+                else:
+                    logger.warning(
+                        "NCBI enrichment returned no mapped taxonomy for taxon_id=%s",
+                        taxon_id,
+                    )
+
+                if apply_payload and row is not None:
+                    self._apply_payload_values(ti, row.model_dump(exclude_unset=True))
+
+                sync_organism_scientific_name(
+                    organism,
+                    ncbi_scientific_name=ti.ncbi_scientific_name,
+                )
+                db.add(organism)
+                db.commit()
+
+                if is_new:
+                    created_count += 1
+                else:
+                    updated_count += 1
+            except Exception as e:
+                errors.append(f"{taxon_id}: {str(e)}")
+                db.rollback()
+                skipped_count += 1
+
+        return created_count, updated_count, skipped_count, errors
+
     def bulk_import(
         self, db: Session, *, data: Dict[int, TaxonomyInfoUpdate]
     ) -> BulkImportResponse:
-        created_count = 0
         skipped_count = 0
         errors: List[str] = []
-        candidates: List[tuple[int, TaxonomyInfoUpdate, Organism]] = []
+        candidates: List[tuple[int, TaxonomyInfoUpdate, Organism, None]] = []
 
         for taxon_id, row in data.items():
             try:
@@ -182,61 +244,126 @@ class TaxonomyInfoService:
                     )
                     skipped_count += 1
                     continue
-
             except Exception as e:
                 errors.append(f"{taxon_id}: {str(e)}")
                 db.rollback()
                 skipped_count += 1
                 continue
 
-            candidates.append((taxon_id, row, organism))
+            candidates.append((taxon_id, row, organism, None))
 
         scientific_names_by_taxon_id = {
             taxon_id: getattr(organism, "bpa_scientific_name", None)
-            for taxon_id, _, organism in candidates
+            for taxon_id, _, organism, _ in candidates
         }
         ncbi_by_taxon_id, unmapped = fetch_taxonomy_for_taxon_ids(scientific_names_by_taxon_id)
         if unmapped:
             logger.warning("NCBI bulk enrichment returned unmapped taxon_ids: %s", unmapped)
 
-        for taxon_id, row, organism in candidates:
-            try:
-                ti = TaxonomyInfo(taxon_id=taxon_id)
-                db.add(ti)
-
-                mapped = ncbi_by_taxon_id.get(taxon_id)
-                if mapped:
-                    applied_fields = self._apply_ncbi_values(ti, mapped)
-                    ti.ncbi_last_synced_at = datetime.now(timezone.utc)
-                    logger.info(
-                        "NCBI taxonomy enrichment %s taxonomy_info for taxon_id=%s; applied_fields=%s",
-                        "created",
-                        taxon_id,
-                        applied_fields,
-                    )
-                else:
-                    logger.warning(
-                        "NCBI enrichment returned no mapped taxonomy during bulk import for taxon_id=%s",
-                        taxon_id,
-                    )
-
-                self._apply_payload_values(ti, row.model_dump(exclude_unset=True))
-                sync_organism_scientific_name(
-                    organism,
-                    ncbi_scientific_name=ti.ncbi_scientific_name,
-                )
-                db.add(organism)
-                db.commit()
-                created_count += 1
-            except Exception as e:
-                errors.append(f"{taxon_id}: {str(e)}")
-                db.rollback()
-                skipped_count += 1
+        created_count, _, row_skipped, row_errors = self._bulk_process_rows(
+            db, candidates=candidates, ncbi_by_taxon_id=ncbi_by_taxon_id
+        )
+        skipped_count += row_skipped
+        errors.extend(row_errors)
 
         return BulkImportResponse(
             created_count=created_count,
             skipped_count=skipped_count,
             message=f"TaxonomyInfo import complete. Created: {created_count}, Skipped: {skipped_count}",
+            errors=errors if errors else None,
+        )
+
+    def bulk_upsert(
+        self, db: Session, *, data: Dict[int, TaxonomyInfoUpdate]
+    ) -> BulkImportResponse:
+        skipped_count = 0
+        errors: List[str] = []
+        candidates: List[tuple[int, TaxonomyInfoUpdate, Organism, Optional[TaxonomyInfo]]] = []
+
+        for taxon_id, row in data.items():
+            try:
+                organism = db.query(Organism).filter(Organism.taxon_id == taxon_id).first()
+                if not organism:
+                    errors.append(f"{taxon_id}: organism with taxon_id {taxon_id} does not exist")
+                    skipped_count += 1
+                    continue
+                existing = db.query(TaxonomyInfo).filter(TaxonomyInfo.taxon_id == taxon_id).first()
+            except Exception as e:
+                errors.append(f"{taxon_id}: {str(e)}")
+                db.rollback()
+                skipped_count += 1
+                continue
+
+            candidates.append((taxon_id, row, organism, existing))
+
+        scientific_names_by_taxon_id = {
+            taxon_id: getattr(organism, "bpa_scientific_name", None)
+            for taxon_id, _, organism, _ in candidates
+        }
+        ncbi_by_taxon_id, unmapped = fetch_taxonomy_for_taxon_ids(scientific_names_by_taxon_id)
+        if unmapped:
+            logger.warning("NCBI bulk enrichment returned unmapped taxon_ids: %s", unmapped)
+
+        created_count, updated_count, row_skipped, row_errors = self._bulk_process_rows(
+            db, candidates=candidates, ncbi_by_taxon_id=ncbi_by_taxon_id
+        )
+        skipped_count += row_skipped
+        errors.extend(row_errors)
+
+        return BulkImportResponse(
+            created_count=created_count,
+            updated_count=updated_count,
+            skipped_count=skipped_count,
+            message=f"TaxonomyInfo upsert complete. Created: {created_count}, Updated: {updated_count}, Skipped: {skipped_count}",
+            errors=errors if errors else None,
+        )
+
+    def bulk_ncbi_refresh(self, db: Session, *, taxon_ids: List[int]) -> BulkImportResponse:
+        skipped_count = 0
+        errors: List[str] = []
+        candidates: List[tuple[int, None, Organism, TaxonomyInfo]] = []
+
+        for taxon_id in taxon_ids:
+            try:
+                organism = db.query(Organism).filter(Organism.taxon_id == taxon_id).first()
+                if not organism:
+                    errors.append(f"{taxon_id}: organism with taxon_id {taxon_id} does not exist")
+                    skipped_count += 1
+                    continue
+                existing = db.query(TaxonomyInfo).filter(TaxonomyInfo.taxon_id == taxon_id).first()
+                if not existing:
+                    errors.append(
+                        f"{taxon_id}: taxonomy_info for taxon_id {taxon_id} does not exist"
+                    )
+                    skipped_count += 1
+                    continue
+            except Exception as e:
+                errors.append(f"{taxon_id}: {str(e)}")
+                db.rollback()
+                skipped_count += 1
+                continue
+
+            candidates.append((taxon_id, None, organism, existing))
+
+        scientific_names_by_taxon_id = {
+            taxon_id: getattr(organism, "bpa_scientific_name", None)
+            for taxon_id, _, organism, _ in candidates
+        }
+        ncbi_by_taxon_id, unmapped = fetch_taxonomy_for_taxon_ids(scientific_names_by_taxon_id)
+        if unmapped:
+            logger.warning("NCBI bulk refresh returned unmapped taxon_ids: %s", unmapped)
+
+        _, updated_count, row_skipped, row_errors = self._bulk_process_rows(
+            db, candidates=candidates, ncbi_by_taxon_id=ncbi_by_taxon_id, apply_payload=False
+        )
+        skipped_count += row_skipped
+        errors.extend(row_errors)
+
+        return BulkImportResponse(
+            created_count=0,
+            updated_count=updated_count,
+            skipped_count=skipped_count,
+            message=f"NCBI taxonomy refresh complete. Updated: {updated_count}, Skipped: {skipped_count}",
             errors=errors if errors else None,
         )
 

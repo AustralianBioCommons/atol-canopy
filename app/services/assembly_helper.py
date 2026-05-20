@@ -128,9 +128,10 @@ def generate_assembly_manifest_json(
     reads: List[Read],
     experiments: List[Experiment],
     tol_id: str | None,
+    assembly_id: str,
     version: int,
     long_read_sample_id: UUID,
-    hic_sample_id: Optional[UUID] = None,
+    hic_sample_ids: Optional[List[UUID]] = None,
     sample_metadata_by_id: Dict[str, Dict[str, Any]] | None = None,
     sequencing_sample_to_specimen_sample_id: Dict[str, str] | None = None,
 ) -> Dict[str, Any]:
@@ -138,7 +139,7 @@ def generate_assembly_manifest_json(
 
     Reads are routed to sections based on which specimen sample they belong to:
     - Reads from long_read_sample_id experiments → PACBIO_SMRT or OXFORD_NANOPORE section
-    - Reads from hic_sample_id experiments → Hi-C section (omitted when hic_sample_id is None)
+    - Reads from hic_sample_ids experiments → Hi-C section (omitted when hic_sample_ids is None)
 
     PacBio filtering: only files ending in .ccs.bam or hifi_reads.bam are included.
     ONT: all reads are included.
@@ -147,12 +148,12 @@ def generate_assembly_manifest_json(
     Args:
         organism: Organism object
         taxonomy_info: TaxonomyInfo object related to the organism when available
-        reads: Combined list of Read objects from both specimen samples
-        experiments: Combined list of Experiment objects from both specimen samples
+        reads: Combined list of Read objects from all specimen samples
+        experiments: Combined list of Experiment objects from all specimen samples
         tol_id: ToL ID for the assembly (optional)
         version: Assembly version number
         long_read_sample_id: sample.id of the long-read specimen sample
-        hic_sample_id: sample.id of the Hi-C specimen sample (optional)
+        hic_sample_ids: sample.ids of the Hi-C specimen samples (optional)
         sample_metadata_by_id: Sample metadata keyed by sample.id as string (optional)
 
     Returns:
@@ -166,7 +167,7 @@ def generate_assembly_manifest_json(
     logger.info("Total experiments: %d, Total reads: %d", len(experiments), len(reads))
 
     long_read_sample_str = str(long_read_sample_id)
-    hic_sample_str = str(hic_sample_id) if hic_sample_id else None
+    hic_sample_id_strs = {str(sid) for sid in hic_sample_ids} if hic_sample_ids else set()
 
     # Build experiment info map: experiment.id → metadata
     exp_info_map: Dict[Any, Dict[str, Any]] = {}
@@ -208,30 +209,32 @@ def generate_assembly_manifest_json(
 
         # Route by specimen sample, then by platform
         is_long_read_sample = resolved_sample_id == long_read_sample_str
-        is_hic_sample = hic_sample_str is not None and resolved_sample_id == hic_sample_str
+        is_hic_sample = bool(hic_sample_id_strs) and resolved_sample_id in hic_sample_id_strs
 
         if is_long_read_sample:
             if platform == "PACBIO_SMRT" and library_strategy in ("WGS", "WGA") and read.file_name:
-                if read.file_name.endswith(".ccs.bam") or read.file_name.endswith("hifi_reads.bam"):
-                    logger.info("Adding PacBio read: %s", read.file_name)
-                    if bpa_package_id not in pacbio_by_package:
-                        entry: Dict[str, Any] = {
-                            "sample_id": resolved_sample_id,
-                            "bpa_sample_id": sample_meta.get("bpa_sample_id"),
-                            "specimen_id": sample_meta.get("specimen_id"),
-                            "resources": [],
-                        }
-                        if exp_info["bioplatforms_base_url"]:
-                            entry["bioplatforms_base_url"] = exp_info["bioplatforms_base_url"]
-                        pacbio_by_package[bpa_package_id] = entry
-                    pacbio_by_package[bpa_package_id]["resources"].append(
-                        {"md5sum": read.file_checksum, "url": read.bioplatforms_url}
-                    )
+                # if read.file_name.endswith(".ccs.bam") or read.file_name.endswith("hifi_reads.bam"):
+                logger.info("Adding PacBio read: %s", read.file_name)
+                if bpa_package_id not in pacbio_by_package:
+                    entry: Dict[str, Any] = {
+                        "sample_id": resolved_sample_id,
+                        "bpa_sample_id": sample_meta.get("bpa_sample_id"),
+                        "specimen_id": sample_meta.get("specimen_id"),
+                        "single_end": [],
+                    }
+                    if exp_info["bioplatforms_base_url"]:
+                        entry["bioplatforms_base_url"] = exp_info["bioplatforms_base_url"]
+                    pacbio_by_package[bpa_package_id] = entry
+                pacbio_by_package[bpa_package_id]["single_end"].append(
+                    {"md5sum": read.file_checksum, "url": read.bioplatforms_url}
+                )
+                """
                 else:
                     logger.debug(
                         "Skipping PacBio read %s — not .ccs.bam or hifi_reads.bam",
                         read.file_name,
                     )
+                """
             elif platform == "OXFORD_NANOPORE" and library_strategy in ("WGS", "WGA"):
                 logger.info("Adding ONT read: %s", read.file_name)
                 if bpa_package_id not in ont_by_package:
@@ -239,12 +242,12 @@ def generate_assembly_manifest_json(
                         "sample_id": resolved_sample_id,
                         "bpa_sample_id": sample_meta.get("bpa_sample_id"),
                         "specimen_id": sample_meta.get("specimen_id"),
-                        "resources": [],
+                        "single_end": [],
                     }
                     if exp_info["bioplatforms_base_url"]:
                         entry["bioplatforms_base_url"] = exp_info["bioplatforms_base_url"]
                     ont_by_package[bpa_package_id] = entry
-                ont_by_package[bpa_package_id]["resources"].append(
+                ont_by_package[bpa_package_id]["single_end"].append(
                     {"md5sum": read.file_checksum, "url": read.bioplatforms_url}
                 )
 
@@ -265,11 +268,12 @@ def generate_assembly_manifest_json(
                         "sample_id": resolved_sample_id,
                         "bpa_sample_id": sample_meta.get("bpa_sample_id"),
                         "specimen_id": sample_meta.get("specimen_id"),
-                        "resources": {"r1": [], "r2": []},
+                        "r1": [],
+                        "r2": [],
                     }
                 rkey = _normalize_read_number(read.read_number)
                 if rkey in ("r1", "r2"):
-                    hic_by_package[bpa_package_id]["resources"][rkey].append(
+                    hic_by_package[bpa_package_id][rkey].append(
                         {
                             "url": read.bioplatforms_url,
                             "md5sum": read.file_checksum,
@@ -314,7 +318,8 @@ def generate_assembly_manifest_json(
     manifest = {
         "scientific_name": organism.scientific_name,
         "taxon_id": organism.taxon_id,
-        "tolid": tol_id,
+        "dataset_id": tol_id,
+        "assembly_id": assembly_id,
         "version": version,
         "busco_odb10_dataset_name": getattr(taxonomy_info, "busco_odb10_dataset_name", None),
         "busco_odb12_dataset_name": getattr(taxonomy_info, "busco_odb12_dataset_name", None),
@@ -327,7 +332,7 @@ def generate_assembly_manifest_json(
         "oatk_hmm_name": getattr(taxonomy_info, "oatk_hmm_name", None),
         "augustus_dataset_name": getattr(taxonomy_info, "augustus_dataset_name", None),
         "genetic_code_id": getattr(taxonomy_info, "genetic_code_id", None),
-        "defined_class": getattr(taxonomy_info, "defined_class", None),
-        "reads": reads_section,
+        "ncbi_class": getattr(taxonomy_info, "ncbi_class", None),
+        "read_files": reads_section,
     }
     return manifest

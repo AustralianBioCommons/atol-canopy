@@ -31,11 +31,9 @@ def _make_mock_taxonomy_info():
         find_plastid=False,
         hic_motif="GATC",
         mitochondrial_genetic_code_id=1,
-        mitohifi_reference_species="test_species",
         oatk_hmm_name="test_hmm",
         augustus_dataset_name="test_augustus",
         genetic_code_id=1,
-        defined_class="test_class",
     )
 
 
@@ -753,11 +751,9 @@ class TestGenerateAssemblyManifestJson:
         assert result["find_plastid"] is False
         assert result["hic_motif"] == "GATC"
         assert result["mitochondrial_genetic_code_id"] == 1
-        assert result["mitohifi_reference_species"] == "test_species"
         assert result["oatk_hmm_name"] == "test_hmm"
         assert result["augustus_dataset_name"] == "test_augustus"
         assert result["genetic_code_id"] == 1
-        assert result["defined_class"] == "test_class"
 
     def test_sample_metadata_included_at_package_level(self):
         """Sample metadata (bpa_sample_id, specimen_id) appears at the package level."""

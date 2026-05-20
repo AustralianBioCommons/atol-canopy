@@ -323,7 +323,13 @@ def get_assembly_manifest(
             detail="No manifest stored for this assembly. Re-submit an intent to generate one.",
         )
 
-    return JSONResponse(content=assembly.manifest_json)
+    return JSONResponse(
+        content={
+            "assembly_id": str(assembly.id),
+            "version": assembly.version,
+            "manifest": assembly.manifest_json,
+        }
+    )
 
 
 @router.post("/intent/{taxon_id}")
@@ -360,12 +366,15 @@ def create_assembly_intent(
         db, intent_in.long_read_specimen_sample_id, org_taxon_id, "long_read_specimen_sample_id"
     )
 
-    # 3. Validate hic_specimen_sample_id if provided
-    hic_sample = None
-    if intent_in.hic_specimen_sample_id:
-        hic_sample = _validate_specimen_sample(
-            db, intent_in.hic_specimen_sample_id, org_taxon_id, "hic_specimen_sample_id"
-        )
+    # 3. Validate hic_specimen_sample_ids if provided
+    hic_samples: List[Sample] = []
+    if intent_in.hic_specimen_sample_ids:
+        for idx, hic_sid in enumerate(intent_in.hic_specimen_sample_ids):
+            hic_samples.append(
+                _validate_specimen_sample(
+                    db, hic_sid, org_taxon_id, f"hic_specimen_sample_ids[{idx}]"
+                )
+            )
 
     # 4. Fetch long-read experiments (PacBio or ONT only) and their reads
     long_read_lineage_sample_ids = _get_lineage_sample_ids_for_specimen(db, long_read_sample)
@@ -391,16 +400,16 @@ def create_assembly_intent(
     long_read_exp_ids = [e.id for e in long_read_experiments]
     long_reads = db.query(Read).filter(Read.experiment_id.in_(long_read_exp_ids)).all()
 
-    # 5. Fetch Hi-C experiments and reads if hic_sample is provided
+    # 5. Fetch Hi-C experiments and reads for each hic_sample
     hic_experiments: List[Experiment] = []
     hic_reads: List[Read] = []
     hic_sample_id_map: Dict[str, str] = {}
-    if hic_sample:
+    for hic_sample in hic_samples:
         hic_lineage_sample_ids = _get_lineage_sample_ids_for_specimen(db, hic_sample)
-        hic_sample_id_map = {
-            str(sample_id): str(hic_sample.id) for sample_id in hic_lineage_sample_ids
-        }
-        hic_experiments = (
+        hic_sample_id_map.update(
+            {str(sample_id): str(hic_sample.id) for sample_id in hic_lineage_sample_ids}
+        )
+        hic_exps = (
             db.query(Experiment)
             .filter(
                 Experiment.sample_id.in_(hic_lineage_sample_ids),
@@ -408,18 +417,17 @@ def create_assembly_intent(
             )
             .all()
         )
-        hic_experiments = [
-            e for e in hic_experiments if (e.library_strategy or "").upper() == "HI-C"
-        ]
-        if not hic_experiments:
+        hic_exps = [e for e in hic_exps if (e.library_strategy or "").upper() == "HI-C"]
+        if not hic_exps:
             raise AppError(
                 status_code=422,
                 code="no_hic_experiments",
-                message="No Hi-C experiments (ILLUMINA + Hi-C) found for hic_specimen_sample_id",
+                message="No Hi-C experiments (ILLUMINA + Hi-C) found for hic_specimen_sample_ids",
                 details={"hic_specimen_sample_id": str(hic_sample.id)},
             )
-        hic_exp_ids = [e.id for e in hic_experiments]
-        hic_reads = db.query(Read).filter(Read.experiment_id.in_(hic_exp_ids)).all()
+        hic_exp_ids = [e.id for e in hic_exps]
+        hic_experiments.extend(hic_exps)
+        hic_reads.extend(db.query(Read).filter(Read.experiment_id.in_(hic_exp_ids)).all())
 
     # 6. Determine data_types from the relevant experiments
     # TODO review and remove this step now that we pass in the specimen_id
@@ -439,7 +447,7 @@ def create_assembly_intent(
         db,
         taxon_id=org_taxon_id,
         long_read_specimen_sample_id=long_read_sample.id,
-        hic_specimen_sample_id=hic_sample.id if hic_sample else None,
+        hic_specimen_sample_ids=[s.id for s in hic_samples] if hic_samples else None,
         # TODO review if we need data_types when creating experiment
         data_types=data_types,
         tol_id=intent_in.tol_id,
@@ -450,7 +458,7 @@ def create_assembly_intent(
     try:
         # 8. Build sample metadata and generate JSON manifest
         all_reads = long_reads + hic_reads
-        sample_metadata_by_id = _build_specimen_metadata(long_read_sample, hic_sample)
+        sample_metadata_by_id = _build_specimen_metadata(long_read_sample, *hic_samples)
         sequencing_sample_to_specimen_sample_id = {
             **long_read_sample_id_map,
             **hic_sample_id_map,
@@ -462,16 +470,19 @@ def create_assembly_intent(
             experiments=all_experiments,
             # TODO tolid from sample (reported by broker) not input from caller
             tol_id=assembly.tol_id,
+            assembly_id=str(assembly.id),
             version=assembly.version,
             long_read_sample_id=long_read_sample.id,
-            hic_sample_id=hic_sample.id if hic_sample else None,
+            hic_sample_ids=[s.id for s in hic_samples] if hic_samples else None,
             sample_metadata_by_id=sample_metadata_by_id,
             sequencing_sample_to_specimen_sample_id=sequencing_sample_to_specimen_sample_id,
         )
 
         # 9. Validate that the manifest contains eligible reads then persist it
+        # TODO decide whether to keep this validation.
+        """
         long_read_keys = {"PACBIO_SMRT", "OXFORD_NANOPORE"}
-        if not any(k in manifest_data["reads"] for k in long_read_keys):
+        if not any(k in manifest_data["read_files"] for k in long_read_keys):
             raise AppError(
                 status_code=422,
                 code="no_eligible_long_reads",
@@ -482,14 +493,14 @@ def create_assembly_intent(
                 details={"long_read_specimen_sample_id": str(long_read_sample.id)},
             )
 
-        if hic_sample and "Hi-C" not in manifest_data["reads"]:
+        if hic_samples and "Hi-C" not in manifest_data["read_files"]:
             raise AppError(
                 status_code=422,
                 code="no_eligible_hic_reads",
-                message="No eligible Hi-C reads found for hic_specimen_sample_id",
-                details={"hic_specimen_sample_id": str(hic_sample.id)},
+                message="No eligible Hi-C reads found for hic_specimen_sample_ids",
+                details={"hic_specimen_sample_ids": [str(s.id) for s in hic_samples]},
             )
-
+        """
         assembly.manifest_json = manifest_data
         db.add(assembly)
         db.commit()
@@ -503,7 +514,6 @@ def create_assembly_intent(
         content={
             "assembly_id": str(assembly.id),
             "version": assembly.version,
-            "status": assembly.status,
             "manifest": manifest_data,
         }
     )
@@ -556,9 +566,7 @@ def cancel_assembly_intent(
         "long_read_specimen_sample_id": str(assembly.long_read_specimen_sample_id)
         if assembly.long_read_specimen_sample_id
         else None,
-        "hic_specimen_sample_id": str(assembly.hic_specimen_sample_id)
-        if assembly.hic_specimen_sample_id
-        else None,
+        "hic_specimen_sample_ids": assembly.hic_specimen_sample_ids or [],
         "version": assembly.version,
         "status": assembly.status,
     }
@@ -635,7 +643,13 @@ def get_manifest_by_assembly_id(
             detail="No manifest stored for this assembly. Re-submit an intent to generate one.",
         )
 
-    return JSONResponse(content=assembly.manifest_json)
+    return JSONResponse(
+        content={
+            "assembly_id": str(assembly.id),
+            "version": assembly.version,
+            "manifest": assembly.manifest_json,
+        }
+    )
 
 
 @router.get("/{assembly_id}", response_model=AssemblySchema)
