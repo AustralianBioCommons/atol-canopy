@@ -468,6 +468,7 @@ def create_assembly_intent(
             experiments=all_experiments,
             # TODO tolid from sample (reported by broker) not input from caller
             tol_id=assembly.tol_id,
+            assembly_id=str(assembly.id),
             version=assembly.version,
             long_read_sample_id=long_read_sample.id,
             hic_sample_id=hic_sample.id if hic_sample else None,
