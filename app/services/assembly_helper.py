@@ -213,26 +213,28 @@ def generate_assembly_manifest_json(
 
         if is_long_read_sample:
             if platform == "PACBIO_SMRT" and library_strategy in ("WGS", "WGA") and read.file_name:
-                if read.file_name.endswith(".ccs.bam") or read.file_name.endswith("hifi_reads.bam"):
-                    logger.info("Adding PacBio read: %s", read.file_name)
-                    if bpa_package_id not in pacbio_by_package:
-                        entry: Dict[str, Any] = {
-                            "sample_id": resolved_sample_id,
-                            "bpa_sample_id": sample_meta.get("bpa_sample_id"),
-                            "specimen_id": sample_meta.get("specimen_id"),
-                            "single_end": [],
-                        }
-                        if exp_info["bioplatforms_base_url"]:
-                            entry["bioplatforms_base_url"] = exp_info["bioplatforms_base_url"]
-                        pacbio_by_package[bpa_package_id] = entry
-                    pacbio_by_package[bpa_package_id]["single_end"].append(
-                        {"md5sum": read.file_checksum, "url": read.bioplatforms_url}
-                    )
+                # if read.file_name.endswith(".ccs.bam") or read.file_name.endswith("hifi_reads.bam"):
+                logger.info("Adding PacBio read: %s", read.file_name)
+                if bpa_package_id not in pacbio_by_package:
+                    entry: Dict[str, Any] = {
+                        "sample_id": resolved_sample_id,
+                        "bpa_sample_id": sample_meta.get("bpa_sample_id"),
+                        "specimen_id": sample_meta.get("specimen_id"),
+                        "single_end": [],
+                    }
+                    if exp_info["bioplatforms_base_url"]:
+                        entry["bioplatforms_base_url"] = exp_info["bioplatforms_base_url"]
+                    pacbio_by_package[bpa_package_id] = entry
+                pacbio_by_package[bpa_package_id]["single_end"].append(
+                    {"md5sum": read.file_checksum, "url": read.bioplatforms_url}
+                )
+                """
                 else:
                     logger.debug(
                         "Skipping PacBio read %s — not .ccs.bam or hifi_reads.bam",
                         read.file_name,
                     )
+                """
             elif platform == "OXFORD_NANOPORE" and library_strategy in ("WGS", "WGA"):
                 logger.info("Adding ONT read: %s", read.file_name)
                 if bpa_package_id not in ont_by_package:
