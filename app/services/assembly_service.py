@@ -212,7 +212,7 @@ class AssemblyService(BaseService[Assembly, AssemblyCreate, AssemblyUpdate]):
         *,
         taxon_id: int,
         long_read_specimen_sample_id: UUID,
-        hic_specimen_sample_id: Optional[UUID],
+        hic_specimen_sample_ids: Optional[List[UUID]],
         data_types: str,
         tol_id: Optional[str],
         project_id: Optional[UUID],
@@ -221,7 +221,7 @@ class AssemblyService(BaseService[Assembly, AssemblyCreate, AssemblyUpdate]):
         """Create an Assembly at manifest-request time with status='requested'.
 
         Versioning is scoped by (taxon_id, long_read_specimen_sample_id) only —
-        data_types and hic_specimen_sample_id are excluded from the version key.
+        data_types and hic_specimen_sample_ids are excluded from the version key.
         sample_id is set to long_read_specimen_sample_id for backward compatibility.
         """
         version = self.get_next_version_for_intent(
@@ -229,11 +229,16 @@ class AssemblyService(BaseService[Assembly, AssemblyCreate, AssemblyUpdate]):
             taxon_id=taxon_id,
             long_read_specimen_sample_id=long_read_specimen_sample_id,
         )
+        # Keep singular FK column pointing to the first HiC sample for backwards compatibility
+        hic_specimen_sample_id = hic_specimen_sample_ids[0] if hic_specimen_sample_ids else None
         assembly = Assembly(
             taxon_id=taxon_id,
             sample_id=long_read_specimen_sample_id,
             long_read_specimen_sample_id=long_read_specimen_sample_id,
             hic_specimen_sample_id=hic_specimen_sample_id,
+            hic_specimen_sample_ids=[str(sid) for sid in hic_specimen_sample_ids]
+            if hic_specimen_sample_ids
+            else None,
             data_types=data_types,
             version=version,
             tol_id=tol_id,

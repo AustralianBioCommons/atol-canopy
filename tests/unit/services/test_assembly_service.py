@@ -283,7 +283,7 @@ class TestCreateFromIntent:
                 mock_db,
                 taxon_id=172942,
                 long_read_specimen_sample_id=LONG_READ_SAMPLE_ID,
-                hic_specimen_sample_id=None,
+                hic_specimen_sample_ids=None,
                 data_types="PACBIO_SMRT",
                 tol_id="tol-999",
                 project_id=None,
@@ -314,7 +314,7 @@ class TestCreateFromIntent:
                 mock_db,
                 taxon_id=172942,
                 long_read_specimen_sample_id=LONG_READ_SAMPLE_ID,
-                hic_specimen_sample_id=None,
+                hic_specimen_sample_ids=None,
                 data_types="PACBIO_SMRT",
                 tol_id=None,
                 project_id=None,
@@ -342,7 +342,7 @@ class TestCreateFromIntent:
                 mock_db,
                 taxon_id=172942,
                 long_read_specimen_sample_id=LONG_READ_SAMPLE_ID,
-                hic_specimen_sample_id=None,
+                hic_specimen_sample_ids=None,
                 data_types="PACBIO_SMRT",
                 tol_id=None,
                 project_id=None,
@@ -351,8 +351,8 @@ class TestCreateFromIntent:
 
         assert stored_manifests == [sample_manifest]
 
-    def test_hic_specimen_sample_id_stored(self, mock_db, assembly_service):
-        """hic_specimen_sample_id is stored on the Assembly."""
+    def test_hic_specimen_sample_ids_stored(self, mock_db, assembly_service):
+        """hic_specimen_sample_ids is stored as a JSON list; first entry sets hic_specimen_sample_id FK."""
         mock_query = Mock()
         mock_query.filter.return_value.scalar.return_value = None
         mock_db.query.return_value = mock_query
@@ -360,23 +360,29 @@ class TestCreateFromIntent:
         mock_db.commit = Mock()
         mock_db.refresh = Mock()
 
-        hic_ids = []
+        captured = []
 
         def capture_init(self, **kwargs):
-            hic_ids.append(kwargs.get("hic_specimen_sample_id"))
+            captured.append(
+                {
+                    "hic_specimen_sample_id": kwargs.get("hic_specimen_sample_id"),
+                    "hic_specimen_sample_ids": kwargs.get("hic_specimen_sample_ids"),
+                }
+            )
 
         with patch.object(Assembly, "__init__", capture_init):
             assembly_service.create_from_intent(
                 mock_db,
                 taxon_id=172942,
                 long_read_specimen_sample_id=LONG_READ_SAMPLE_ID,
-                hic_specimen_sample_id=HIC_SAMPLE_ID,
+                hic_specimen_sample_ids=[HIC_SAMPLE_ID],
                 data_types="PACBIO_SMRT_HIC",
                 tol_id=None,
                 project_id=None,
             )
 
-        assert hic_ids == [HIC_SAMPLE_ID]
+        assert captured[0]["hic_specimen_sample_id"] == HIC_SAMPLE_ID
+        assert captured[0]["hic_specimen_sample_ids"] == [str(HIC_SAMPLE_ID)]
 
     def test_sample_id_set_to_long_read_specimen_sample_id(self, mock_db, assembly_service):
         """sample_id is set to long_read_specimen_sample_id for backward compatibility."""
@@ -397,7 +403,7 @@ class TestCreateFromIntent:
                 mock_db,
                 taxon_id=172942,
                 long_read_specimen_sample_id=LONG_READ_SAMPLE_ID,
-                hic_specimen_sample_id=None,
+                hic_specimen_sample_ids=None,
                 data_types="PACBIO_SMRT",
                 tol_id=None,
                 project_id=None,
