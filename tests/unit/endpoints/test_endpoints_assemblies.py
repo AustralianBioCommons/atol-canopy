@@ -808,7 +808,7 @@ def test_cancel_assembly_intent_success(monkeypatch):
         id=run_id,
         taxon_id=172942,
         long_read_specimen_sample_id=long_read_sample_id,
-        hic_specimen_sample_id=None,
+        hic_specimen_sample_ids=None,
         version=2,
         status="requested",
     )

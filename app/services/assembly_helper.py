@@ -131,7 +131,7 @@ def generate_assembly_manifest_json(
     assembly_id: str,
     version: int,
     long_read_sample_id: UUID,
-    hic_sample_id: Optional[UUID] = None,
+    hic_sample_ids: Optional[List[UUID]] = None,
     sample_metadata_by_id: Dict[str, Dict[str, Any]] | None = None,
     sequencing_sample_to_specimen_sample_id: Dict[str, str] | None = None,
 ) -> Dict[str, Any]:
@@ -139,7 +139,7 @@ def generate_assembly_manifest_json(
 
     Reads are routed to sections based on which specimen sample they belong to:
     - Reads from long_read_sample_id experiments → PACBIO_SMRT or OXFORD_NANOPORE section
-    - Reads from hic_sample_id experiments → Hi-C section (omitted when hic_sample_id is None)
+    - Reads from hic_sample_ids experiments → Hi-C section (omitted when hic_sample_ids is None)
 
     PacBio filtering: only files ending in .ccs.bam or hifi_reads.bam are included.
     ONT: all reads are included.
@@ -148,12 +148,12 @@ def generate_assembly_manifest_json(
     Args:
         organism: Organism object
         taxonomy_info: TaxonomyInfo object related to the organism when available
-        reads: Combined list of Read objects from both specimen samples
-        experiments: Combined list of Experiment objects from both specimen samples
+        reads: Combined list of Read objects from all specimen samples
+        experiments: Combined list of Experiment objects from all specimen samples
         tol_id: ToL ID for the assembly (optional)
         version: Assembly version number
         long_read_sample_id: sample.id of the long-read specimen sample
-        hic_sample_id: sample.id of the Hi-C specimen sample (optional)
+        hic_sample_ids: sample.ids of the Hi-C specimen samples (optional)
         sample_metadata_by_id: Sample metadata keyed by sample.id as string (optional)
 
     Returns:
@@ -167,7 +167,7 @@ def generate_assembly_manifest_json(
     logger.info("Total experiments: %d, Total reads: %d", len(experiments), len(reads))
 
     long_read_sample_str = str(long_read_sample_id)
-    hic_sample_str = str(hic_sample_id) if hic_sample_id else None
+    hic_sample_id_strs = {str(sid) for sid in hic_sample_ids} if hic_sample_ids else set()
 
     # Build experiment info map: experiment.id → metadata
     exp_info_map: Dict[Any, Dict[str, Any]] = {}
@@ -209,7 +209,7 @@ def generate_assembly_manifest_json(
 
         # Route by specimen sample, then by platform
         is_long_read_sample = resolved_sample_id == long_read_sample_str
-        is_hic_sample = hic_sample_str is not None and resolved_sample_id == hic_sample_str
+        is_hic_sample = bool(hic_sample_id_strs) and resolved_sample_id in hic_sample_id_strs
 
         if is_long_read_sample:
             if platform == "PACBIO_SMRT" and library_strategy in ("WGS", "WGA") and read.file_name:
