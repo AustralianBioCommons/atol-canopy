@@ -42,10 +42,17 @@ class BulkTaxonomyInfoImport(RootModel[Dict[int, TaxonomyInfoUpdate]]):
     """Bulk taxonomy info import keyed by taxon_id."""
 
 
+class BulkNcbiRefreshRequest(BaseModel):
+    """Request body for bulk NCBI taxonomy refresh."""
+
+    taxon_ids: List[int]
+
+
 class BulkImportResponse(BaseModel):
     """Schema for bulk import response."""
 
     created_count: int
+    updated_count: Optional[int] = 0
     skipped_count: Optional[int] = 0
     message: str
     errors: Optional[List[str]] = None  # List of all errors with context
