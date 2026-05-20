@@ -219,12 +219,12 @@ def generate_assembly_manifest_json(
                             "sample_id": resolved_sample_id,
                             "bpa_sample_id": sample_meta.get("bpa_sample_id"),
                             "specimen_id": sample_meta.get("specimen_id"),
-                            "resources": [],
+                            "single_end": [],
                         }
                         if exp_info["bioplatforms_base_url"]:
                             entry["bioplatforms_base_url"] = exp_info["bioplatforms_base_url"]
                         pacbio_by_package[bpa_package_id] = entry
-                    pacbio_by_package[bpa_package_id]["resources"].append(
+                    pacbio_by_package[bpa_package_id]["single_end"].append(
                         {"md5sum": read.file_checksum, "url": read.bioplatforms_url}
                     )
                 else:
@@ -239,12 +239,12 @@ def generate_assembly_manifest_json(
                         "sample_id": resolved_sample_id,
                         "bpa_sample_id": sample_meta.get("bpa_sample_id"),
                         "specimen_id": sample_meta.get("specimen_id"),
-                        "resources": [],
+                        "single_end": [],
                     }
                     if exp_info["bioplatforms_base_url"]:
                         entry["bioplatforms_base_url"] = exp_info["bioplatforms_base_url"]
                     ont_by_package[bpa_package_id] = entry
-                ont_by_package[bpa_package_id]["resources"].append(
+                ont_by_package[bpa_package_id]["single_end"].append(
                     {"md5sum": read.file_checksum, "url": read.bioplatforms_url}
                 )
 
@@ -265,11 +265,12 @@ def generate_assembly_manifest_json(
                         "sample_id": resolved_sample_id,
                         "bpa_sample_id": sample_meta.get("bpa_sample_id"),
                         "specimen_id": sample_meta.get("specimen_id"),
-                        "resources": {"r1": [], "r2": []},
+                        "r1": [],
+                        "r2": [],
                     }
                 rkey = _normalize_read_number(read.read_number)
                 if rkey in ("r1", "r2"):
-                    hic_by_package[bpa_package_id]["resources"][rkey].append(
+                    hic_by_package[bpa_package_id][rkey].append(
                         {
                             "url": read.bioplatforms_url,
                             "md5sum": read.file_checksum,
@@ -314,7 +315,7 @@ def generate_assembly_manifest_json(
     manifest = {
         "scientific_name": organism.scientific_name,
         "taxon_id": organism.taxon_id,
-        "tolid": tol_id,
+        "dataset_id": tol_id,
         "version": version,
         "busco_odb10_dataset_name": getattr(taxonomy_info, "busco_odb10_dataset_name", None),
         "busco_odb12_dataset_name": getattr(taxonomy_info, "busco_odb12_dataset_name", None),
@@ -327,7 +328,7 @@ def generate_assembly_manifest_json(
         "oatk_hmm_name": getattr(taxonomy_info, "oatk_hmm_name", None),
         "augustus_dataset_name": getattr(taxonomy_info, "augustus_dataset_name", None),
         "genetic_code_id": getattr(taxonomy_info, "genetic_code_id", None),
-        "defined_class": getattr(taxonomy_info, "defined_class", None),
-        "reads": reads_section,
+        "ncbi_class": getattr(taxonomy_info, "ncbi_class", None),
+        "read_files": reads_section,
     }
     return manifest

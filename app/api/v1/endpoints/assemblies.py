@@ -477,7 +477,7 @@ def create_assembly_intent(
 
         # 9. Validate that the manifest contains eligible reads then persist it
         long_read_keys = {"PACBIO_SMRT", "OXFORD_NANOPORE"}
-        if not any(k in manifest_data["reads"] for k in long_read_keys):
+        if not any(k in manifest_data["read_files"] for k in long_read_keys):
             raise AppError(
                 status_code=422,
                 code="no_eligible_long_reads",
@@ -488,7 +488,7 @@ def create_assembly_intent(
                 details={"long_read_specimen_sample_id": str(long_read_sample.id)},
             )
 
-        if hic_sample and "Hi-C" not in manifest_data["reads"]:
+        if hic_sample and "Hi-C" not in manifest_data["read_files"]:
             raise AppError(
                 status_code=422,
                 code="no_eligible_hic_reads",
