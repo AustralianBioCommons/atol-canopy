@@ -86,7 +86,7 @@ class AssemblyIntent(BaseModel):
 
     tol_id: Optional[str] = None
     long_read_specimen_sample_id: UUID
-    hic_specimen_sample_id: Optional[UUID] = None
+    hic_specimen_sample_ids: Optional[List[UUID]] = None
 
 
 class AssemblyIntentResponse(BaseModel):

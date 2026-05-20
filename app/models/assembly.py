@@ -74,6 +74,7 @@ class Assembly(Base):
         UUID(as_uuid=True), ForeignKey("sample.id"), nullable=True
     )
     hic_specimen_sample_id = Column(UUID(as_uuid=True), ForeignKey("sample.id"), nullable=True)
+    hic_specimen_sample_ids = Column(JSONB, nullable=True)
     manifest_json = Column(JSONB, nullable=True)
 
     # Relationships
