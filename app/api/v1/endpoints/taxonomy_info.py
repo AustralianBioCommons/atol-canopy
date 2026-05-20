@@ -8,7 +8,11 @@ from app.core.pagination import Pagination, apply_pagination, pagination_params
 from app.core.policy import policy
 from app.models.taxonomy_info import TaxonomyInfo
 from app.models.user import User
-from app.schemas.bulk_import import BulkImportResponse, BulkTaxonomyInfoImport
+from app.schemas.bulk_import import (
+    BulkImportResponse,
+    BulkNcbiRefreshRequest,
+    BulkTaxonomyInfoImport,
+)
 from app.schemas.taxonomy_info import (
     TaxonomyInfo as TaxonomyInfoSchema,
 )
@@ -48,6 +52,40 @@ def bulk_import_taxonomy_info(
     The taxon_id key must reference an existing organism.
     """
     return taxonomy_info_service.bulk_import(db, data=data.root)
+
+
+@router.post("/bulk-upsert", response_model=BulkImportResponse)
+@policy("taxonomy_info:bulk_upsert")
+def bulk_upsert_taxonomy_info(
+    *,
+    db: Session = Depends(get_db),
+    data: BulkTaxonomyInfoImport,
+    current_user: User = Depends(get_current_active_user),
+) -> Any:
+    """
+    Bulk upsert taxonomy info from a dictionary keyed by taxon_id.
+
+    Inserts new rows and updates existing ones. Re-fetches NCBI data for all rows.
+    The taxon_id key must reference an existing organism.
+    """
+    return taxonomy_info_service.bulk_upsert(db, data=data.root)
+
+
+@router.post("/bulk-ncbi-refresh", response_model=BulkImportResponse)
+@policy("taxonomy_info:bulk_ncbi_refresh")
+def bulk_ncbi_refresh_taxonomy_info(
+    *,
+    db: Session = Depends(get_db),
+    data: BulkNcbiRefreshRequest,
+    current_user: User = Depends(get_current_active_user),
+) -> Any:
+    """
+    Re-sync NCBI taxonomy fields for existing taxonomy_info rows.
+
+    Only updates ncbi_* columns — upstream fields are left unchanged.
+    Rows that do not yet have a taxonomy_info record are skipped.
+    """
+    return taxonomy_info_service.bulk_ncbi_refresh(db, taxon_ids=data.taxon_ids)
 
 
 @router.get("/{taxon_id}", response_model=TaxonomyInfoSchema)
