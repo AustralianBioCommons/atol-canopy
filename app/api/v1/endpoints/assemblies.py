@@ -479,6 +479,8 @@ def create_assembly_intent(
         )
 
         # 9. Validate that the manifest contains eligible reads then persist it
+        # TODO decide whether to keep this validation.
+        """
         long_read_keys = {"PACBIO_SMRT", "OXFORD_NANOPORE"}
         if not any(k in manifest_data["read_files"] for k in long_read_keys):
             raise AppError(
@@ -498,7 +500,7 @@ def create_assembly_intent(
                 message="No eligible Hi-C reads found for hic_specimen_sample_ids",
                 details={"hic_specimen_sample_ids": [str(s.id) for s in hic_samples]},
             )
-
+        """
         assembly.manifest_json = manifest_data
         db.add(assembly)
         db.commit()
