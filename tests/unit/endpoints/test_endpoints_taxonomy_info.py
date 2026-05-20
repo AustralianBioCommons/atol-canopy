@@ -29,9 +29,7 @@ def _make_ti(taxon_id=1, **kwargs):
         "find_plastid": None,
         "hic_motif": None,
         "mitochondrial_genetic_code_id": None,
-        "mitohifi_reference_species": None,
         "oatk_hmm_name": None,
-        "defined_class": None,
         "augustus_dataset_name": None,
         "genetic_code_id": None,
     }

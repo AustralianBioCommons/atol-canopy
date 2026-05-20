@@ -105,8 +105,6 @@ CREATE TABLE taxonomy_info (
     ncbi_tax_string TEXT,
     ncbi_full_lineage TEXT,
     ncbi_last_synced_at TIMESTAMPTZ,
-    mito_ref TEXT,
-    busco_dataset_name TEXT,
     busco_odb10_dataset_name TEXT,
     busco_odb12_dataset_name TEXT,
     find_plastid BOOLEAN,
@@ -114,7 +112,6 @@ CREATE TABLE taxonomy_info (
     mitochondrial_genetic_code_id INTEGER,
     mitohifi_reference_species TEXT,
     oatk_hmm_name TEXT,
-    defined_class TEXT,
     augustus_dataset_name TEXT,
     genetic_code_id INTEGER
 );

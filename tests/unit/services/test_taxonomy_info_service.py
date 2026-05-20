@@ -77,7 +77,7 @@ def test_populate_from_ncbi_lookup_creates_taxonomy_info(monkeypatch):
                     "ncbi_rank": "species",
                     "ncbi_scientific_name": "Penicillium test",
                     "ncbi_order": "Eurotiales",
-                    "mito_ref": "Penicillium chrysogenum",
+                    "mitohifi_reference_species": "Penicillium chrysogenum",
                 }
             },
             [],
@@ -97,7 +97,7 @@ def test_populate_from_ncbi_lookup_creates_taxonomy_info(monkeypatch):
     assert ti.ncbi_taxon_id == 5077
     assert ti.ncbi_rank == "species"
     assert ti.ncbi_order == "Eurotiales"
-    assert ti.mito_ref == "Penicillium chrysogenum"
+    assert ti.mitohifi_reference_species == "Penicillium chrysogenum"
     assert ti.ncbi_last_synced_at is not None
     assert organism.scientific_name == "Penicillium test"
     assert db.data[TaxonomyInfo][5077] is ti
@@ -176,14 +176,14 @@ def test_bulk_import_batches_ncbi_lookup_and_creates_taxonomy_info(monkeypatch):
                     "ncbi_taxon_id": 9612,
                     "ncbi_rank": "species",
                     "ncbi_scientific_name": "Canis lupus familiaris",
-                    "mito_ref": "Canis lupus familiaris",
+                    "mitohifi_reference_species": "Canis lupus familiaris",
                 },
                 9685: {
                     "taxon_id": 9685,
                     "ncbi_taxon_id": 9685,
                     "ncbi_rank": "species",
                     "ncbi_scientific_name": "Felis silvestris catus",
-                    "mito_ref": "Felis silvestris catus",
+                    "mitohifi_reference_species": "Felis silvestris catus",
                 },
             },
             [],
@@ -207,12 +207,12 @@ def test_bulk_import_batches_ncbi_lookup_and_creates_taxonomy_info(monkeypatch):
     saved_cat = db.data[TaxonomyInfo][9685]
     assert saved_dog.ncbi_taxon_id == 9612
     assert saved_dog.ncbi_rank == "species"
-    assert saved_dog.mito_ref == "Canis lupus familiaris"
+    assert saved_dog.mitohifi_reference_species == "Canis lupus familiaris"
     assert saved_dog.ncbi_last_synced_at is not None
     assert saved_dog.genetic_code_id == 2
     assert saved_cat.ncbi_taxon_id == 9685
     assert saved_cat.ncbi_rank == "species"
-    assert saved_cat.mito_ref == "Felis silvestris catus"
+    assert saved_cat.mitohifi_reference_species == "Felis silvestris catus"
     assert saved_cat.ncbi_last_synced_at is not None
     assert saved_cat.genetic_code_id == 1
     assert organisms[9612].scientific_name == "Canis lupus familiaris"
