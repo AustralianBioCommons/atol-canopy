@@ -1,6 +1,6 @@
 """Add qc_read source BPA resource IDs and assembly association.
 
-Revision ID: 0004_qc_reads_source_resources_and_assembly_link
+Revision ID: 0004_qc_reads_assembly_refs
 Revises: 0003_assembly_run_github
 Create Date: 2026-06-02
 """
@@ -10,10 +10,40 @@ from sqlalchemy.dialects import postgresql
 
 from alembic import op
 
-revision = "0004_qc_reads_source_resources_and_assembly_link"
+revision = "0004_qc_reads_assembly_refs"
 down_revision = "0003_assembly_run_github"
 branch_labels = None
 depends_on = None
+
+
+def _drop_qc_read_file_type_checks() -> None:
+    op.execute(
+        sa.text(
+            """
+            DO $$
+            DECLARE
+                constraint_name text;
+            BEGIN
+                FOR constraint_name IN
+                    SELECT c.conname
+                    FROM pg_constraint AS c
+                    JOIN pg_class AS t ON t.oid = c.conrelid
+                    JOIN pg_namespace AS n ON n.oid = t.relnamespace
+                    WHERE t.relname = 'qc_read_file'
+                      AND n.nspname = current_schema()
+                      AND c.contype = 'c'
+                      AND pg_get_constraintdef(c.oid) LIKE '%file_type%'
+                LOOP
+                    EXECUTE format(
+                        'ALTER TABLE %I DROP CONSTRAINT %I',
+                        'qc_read_file',
+                        constraint_name
+                    );
+                END LOOP;
+            END $$;
+            """
+        )
+    )
 
 
 def upgrade() -> None:
@@ -41,7 +71,7 @@ def upgrade() -> None:
     )
     op.create_index("idx_qc_read_assembly_qc_read_id", "qc_read_assembly", ["qc_read_id"])
 
-    op.drop_constraint("ck_qc_read_file_type", "qc_read_file", type_="check")
+    _drop_qc_read_file_type_checks()
     op.create_check_constraint(
         "ck_qc_read_file_type",
         "qc_read_file",
@@ -77,7 +107,7 @@ def downgrade() -> None:
     op.alter_column("qc_read_file", "bucket_name", nullable=False)
     op.alter_column("qc_read_file", "storage_profile", nullable=False)
     op.alter_column("qc_read_file", "storage_backend", nullable=False)
-    op.drop_constraint("ck_qc_read_file_type", "qc_read_file", type_="check")
+    _drop_qc_read_file_type_checks()
     op.create_check_constraint(
         "ck_qc_read_file_type",
         "qc_read_file",

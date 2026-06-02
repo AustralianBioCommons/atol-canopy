@@ -302,7 +302,7 @@ def get_assembly_manifest(
     current_user: User = Depends(get_current_active_user),
 ) -> Any:
     """
-    Retrieve the stored manifest JSON for the latest requested assembly for a taxon.
+    Retrieve the stored manifest JSON for the latest assembly for a taxon.
 
     Returns the manifest that was generated and stored when the intent was created.
     """
@@ -312,17 +312,14 @@ def get_assembly_manifest(
 
     assembly_query = (
         db.query(Assembly)
-        .filter(
-            Assembly.taxon_id == _organism_taxon_id(organism),
-            Assembly.status == "requested",
-        )
+        .filter(Assembly.taxon_id == _organism_taxon_id(organism))
         .order_by(Assembly.created_at.desc())
     )
     if version is not None:
         assembly_query = assembly_query.filter(Assembly.version == version)
     assembly = assembly_query.first()
     if not assembly:
-        raise HTTPException(status_code=404, detail="No requested assembly manifest found")
+        raise HTTPException(status_code=404, detail="No assembly manifest found")
 
     if assembly.manifest_json is None:
         raise HTTPException(
@@ -357,7 +354,7 @@ def create_assembly_intent(
 
     Both samples must be kind='specimen' and belong to the given taxon_id.
 
-    Returns JSON with assembly_id, version, status, and the generated manifest.
+    Returns JSON with assembly_id, version, and the generated manifest.
     """
     # 1. Resolve organism
     organism_query = db.query(Organism)
@@ -535,7 +532,7 @@ def cancel_assembly_intent(
     cancel_in: AssemblyIntentCancel,
     current_user: User = Depends(get_current_active_user),
 ) -> Any:
-    """Cancel a requested assembly by ID."""
+    """Delete an assembly intent by ID."""
     organism = db.query(Organism).filter(Organism.taxon_id == taxon_id).first()
     if not organism:
         raise HTTPException(status_code=404, detail=f"Organism with taxon_id {taxon_id} not found")
@@ -545,12 +542,11 @@ def cancel_assembly_intent(
         .filter(
             Assembly.id == cancel_in.assembly_id,
             Assembly.taxon_id == _organism_taxon_id(organism),
-            Assembly.status == "requested",
         )
         .first()
     )
     if not assembly:
-        raise HTTPException(status_code=404, detail="No requested assembly found to cancel")
+        raise HTTPException(status_code=404, detail="Assembly not found to cancel")
     if cancel_in.version is not None and cancel_in.version != assembly.version:
         raise AppError(
             status_code=409,
@@ -563,11 +559,7 @@ def cancel_assembly_intent(
             },
         )
 
-    assembly.status = "cancelled"
-    db.add(assembly)
-    db.commit()
-    db.refresh(assembly)
-    return {
+    response = {
         "id": str(assembly.id),
         "taxon_id": assembly.taxon_id,
         "long_read_specimen_sample_id": str(assembly.long_read_specimen_sample_id)
@@ -575,8 +567,11 @@ def cancel_assembly_intent(
         else None,
         "hic_specimen_sample_ids": assembly.hic_specimen_sample_ids or [],
         "version": assembly.version,
-        "status": assembly.status,
+        "deleted": True,
     }
+    db.delete(assembly)
+    db.commit()
+    return response
 
 
 @router.get("/optimal-sample/{taxon_id}")

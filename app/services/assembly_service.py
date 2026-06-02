@@ -206,7 +206,7 @@ class AssemblyService(BaseService[Assembly, AssemblyCreate, AssemblyUpdate]):
         project_id: Optional[UUID],
         manifest_json: Optional[dict] = None,
     ) -> Assembly:
-        """Create an Assembly at manifest-request time with status='requested'.
+        """Create an Assembly at manifest-request time.
 
         Versioning is scoped by (taxon_id, long_read_specimen_sample_id) only —
         data_types and hic_specimen_sample_ids are excluded from the version key.
@@ -231,7 +231,6 @@ class AssemblyService(BaseService[Assembly, AssemblyCreate, AssemblyUpdate]):
             version=version,
             tol_id=tol_id,
             project_id=project_id,
-            status="requested",
             manifest_json=manifest_json,
         )
         db.add(assembly)

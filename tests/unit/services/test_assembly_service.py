@@ -270,7 +270,7 @@ class TestGetNextVersionForIntent:
 class TestCreateFromIntent:
     """Tests for create_from_intent — new signature with specimen sample IDs and manifest persistence."""
 
-    def test_creates_assembly_with_requested_status(self, mock_db, assembly_service):
+    def test_creates_assembly_from_intent(self, mock_db, assembly_service):
         mock_query = Mock()
         mock_query.filter.return_value.scalar.return_value = None
         mock_db.query.return_value = mock_query
