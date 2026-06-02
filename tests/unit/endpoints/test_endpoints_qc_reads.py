@@ -69,6 +69,8 @@ class _SessionAssemblyQcReport:
             self.qc_read = obj
         elif isinstance(obj, QcReadAssembly):
             self.qc_read_assemblies.append(obj)
+        elif isinstance(obj, AssemblyRead):
+            self.assembly_read_rows.append(obj)
         elif isinstance(obj, QcReadFile):
             self.qc_files.append(obj)
             if self.qc_read is not None:
@@ -205,6 +207,54 @@ def test_report_qc_result_accepts_single_end_fastq():
     assert resp.status_code == 201
     assert resp.json()["files"][0]["file_type"] == "fastq"
     assert fake_db.qc_files[0].file_type == "fastq"
+
+
+def test_report_qc_result_populates_missing_assembly_reads():
+    client = TestClient(app)
+    assembly_id = uuid.uuid4()
+    experiment_id = uuid.uuid4()
+    read_1 = Read(id=uuid.uuid4(), experiment_id=experiment_id, bpa_resource_id="res-1")
+    read_2 = Read(id=uuid.uuid4(), experiment_id=experiment_id, bpa_resource_id="res-2")
+    fake_db = _SessionAssemblyQcReport(
+        assembly_obj=Assembly(
+            id=assembly_id, taxon_id=1, sample_id=uuid.uuid4(), data_types="PACBIO_SMRT"
+        ),
+        read_rows=[read_1, read_2],
+        assembly_read_rows=[],
+    )
+    app.dependency_overrides[assemblies.get_current_active_user] = lambda: SimpleNamespace(
+        is_active=True, roles=["genome_launcher"], is_superuser=False
+    )
+    app.dependency_overrides[assemblies.get_db] = _override_db(fake_db)
+
+    try:
+        resp = client.post(
+            f"/api/v1/assemblies/{assembly_id}/qc-reads/report",
+            json={
+                "source_bpa_resource_ids": ["res-1", "res-2"],
+                "base_count": 150,
+                "read_count": 10,
+                "qc_bases_removed": 5,
+                "qc_reads_removed": 1,
+                "mean_gc_content": 42.3,
+                "n50_length": 500,
+                "checksums": {
+                    "qc/sample_R1.fastq.gz": {
+                        "md5": "d41d8cd98f00b204e9800998ecf8427e",
+                        "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+                    },
+                    "qc/sample_R2.fastq.gz": {
+                        "md5": "0cc175b9c0f1b6a831c399e269772661",
+                        "sha256": "2c26b46b68ffc68ff99b453c1d30413413422d706483bfa0f98a5e886266e7ae",
+                    },
+                },
+            },
+        )
+    finally:
+        app.dependency_overrides = {}
+
+    assert resp.status_code == 201
+    assert sorted(row.read_id for row in fake_db.assembly_read_rows) == sorted([read_1.id, read_2.id])
 
 
 def test_report_qc_result_rejects_unlabelled_fastq_pairs():

@@ -910,7 +910,9 @@ def report_assembly_qc_read(
             detail=f"Source reads not found for BPA resource IDs: {', '.join(missing_resource_ids)}",
         )
 
-    source_read_ids = [reads_by_resource_id[resource_id].id for resource_id in payload.source_bpa_resource_ids]
+    source_read_ids = [
+        reads_by_resource_id[resource_id].id for resource_id in payload.source_bpa_resource_ids
+    ]
     assembly_read_rows = (
         db.query(AssemblyRead)
         .filter(
@@ -920,19 +922,9 @@ def report_assembly_qc_read(
         .all()
     )
     linked_read_ids = {row.read_id for row in assembly_read_rows}
-    unlinked_resource_ids = [
-        resource_id
-        for resource_id in payload.source_bpa_resource_ids
-        if reads_by_resource_id[resource_id].id not in linked_read_ids
-    ]
-    if unlinked_resource_ids:
-        raise HTTPException(
-            status_code=422,
-            detail=(
-                "Source reads are not linked to the target assembly for BPA resource IDs: "
-                + ", ".join(unlinked_resource_ids)
-            ),
-        )
+    for read_id in source_read_ids:
+        if read_id not in linked_read_ids:
+            db.add(AssemblyRead(assembly_id=assembly_id, read_id=read_id))
 
     experiment_ids = {read.experiment_id for read in source_reads}
     if len(experiment_ids) != 1:
