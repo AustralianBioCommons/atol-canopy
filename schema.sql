@@ -531,28 +531,21 @@ CREATE TABLE assembly (
     -- Version is scoped by (taxon_id, long_read_specimen_sample_id) for intent-flow assemblies
     version INTEGER NOT NULL DEFAULT 1,
 
-    -- Assembly lifecycle status
-    status TEXT NOT NULL DEFAULT 'requested',
-
     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-    updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-
-    CONSTRAINT ck_assembly_status CHECK (
-        status IN ('requested', 'running', 'curating', 'completed', 'failed', 'cancelled')
-    )
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
 CREATE TABLE assembly_run (
     id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
-    taxon_id INT REFERENCES organism(taxon_id) NOT NULL,
-    sample_id UUID REFERENCES sample(id) NOT NULL,
-    data_types assembly_data_types NOT NULL,
-    version INTEGER NOT NULL,
-    tol_id TEXT,
-    status TEXT NOT NULL DEFAULT 'reserved',
+    assembly_id UUID NOT NULL REFERENCES assembly(id) ON DELETE CASCADE,
+    github_repo TEXT NOT NULL,
+    git_commit TEXT NOT NULL,
     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-    updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    CONSTRAINT uq_assembly_run_assembly_repo_commit UNIQUE (assembly_id, github_repo, git_commit)
 );
+
+CREATE INDEX ix_assembly_run_assembly_id ON assembly_run(assembly_id);
 
 CREATE TABLE assembly_file (
     id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
@@ -636,11 +629,10 @@ INSERT INTO assembly_stage (name, category) VALUES
 
 CREATE TABLE assembly_stage_run (
     id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
-    assembly_id UUID NOT NULL REFERENCES assembly(id) ON DELETE CASCADE,
+    assembly_run_id UUID NOT NULL REFERENCES assembly_run(id) ON DELETE CASCADE,
     stage_name TEXT NOT NULL REFERENCES assembly_stage(name),
     status TEXT NOT NULL,
     external_run_id TEXT,
-    attempt INTEGER NOT NULL DEFAULT 1,
     stats JSONB NOT NULL DEFAULT '{}',
     started_at TIMESTAMPTZ,
     completed_at TIMESTAMPTZ,
@@ -649,10 +641,10 @@ CREATE TABLE assembly_stage_run (
     CONSTRAINT ck_assembly_stage_run_status CHECK (
         status IN ('running', 'succeeded', 'failed', 'cancelled')
     ),
-    CONSTRAINT uq_stage_run_assembly_stage_attempt UNIQUE (assembly_id, stage_name, attempt)
+    CONSTRAINT uq_stage_run_assembly_run_stage UNIQUE (assembly_run_id, stage_name)
 );
 
-CREATE INDEX ix_assembly_stage_run_assembly_id ON assembly_stage_run(assembly_id);
+CREATE INDEX ix_assembly_stage_run_assembly_run_id ON assembly_stage_run(assembly_run_id);
 
 CREATE TABLE assembly_stage_run_file (
     id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),

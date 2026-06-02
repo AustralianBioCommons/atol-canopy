@@ -54,7 +54,6 @@ class AssemblyBase(BaseModel):
     moleculetype: str = "genomic DNA"
     description: Optional[str] = None
     version: int = 1
-    status: str = "requested"
 
 
 # Schema for creating a new assembly
@@ -94,8 +93,7 @@ class AssemblyIntentResponse(BaseModel):
 
     assembly_id: UUID
     version: int
-    status: str
-    manifest_json: Dict[str, Any]
+    manifest: Dict[str, Any]
 
 
 class AssemblySpecimenSampleOption(BaseModel):
@@ -138,7 +136,6 @@ class AssemblyUpdate(BaseModel):
     moleculetype: Optional[str] = None
     version: Optional[int] = None
     description: Optional[str] = None
-    status: Optional[str] = None
     long_read_specimen_sample_id: Optional[UUID] = None
     hic_specimen_sample_id: Optional[UUID] = None
     manifest_json: Optional[Dict[str, Any]] = None

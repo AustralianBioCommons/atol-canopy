@@ -53,7 +53,6 @@ class Assembly(Base):
     coverage = Column(Float, nullable=True)
     program = Column(Text, nullable=True)
     mingaplength = Column(Float, nullable=True)
-    status = Column(Text, nullable=False, default="requested")
     moleculetype = Column(
         SQLAlchemyEnum("genomic DNA", "genomic RNA", name="molecule_type"),
         nullable=False,

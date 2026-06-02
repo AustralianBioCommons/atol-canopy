@@ -12,7 +12,10 @@ The flow has five stages:
 
 ## Authentication
 
-All endpoints require authentication. Write operations (`POST`, `PATCH`) additionally require the `assemblies:write` policy.
+All endpoints require authentication.
+
+- Most assembly write operations (`POST`, `PATCH`) require the `assemblies:write` policy.
+- QC read reporting requires the `qc_reads:report` policy.
 
 ## Endpoints Overview
 
@@ -31,7 +34,7 @@ All endpoints require authentication. Write operations (`POST`, `PATCH`) additio
 
 ## Step 1 — Create an assembly intent
 
-Call this endpoint once to register a new assembly. The server validates the supplied specimen samples, resolves all associated sequencing reads, generates a manifest JSON, and creates an `Assembly` record with status `requested`.
+Call this endpoint once to register a new assembly. The server validates the supplied specimen samples, resolves all associated sequencing reads, generates a manifest JSON, and creates an `Assembly` record.
 
 **Endpoint:** `POST /api/v1/assemblies/intent/{taxon_id}`
 
@@ -57,8 +60,7 @@ Call this endpoint once to register a new assembly. The server validates the sup
 {
   "assembly_id": "f47ac10b-58cc-4372-a567-0e02b2c3d479",
   "version": 1,
-  "status": "requested",
-  "manifest_json": { ... }
+  "manifest": { ... }
 }
 ```
 
@@ -70,7 +72,7 @@ If the pipeline needs to retrieve the manifest at a later point rather than stor
 
 **Endpoint:** `GET /api/v1/assemblies/manifest/{taxon_id}`
 
-An optional `?version=` query parameter can be used to retrieve a specific assembly version. Without it, the most recently created `requested` assembly is returned.
+An optional `?version=` query parameter can be used to retrieve a specific assembly version. Without it, the most recently created assembly is returned.
 
 ---
 
@@ -127,6 +129,8 @@ This endpoint records the QC metrics and output files against a specific assembl
 - one or two source reads identified by `source_bpa_resource_ids`
 
 The reported files must be either a single-file read set (for example one CRAM or one single-end FASTQ) or a paired FASTQ set (one R1 and one R2).
+
+Unlike stage results, QC read reports are linked directly to `assembly_id`; they are not nested under `run_id`.
 
 **Endpoint:** `POST /api/v1/assemblies/{assembly_id}/qc-reads/report`
 
@@ -322,7 +326,7 @@ POST /api/v1/assemblies/intent/9606
   "hic_specimen_sample_ids": ["22222222-2222-2222-2222-222222222222"],
   "tol_id": "xgHomoSapiens1"
 }
-→ { "assembly_id": "f47ac10b-...", "manifest_json": { ... } }
+→ { "assembly_id": "f47ac10b-...", "version": 1, "manifest": { ... } }
 
 # 2. Register the pipeline invocation
 POST /api/v1/assemblies/f47ac10b-.../runs

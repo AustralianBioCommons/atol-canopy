@@ -28,6 +28,9 @@ down_revision = "0002_update_taxon_cols"
 branch_labels = None
 depends_on = None
 
+LEGACY_STAGE_RUN_REPO = "__legacy_stage_runs__"
+LEGACY_STAGE_RUN_COMMIT = "pre-0003-migration"
+
 
 def upgrade() -> None:
     # ── 1. Drop legacy assembly_run table ────────────────────────────────────
@@ -76,20 +79,50 @@ def upgrade() -> None:
     op.drop_constraint("uq_stage_run_assembly_stage_attempt", "assembly_stage_run", type_="unique")
     op.drop_index("ix_assembly_stage_run_assembly_id", table_name="assembly_stage_run")
 
-    # Drop attempt and assembly_id columns
-    op.drop_column("assembly_stage_run", "attempt")
-    op.drop_column("assembly_stage_run", "assembly_id")
-
-    # Add assembly_run_id FK
+    # Add assembly_run_id as nullable first so existing rows can be backfilled.
     op.add_column(
         "assembly_stage_run",
         sa.Column(
             "assembly_run_id",
             UUID(as_uuid=True),
             sa.ForeignKey("assembly_run.id", ondelete="CASCADE"),
-            nullable=False,
+            nullable=True,
         ),
     )
+
+    # Create one synthetic assembly_run per assembly that already has stage-run rows.
+    op.execute(
+        sa.text(
+            """
+            INSERT INTO assembly_run (assembly_id, github_repo, git_commit)
+            SELECT DISTINCT assembly_id, :github_repo, :git_commit
+            FROM assembly_stage_run
+            """
+        ).bindparams(
+            github_repo=LEGACY_STAGE_RUN_REPO,
+            git_commit=LEGACY_STAGE_RUN_COMMIT,
+        )
+    )
+    op.execute(
+        sa.text(
+            """
+            UPDATE assembly_stage_run AS stage_run
+            SET assembly_run_id = assembly_run.id
+            FROM assembly_run
+            WHERE stage_run.assembly_id = assembly_run.assembly_id
+              AND assembly_run.github_repo = :github_repo
+              AND assembly_run.git_commit = :git_commit
+            """
+        ).bindparams(
+            github_repo=LEGACY_STAGE_RUN_REPO,
+            git_commit=LEGACY_STAGE_RUN_COMMIT,
+        )
+    )
+    op.alter_column("assembly_stage_run", "assembly_run_id", nullable=False)
+
+    # Drop old columns once the replacement FK is populated.
+    op.drop_column("assembly_stage_run", "attempt")
+    op.drop_column("assembly_stage_run", "assembly_id")
 
     # New unique constraint and index
     op.create_unique_constraint(
@@ -106,21 +139,31 @@ def downgrade() -> None:
     # ── Reverse assembly_stage_run changes ────────────────────────────────────
     op.drop_constraint("uq_stage_run_assembly_run_stage", "assembly_stage_run", type_="unique")
     op.drop_index("ix_assembly_stage_run_assembly_run_id", table_name="assembly_stage_run")
-    op.drop_column("assembly_stage_run", "assembly_run_id")
-
     op.add_column(
         "assembly_stage_run",
         sa.Column(
             "assembly_id",
             UUID(as_uuid=True),
             sa.ForeignKey("assembly.id", ondelete="CASCADE"),
-            nullable=False,
+            nullable=True,
         ),
     )
+    op.execute(
+        sa.text(
+            """
+            UPDATE assembly_stage_run AS stage_run
+            SET assembly_id = assembly_run.assembly_id
+            FROM assembly_run
+            WHERE stage_run.assembly_run_id = assembly_run.id
+            """
+        )
+    )
+    op.alter_column("assembly_stage_run", "assembly_id", nullable=False)
     op.add_column(
         "assembly_stage_run",
         sa.Column("attempt", sa.Integer(), nullable=False, server_default="1"),
     )
+    op.drop_column("assembly_stage_run", "assembly_run_id")
     op.create_unique_constraint(
         "uq_stage_run_assembly_stage_attempt",
         "assembly_stage_run",
