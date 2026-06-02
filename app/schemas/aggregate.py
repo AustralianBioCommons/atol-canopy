@@ -52,7 +52,6 @@ class QcReadSubmissionJson(BaseModel):
     """Schema for QC read submission data"""
 
     qc_read_id: UUID
-    experiment_id: Optional[UUID] = None
     prepared_payload: Optional[Dict[str, Any]] = None
     status: Optional[str] = None
     accession: Optional[str] = None

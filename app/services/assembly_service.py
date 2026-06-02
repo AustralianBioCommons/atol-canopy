@@ -20,6 +20,7 @@ from app.schemas.assembly import (
     AssemblyCreate,
     AssemblyFileCreate,
     AssemblyFileUpdate,
+    AssemblyRunCreate,
     AssemblyStageRunCreate,
     AssemblyStageRunUpdate,
     AssemblySubmissionCreate,
@@ -159,10 +160,6 @@ class AssemblyService(BaseService[Assembly, AssemblyCreate, AssemblyUpdate]):
         sample_id: UUID,
         data_types: str,
     ) -> int:
-        # Assembly is the primary source of truth for version numbers.
-        # AssemblyRun is also checked during the transition period to avoid conflicts
-        # with legacy reservations. Remove the AssemblyRun check once legacy records
-        # are resolved and the table is dropped.
         max_assembly = (
             db.query(func.max(Assembly.version))
             .filter(
@@ -172,16 +169,7 @@ class AssemblyService(BaseService[Assembly, AssemblyCreate, AssemblyUpdate]):
             )
             .scalar()
         )
-        max_run = (
-            db.query(func.max(AssemblyRun.version))
-            .filter(
-                AssemblyRun.data_types == data_types,
-                AssemblyRun.taxon_id == taxon_id,
-                AssemblyRun.sample_id == sample_id,
-            )
-            .scalar()
-        )
-        return max(max_assembly or 0, max_run or 0) + 1
+        return (max_assembly or 0) + 1
 
     def get_next_version_for_intent(
         self,
@@ -309,15 +297,46 @@ class AssemblyReadService(BaseService[AssemblyRead, AssemblyCreate, AssemblyUpda
         return db.query(AssemblyRead).filter(AssemblyRead.assembly_id == assembly_id).all()
 
 
+class AssemblyRunService(BaseService[AssemblyRun, AssemblyRunCreate, AssemblyRunCreate]):
+    """Service for AssemblyRun (pipeline invocation) operations."""
+
+    def get_by_assembly_id(self, db: Session, *, assembly_id: UUID) -> List[AssemblyRun]:
+        return (
+            db.query(AssemblyRun)
+            .filter(AssemblyRun.assembly_id == assembly_id)
+            .order_by(AssemblyRun.created_at.desc())
+            .all()
+        )
+
+    def create_for_assembly(
+        self,
+        db: Session,
+        *,
+        assembly_id: UUID,
+        run_in: AssemblyRunCreate,
+    ) -> AssemblyRun:
+        run = AssemblyRun(
+            assembly_id=assembly_id,
+            github_repo=run_in.github_repo,
+            git_commit=run_in.git_commit,
+        )
+        db.add(run)
+        db.commit()
+        db.refresh(run)
+        return run
+
+
 class AssemblyStageRunService(
     BaseService[AssemblyStageRun, AssemblyStageRunCreate, AssemblyStageRunUpdate]
 ):
     """Service for AssemblyStageRun operations."""
 
-    def get_by_assembly_id(self, db: Session, assembly_id: UUID) -> List[AssemblyStageRun]:
+    def get_by_assembly_run_id(
+        self, db: Session, *, assembly_run_id: UUID
+    ) -> List[AssemblyStageRun]:
         return (
             db.query(AssemblyStageRun)
-            .filter(AssemblyStageRun.assembly_id == assembly_id)
+            .filter(AssemblyStageRun.assembly_run_id == assembly_run_id)
             .order_by(AssemblyStageRun.created_at.desc())
             .all()
         )
@@ -326,15 +345,14 @@ class AssemblyStageRunService(
         self,
         db: Session,
         *,
-        assembly_id: UUID,
+        assembly_run_id: UUID,
         run_in: AssemblyStageRunCreate,
     ) -> AssemblyStageRun:
         run = AssemblyStageRun(
-            assembly_id=assembly_id,
+            assembly_run_id=assembly_run_id,
             stage_name=run_in.stage_name,
             status=run_in.status,
             external_run_id=run_in.external_run_id,
-            attempt=run_in.attempt,
             stats=run_in.stats,
             started_at=run_in.started_at,
             completed_at=run_in.completed_at,
@@ -395,6 +413,7 @@ class AssemblyStageRunService(
 
 
 assembly_service = AssemblyService(Assembly)
+assembly_run_service = AssemblyRunService(AssemblyRun)
 assembly_submission_service = AssemblySubmissionService(AssemblySubmission)
 assembly_file_service = AssemblyFileService(AssemblyFile)
 assembly_read_service = AssemblyReadService(AssemblyRead)

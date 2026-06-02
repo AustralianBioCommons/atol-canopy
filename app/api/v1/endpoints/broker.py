@@ -18,6 +18,7 @@ from app.models.experiment import Experiment, ExperimentSubmission
 from app.models.organism import Organism
 from app.models.project import Project, ProjectSubmission
 from app.models.qc_read import QcRead, QcReadSubmission
+from app.models.read import Read
 from app.models.sample import Sample, SampleSubmission
 from app.models.user import User
 from app.schemas.broker_contract import (
@@ -490,7 +491,8 @@ def _query_ready_run_submissions(db: Session, taxon_id: int) -> List[QcReadSubmi
     return (
         db.query(QcReadSubmission)
         .join(QcRead, QcReadSubmission.qc_read_id == QcRead.id)
-        .join(Experiment, QcRead.experiment_id == Experiment.id)
+        .join(Read, QcRead.read_id == Read.id)
+        .join(Experiment, Read.experiment_id == Experiment.id)
         .join(Sample, Experiment.sample_id == Sample.id)
         .join(Organism, Sample.taxon_id == Organism.taxon_id)
         .filter(
@@ -624,11 +626,12 @@ def _lookup_taxonomy_for_entity(
             .first()
         )
     else:
-        # RUN entity_id is a qc_read_id; traverse qc_read → experiment → sample → organism
+        # RUN entity_id is a qc_read_id; traverse qc_read → read → experiment → sample → organism
         row = (
             db.query(Sample.taxon_id, Organism.taxon_id)
             .join(Experiment, Experiment.sample_id == Sample.id)
-            .join(QcRead, QcRead.experiment_id == Experiment.id)
+            .join(Read, Read.experiment_id == Experiment.id)
+            .join(QcRead, QcRead.read_id == Read.id)
             .join(Organism, Sample.taxon_id == Organism.taxon_id)
             .filter(QcRead.id == entity_id)
             .first()
@@ -1780,7 +1783,8 @@ def claim_drafts_for_organism(
                 .label("rn"),
             )
             .join(QcRead, QcReadSubmission.qc_read_id == QcRead.id)
-            .join(Experiment, QcRead.experiment_id == Experiment.id)
+            .join(Read, QcRead.read_id == Read.id)
+            .join(Experiment, Read.experiment_id == Experiment.id)
             .join(Sample, Experiment.sample_id == Sample.id)
             .filter(Sample.taxon_id == taxon_id, QcReadSubmission.status == "draft")
         ).subquery()
@@ -3117,7 +3121,8 @@ def organism_summary(
     r_rows = (
         db.query(QcReadSubmission.status, func.count())
         .join(QcRead, QcReadSubmission.qc_read_id == QcRead.id)
-        .join(Experiment, QcRead.experiment_id == Experiment.id)
+        .join(Read, QcRead.read_id == Read.id)
+        .join(Experiment, Read.experiment_id == Experiment.id)
         .join(Sample, Experiment.sample_id == Sample.id)
         .filter(Sample.taxon_id == taxon_id)
         .group_by(QcReadSubmission.status)

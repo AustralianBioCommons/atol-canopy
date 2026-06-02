@@ -288,6 +288,32 @@ class AssemblyFile(AssemblyFileInDBBase):
 
 
 # ==========================================
+# AssemblyRun schemas
+# ==========================================
+
+
+class AssemblyRunCreate(BaseModel):
+    """Schema for creating an assembly run (one pipeline invocation)."""
+
+    github_repo: str
+    git_commit: str
+
+
+class AssemblyRunOut(BaseModel):
+    """Assembly run response schema."""
+
+    id: UUID
+    assembly_id: UUID
+    github_repo: str
+    git_commit: str
+    created_at: datetime
+    updated_at: datetime
+    stage_runs: List["AssemblyStageRunOut"] = []
+
+    model_config = ConfigDict(from_attributes=True)
+
+
+# ==========================================
 # AssemblyStageRun schemas
 # ==========================================
 
@@ -307,7 +333,6 @@ class AssemblyStageRunCreate(BaseModel):
     stage_name: str
     status: str
     external_run_id: Optional[str] = None
-    attempt: int = 1
     stats: Dict[str, Any] = {}
     started_at: Optional[datetime] = None
     completed_at: Optional[datetime] = None
@@ -343,11 +368,10 @@ class AssemblyStageRunOut(BaseModel):
     """Stage run response schema."""
 
     id: UUID
-    assembly_id: UUID
+    assembly_run_id: UUID
     stage_name: str
     status: str
     external_run_id: Optional[str]
-    attempt: int
     stats: Dict[str, Any]
     started_at: Optional[datetime]
     completed_at: Optional[datetime]
@@ -356,3 +380,6 @@ class AssemblyStageRunOut(BaseModel):
     files: List[AssemblyStageRunFileOut] = []
 
     model_config = ConfigDict(from_attributes=True)
+
+
+AssemblyRunOut.model_rebuild()
