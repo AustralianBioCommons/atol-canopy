@@ -9,9 +9,12 @@ from pydantic import BaseModel, field_validator, model_validator
 
 _MD5_RE = re.compile(r"^[a-f0-9]{32}$")
 _SHA256_RE = re.compile(r"^[a-f0-9]{64}$")
+_FASTQ_EXT_RE = re.compile(r"\.(fastq|fq)(?:\.gz)?$", re.IGNORECASE)
+_CRAM_EXT_RE = re.compile(r"\.cram$", re.IGNORECASE)
+_FASTQ_R1_RE = re.compile(r"(^|[._-])(r?1|read1)([._-]|$)", re.IGNORECASE)
+_FASTQ_R2_RE = re.compile(r"(^|[._-])(r?2|read2)([._-]|$)", re.IGNORECASE)
 
-# TODO loosen this when we support more file types
-FileType = Literal["cram", "fastq_r1", "fastq_r2"]
+FileType = Literal["cram", "fastq", "fastq_r1", "fastq_r2"]
 
 
 # ---------------------------------------------------------------------------
@@ -19,51 +22,99 @@ FileType = Literal["cram", "fastq_r1", "fastq_r2"]
 # ---------------------------------------------------------------------------
 
 
-class QcFileInput(BaseModel):
-    file_type: FileType
-    storage_backend: str
-    storage_profile: str
-    bucket_name: str
-    path_to_file: str
-    md5_checksum: str
-    sha256_checksum: str
+class QcFileChecksums(BaseModel):
+    md5: str
+    sha256: str
 
-    @field_validator("md5_checksum")
+    @field_validator("md5")
     @classmethod
     def validate_md5(cls, v: str) -> str:
         if not _MD5_RE.match(v):
-            raise ValueError("md5_checksum must be 32 lowercase hex characters")
+            raise ValueError("md5 must be 32 lowercase hex characters")
         return v
 
-    @field_validator("sha256_checksum")
+    @field_validator("sha256")
     @classmethod
     def validate_sha256(cls, v: str) -> str:
         if not _SHA256_RE.match(v):
-            raise ValueError("sha256_checksum must be 64 lowercase hex characters")
+            raise ValueError("sha256 must be 64 lowercase hex characters")
         return v
 
 
-class QcCallbackRequest(BaseModel):
-    """Payload posted by the genome launcher after QC completes."""
+class ClassifiedQcFile(BaseModel):
+    path_to_file: str
+    file_type: FileType
+    md5_checksum: str
+    sha256_checksum: str
 
-    bpa_package_id: str
+
+def classify_reported_files(checksums: Dict[str, QcFileChecksums]) -> List[ClassifiedQcFile]:
+    items = list(checksums.items())
+    if len(items) == 1:
+        path_to_file, checksum = items[0]
+        if _CRAM_EXT_RE.search(path_to_file):
+            file_type: FileType = "cram"
+        elif _FASTQ_EXT_RE.search(path_to_file):
+            file_type = "fastq"
+        else:
+            raise ValueError(
+                "single-file QC reports must use a .cram, .fastq, .fastq.gz, .fq, or .fq.gz filename"
+            )
+        return [
+            ClassifiedQcFile(
+                path_to_file=path_to_file,
+                file_type=file_type,
+                md5_checksum=checksum.md5,
+                sha256_checksum=checksum.sha256,
+            )
+        ]
+
+    if len(items) != 2:
+        raise ValueError("checksums must contain either one file or exactly one paired FASTQ set")
+
+    classified: List[ClassifiedQcFile] = []
+    seen_types: set[FileType] = set()
+    for path_to_file, checksum in items:
+        if not _FASTQ_EXT_RE.search(path_to_file):
+            raise ValueError("paired QC reports must use FASTQ filenames")
+        if _FASTQ_R1_RE.search(path_to_file):
+            file_type = "fastq_r1"
+        elif _FASTQ_R2_RE.search(path_to_file):
+            file_type = "fastq_r2"
+        else:
+            raise ValueError(
+                "paired FASTQ filenames must identify read direction with R1/read1 and R2/read2"
+            )
+        seen_types.add(file_type)
+        classified.append(
+            ClassifiedQcFile(
+                path_to_file=path_to_file,
+                file_type=file_type,
+                md5_checksum=checksum.md5,
+                sha256_checksum=checksum.sha256,
+            )
+        )
+
+    if seen_types != {"fastq_r1", "fastq_r2"}:
+        raise ValueError("paired QC reports must include exactly one R1 FASTQ and one R2 FASTQ")
+
+    return classified
+
+
+class QcCallbackRequest(BaseModel):
+    """Payload posted by the genome launcher after QC completes for one read object."""
+
     base_count: int
     read_count: int
     qc_bases_removed: int
     qc_reads_removed: int
     mean_gc_content: float
     n50_length: Optional[int] = None
-    files: List[QcFileInput]
+    checksums: Dict[str, QcFileChecksums]
 
     @model_validator(mode="after")
     def validate_file_set(self) -> "QcCallbackRequest":
-        types = {f.file_type for f in self.files}
-        is_cram = types == {"cram"} and len(self.files) == 1
-        is_fastq_pair = types == {"fastq_r1", "fastq_r2"} and len(self.files) == 2
-        if not (is_cram or is_fastq_pair):
-            raise ValueError(
-                "files must be either exactly one CRAM file or exactly one fastq_r1 + one fastq_r2"
-            )
+        classify_reported_files(self.checksums)
         return self
 
 
@@ -76,9 +127,9 @@ class QcReadFileOut(BaseModel):
     id: UUID
     qc_read_id: UUID
     file_type: str
-    storage_backend: str
-    storage_profile: str
-    bucket_name: str
+    storage_backend: Optional[str]
+    storage_profile: Optional[str]
+    bucket_name: Optional[str]
     path_to_file: str
     md5_checksum: str
     sha256_checksum: str
@@ -90,7 +141,6 @@ class QcReadFileOut(BaseModel):
 class QcReadSubmissionOut(BaseModel):
     id: UUID
     qc_read_id: UUID
-    experiment_id: Optional[UUID]
     authority: str
     status: str
     accession: Optional[str]
@@ -102,7 +152,7 @@ class QcReadSubmissionOut(BaseModel):
 
 class QcReadOut(BaseModel):
     id: UUID
-    experiment_id: UUID
+    read_id: UUID
     base_count: int
     read_count: int
     qc_bases_removed: int

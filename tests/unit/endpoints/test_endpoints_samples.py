@@ -380,6 +380,9 @@ def test_get_samples_experiments_and_reads_for_specimen():
         def filter(self, *_a, **_k):
             return self
 
+        def join(self, *_a, **_k):
+            return self
+
         def first(self):
             return self.value if not isinstance(self.value, list) else None
 

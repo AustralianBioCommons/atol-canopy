@@ -31,6 +31,8 @@ from app.schemas.assembly import (
     AssemblyFileUpdate,
     AssemblyIntent,
     AssemblyIntentCancel,
+    AssemblyRunCreate,
+    AssemblyRunOut,
     AssemblySpecimenSampleDiscoveryResponse,
     AssemblyStageRunCreate,
     AssemblyStageRunOut,
@@ -53,6 +55,7 @@ from app.services.assembly_helper import (
 )
 from app.services.assembly_service import (
     assembly_file_service,
+    assembly_run_service,
     assembly_service,
     assembly_stage_run_service,
     assembly_submission_service,
@@ -839,50 +842,103 @@ def delete_assembly_file(
 
 
 # ==========================================
-# Assembly Stage Run endpoints
+# Assembly Run endpoints (pipeline invocations)
 # ==========================================
 
 
-@router.get("/{assembly_id}/stage-runs", response_model=List[AssemblyStageRunOut])
-def list_stage_runs(
+@router.get("/{assembly_id}/runs", response_model=List[AssemblyRunOut])
+def list_assembly_runs(
     *,
     db: Session = Depends(get_db),
     assembly_id: UUID,
     current_user: User = Depends(get_current_active_user),
 ) -> Any:
-    """List all stage runs for an assembly, newest first."""
+    """List all pipeline runs for an assembly, newest first."""
     assembly = assembly_service.get(db, id=assembly_id)
     if not assembly:
         raise HTTPException(status_code=404, detail="Assembly not found")
-    return assembly_stage_run_service.get_by_assembly_id(db, assembly_id=assembly_id)
+    return assembly_run_service.get_by_assembly_id(db, assembly_id=assembly_id)
 
 
-@router.post("/{assembly_id}/stage-runs", response_model=AssemblyStageRunOut)
+@router.post("/{assembly_id}/runs", response_model=AssemblyRunOut)
 @policy("assemblies:write")
-def create_stage_run(
+def create_assembly_run(
     *,
     db: Session = Depends(get_db),
     assembly_id: UUID,
-    run_in: AssemblyStageRunCreate,
+    run_in: AssemblyRunCreate,
     current_user: User = Depends(get_current_active_user),
 ) -> Any:
-    """Report a stage run result for an assembly."""
+    """Register a new pipeline invocation for an assembly (github_repo + git_commit)."""
     assembly = assembly_service.get(db, id=assembly_id)
     if not assembly:
         raise HTTPException(status_code=404, detail="Assembly not found")
-    return assembly_stage_run_service.create_with_files(
+    return assembly_run_service.create_for_assembly(
         db,
         assembly_id=assembly_id,
         run_in=run_in,
     )
 
 
-@router.patch("/{assembly_id}/stage-runs/{stage_run_id}", response_model=AssemblyStageRunOut)
+# ==========================================
+# Assembly Stage Run endpoints
+# ==========================================
+
+
+@router.get("/{assembly_id}/runs/{run_id}/stage-runs", response_model=List[AssemblyStageRunOut])
+def list_stage_runs(
+    *,
+    db: Session = Depends(get_db),
+    assembly_id: UUID,
+    run_id: UUID,
+    current_user: User = Depends(get_current_active_user),
+) -> Any:
+    """List all stage runs for a pipeline run, newest first."""
+    assembly_run = (
+        db.query(AssemblyRun)
+        .filter(AssemblyRun.id == run_id, AssemblyRun.assembly_id == assembly_id)
+        .first()
+    )
+    if not assembly_run:
+        raise HTTPException(status_code=404, detail="Assembly run not found")
+    return assembly_stage_run_service.get_by_assembly_run_id(db, assembly_run_id=run_id)
+
+
+@router.post("/{assembly_id}/runs/{run_id}/stage-runs", response_model=AssemblyStageRunOut)
+@policy("assemblies:write")
+def create_stage_run(
+    *,
+    db: Session = Depends(get_db),
+    assembly_id: UUID,
+    run_id: UUID,
+    run_in: AssemblyStageRunCreate,
+    current_user: User = Depends(get_current_active_user),
+) -> Any:
+    """Report a stage result for a pipeline run."""
+    assembly_run = (
+        db.query(AssemblyRun)
+        .filter(AssemblyRun.id == run_id, AssemblyRun.assembly_id == assembly_id)
+        .first()
+    )
+    if not assembly_run:
+        raise HTTPException(status_code=404, detail="Assembly run not found")
+    return assembly_stage_run_service.create_with_files(
+        db,
+        assembly_run_id=run_id,
+        run_in=run_in,
+    )
+
+
+@router.patch(
+    "/{assembly_id}/runs/{run_id}/stage-runs/{stage_run_id}",
+    response_model=AssemblyStageRunOut,
+)
 @policy("assemblies:write")
 def update_stage_run(
     *,
     db: Session = Depends(get_db),
     assembly_id: UUID,
+    run_id: UUID,
     stage_run_id: UUID,
     update_in: AssemblyStageRunUpdate,
     current_user: User = Depends(get_current_active_user),
@@ -892,8 +948,10 @@ def update_stage_run(
         db.query(AssemblyStageRun)
         .filter(
             AssemblyStageRun.id == stage_run_id,
-            AssemblyStageRun.assembly_id == assembly_id,
+            AssemblyStageRun.assembly_run_id == run_id,
         )
+        .join(AssemblyRun)
+        .filter(AssemblyRun.assembly_id == assembly_id)
         .first()
     )
     if not stage_run:

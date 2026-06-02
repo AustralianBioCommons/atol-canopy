@@ -713,7 +713,7 @@ CREATE INDEX idx_genome_note_published ON genome_note(taxon_id, is_published)
 
 CREATE TABLE qc_read (
     id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
-    experiment_id UUID NOT NULL REFERENCES experiment(id) ON DELETE CASCADE,
+    read_id UUID NOT NULL REFERENCES read(id) ON DELETE CASCADE,
     base_count BIGINT NOT NULL,
     read_count BIGINT NOT NULL,
     qc_bases_removed BIGINT NOT NULL,
@@ -727,10 +727,10 @@ CREATE TABLE qc_read (
 CREATE TABLE qc_read_file (
     id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
     qc_read_id UUID NOT NULL REFERENCES qc_read(id) ON DELETE CASCADE,
-    file_type TEXT NOT NULL CHECK (file_type IN ('cram', 'fastq_r1', 'fastq_r2')),
-    storage_backend TEXT NOT NULL,
-    storage_profile TEXT NOT NULL,
-    bucket_name TEXT NOT NULL,
+    file_type TEXT NOT NULL CHECK (file_type IN ('cram', 'fastq', 'fastq_r1', 'fastq_r2')),
+    storage_backend TEXT,
+    storage_profile TEXT,
+    bucket_name TEXT,
     path_to_file TEXT NOT NULL,
     md5_checksum TEXT NOT NULL CHECK (md5_checksum ~ '^[a-f0-9]{32}$'),
     sha256_checksum TEXT NOT NULL CHECK (sha256_checksum ~ '^[a-f0-9]{64}$'),
@@ -741,7 +741,6 @@ CREATE TABLE qc_read_file (
 CREATE TABLE qc_read_submission (
     id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
     qc_read_id UUID NOT NULL REFERENCES qc_read(id) ON DELETE CASCADE,
-    experiment_id UUID REFERENCES experiment(id) ON DELETE CASCADE,
     authority authority_type NOT NULL DEFAULT 'ENA',
     status submission_status NOT NULL DEFAULT 'draft',
 
@@ -771,10 +770,9 @@ CREATE TABLE qc_read_submission (
 );
 
 -- QC read indexes
-CREATE INDEX idx_qc_read_experiment_id ON qc_read(experiment_id);
+CREATE INDEX idx_qc_read_read_id ON qc_read(read_id);
 CREATE INDEX idx_qc_read_file_qc_read_id ON qc_read_file(qc_read_id);
 CREATE INDEX idx_qc_read_submission_attempt ON qc_read_submission (attempt_id);
-CREATE INDEX idx_qc_read_submission_experiment_id ON qc_read_submission (experiment_id);
 CREATE INDEX idx_qc_read_submission_finalised_attempt ON qc_read_submission (finalised_attempt_id);
 CREATE INDEX idx_qc_read_submission_lock_expires_at ON qc_read_submission (lock_expires_at);
 CREATE INDEX idx_qc_read_submission_status ON qc_read_submission (status);
