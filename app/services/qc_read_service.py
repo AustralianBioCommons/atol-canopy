@@ -5,7 +5,6 @@ from sqlalchemy.orm import Session
 
 from app.models.experiment import Experiment
 from app.models.qc_read import QcRead, QcReadSubmission
-from app.models.read import Read
 
 
 class QcReadSubmissionService:
@@ -18,8 +17,7 @@ class QcReadSubmissionService:
         return (
             db.query(QcReadSubmission)
             .join(QcRead, QcRead.id == QcReadSubmission.qc_read_id)
-            .join(Read, Read.id == QcRead.read_id)
-            .filter(Read.experiment_id == experiment_id)
+            .filter(QcRead.experiment_id == experiment_id)
             .all()
         )
 
@@ -27,8 +25,7 @@ class QcReadSubmissionService:
         return (
             db.query(QcReadSubmission)
             .join(QcRead, QcRead.id == QcReadSubmission.qc_read_id)
-            .join(Read, Read.id == QcRead.read_id)
-            .join(Experiment, Experiment.id == Read.experiment_id)
+            .join(Experiment, Experiment.id == QcRead.experiment_id)
             .filter(Experiment.project_id == project_id)
             .all()
         )

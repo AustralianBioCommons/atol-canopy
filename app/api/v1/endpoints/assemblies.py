@@ -12,12 +12,14 @@ from app.core.policy import policy
 from app.models.assembly import (
     Assembly,
     AssemblyFile,
+    AssemblyRead,
     AssemblyRun,
     AssemblyStageRun,
     AssemblySubmission,
 )
 from app.models.experiment import Experiment
 from app.models.organism import Organism
+from app.models.qc_read import QcRead, QcReadAssembly, QcReadFile, QcReadSubmission
 from app.models.read import Read
 from app.models.sample import Sample
 from app.models.user import User
@@ -48,6 +50,7 @@ from app.schemas.assembly import (
     AssemblySubmission as AssemblySubmissionSchema,
 )
 from app.schemas.common import SubmissionStatus
+from app.schemas.qc_read import QcCallbackRequest, QcReadOut, classify_reported_files
 from app.services.assembly_helper import (
     determine_assembly_data_types,
     generate_assembly_manifest_json,
@@ -60,6 +63,7 @@ from app.services.assembly_service import (
     assembly_stage_run_service,
     assembly_submission_service,
 )
+from app.api.v1.endpoints.qc_reads import _build_prepared_payload
 from app.services.organism_service import organism_service
 
 router = APIRouter()
@@ -878,6 +882,115 @@ def create_assembly_run(
         assembly_id=assembly_id,
         run_in=run_in,
     )
+
+
+@router.post("/{assembly_id}/qc-reads/report", response_model=QcReadOut, status_code=201)
+@policy("qc_reads:report")
+def report_assembly_qc_read(
+    *,
+    db: Session = Depends(get_db),
+    assembly_id: UUID,
+    payload: QcCallbackRequest,
+    current_user: User = Depends(get_current_active_user),
+) -> Any:
+    """Create a QC read result for an assembly from one or two source BPA resource IDs."""
+    assembly = assembly_service.get(db, id=assembly_id)
+    if not assembly:
+        raise HTTPException(status_code=404, detail="Assembly not found")
+
+    source_reads = (
+        db.query(Read)
+        .filter(Read.bpa_resource_id.in_(payload.source_bpa_resource_ids))
+        .all()
+    )
+    reads_by_resource_id = {read.bpa_resource_id: read for read in source_reads}
+    missing_resource_ids = [
+        resource_id
+        for resource_id in payload.source_bpa_resource_ids
+        if resource_id not in reads_by_resource_id
+    ]
+    if missing_resource_ids:
+        raise HTTPException(
+            status_code=422,
+            detail=f"Source reads not found for BPA resource IDs: {', '.join(missing_resource_ids)}",
+        )
+
+    source_read_ids = [reads_by_resource_id[resource_id].id for resource_id in payload.source_bpa_resource_ids]
+    assembly_read_rows = (
+        db.query(AssemblyRead)
+        .filter(
+            AssemblyRead.assembly_id == assembly_id,
+            AssemblyRead.read_id.in_(source_read_ids),
+        )
+        .all()
+    )
+    linked_read_ids = {row.read_id for row in assembly_read_rows}
+    unlinked_resource_ids = [
+        resource_id
+        for resource_id in payload.source_bpa_resource_ids
+        if reads_by_resource_id[resource_id].id not in linked_read_ids
+    ]
+    if unlinked_resource_ids:
+        raise HTTPException(
+            status_code=422,
+            detail=(
+                "Source reads are not linked to the target assembly for BPA resource IDs: "
+                + ", ".join(unlinked_resource_ids)
+            ),
+        )
+
+    experiment_ids = {read.experiment_id for read in source_reads}
+    if len(experiment_ids) != 1:
+        raise HTTPException(
+            status_code=422,
+            detail="All source reads for a QC report must belong to the same experiment",
+        )
+
+    qc_read = QcRead(
+        experiment_id=source_reads[0].experiment_id,
+        source_bpa_resource_ids=payload.source_bpa_resource_ids,
+        base_count=payload.base_count,
+        read_count=payload.read_count,
+        qc_bases_removed=payload.qc_bases_removed,
+        qc_reads_removed=payload.qc_reads_removed,
+        mean_gc_content=payload.mean_gc_content,
+        n50_length=payload.n50_length,
+    )
+    db.add(qc_read)
+    db.flush()
+
+    db.add(QcReadAssembly(assembly_id=assembly_id, qc_read_id=qc_read.id))
+
+    reported_files = classify_reported_files(payload.checksums)
+    qc_files = [
+        QcReadFile(
+            qc_read_id=qc_read.id,
+            file_type=f.file_type,
+            storage_backend=None,
+            storage_profile=None,
+            bucket_name=None,
+            path_to_file=f.path_to_file,
+            md5_checksum=f.md5_checksum,
+            sha256_checksum=f.sha256_checksum,
+        )
+        for f in reported_files
+    ]
+    for qf in qc_files:
+        db.add(qf)
+    db.flush()
+
+    db.add(
+        QcReadSubmission(
+            qc_read_id=qc_read.id,
+            authority="ENA",
+            status="draft",
+            prepared_payload=_build_prepared_payload(qc_read, qc_files),
+            entity_type_const="qc_read",
+        )
+    )
+    db.commit()
+    db.refresh(qc_read)
+    return qc_read
 
 
 # ==========================================

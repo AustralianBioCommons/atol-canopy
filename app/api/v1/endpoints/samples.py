@@ -247,8 +247,7 @@ def get_samples_experiments_and_reads_for_specimen(
             reads = db.query(Read).filter(Read.experiment_id == experiment.id).all()
             qc_reads = (
                 db.query(QcRead)
-                .join(Read, Read.id == QcRead.read_id)
-                .filter(Read.experiment_id == experiment.id)
+                .filter(QcRead.experiment_id == experiment.id)
                 .all()
             )
             experiment_payload.append(

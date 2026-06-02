@@ -22,7 +22,7 @@ All endpoints require authentication. Write operations (`POST`, `PATCH`) additio
 | `GET` | `/api/v1/assemblies/manifest/{taxon_id}` | Re-fetch the manifest for an existing assembly |
 | `POST` | `/api/v1/assemblies/{assembly_id}/runs` | Register a pipeline invocation |
 | `GET` | `/api/v1/assemblies/{assembly_id}/runs` | List all pipeline runs for an assembly |
-| `POST` | `/api/v1/qc-reads/{read_id}/report` | Report QC read files after the QC stage completes |
+| `POST` | `/api/v1/assemblies/{assembly_id}/qc-reads/report` | Report QC read files after the QC stage completes |
 | `POST` | `/api/v1/assemblies/{assembly_id}/runs/{run_id}/stage-runs` | Report a stage result |
 | `GET` | `/api/v1/assemblies/{assembly_id}/runs/{run_id}/stage-runs` | List stage results for a run |
 | `PATCH` | `/api/v1/assemblies/{assembly_id}/runs/{run_id}/stage-runs/{stage_run_id}` | Update an existing stage result |
@@ -120,9 +120,15 @@ Save the `id` from the response as `run_id` — it is required for Steps 4 and 5
 
 After the QC stage completes, the pipeline must report the processed read files back to the database. This is a separate call from reporting the stage result (Step 4) and uses a different endpoint.
 
-This endpoint records the QC metrics and output files against a specific `read` object, identified by `read_id`. Each call creates one `qc_read` record for that read object. The reported files must be either a single-file read set (for example one CRAM or one single-end FASTQ) or a paired FASTQ set (one R1 and one R2).
+This endpoint records the QC metrics and output files against a specific assembly. Each call creates one `qc_read` record linked to:
 
-**Endpoint:** `POST /api/v1/qc-reads/{read_id}/report`
+- the source experiment
+- the target assembly
+- one or two source reads identified by `source_bpa_resource_ids`
+
+The reported files must be either a single-file read set (for example one CRAM or one single-end FASTQ) or a paired FASTQ set (one R1 and one R2).
+
+**Endpoint:** `POST /api/v1/assemblies/{assembly_id}/qc-reads/report`
 
 > Requires the `qc_reads:report` policy.
 
@@ -130,6 +136,7 @@ This endpoint records the QC metrics and output files against a specific `read` 
 
 ```json
 {
+  "source_bpa_resource_ids": ["RES-001", "RES-002"],
   "base_count": 15000000000,
   "read_count": 5000000,
   "qc_bases_removed": 120000,
@@ -151,6 +158,7 @@ This endpoint records the QC metrics and output files against a specific `read` 
 
 | Field | Required | Description |
 |-------|----------|-------------|
+| `source_bpa_resource_ids` | Yes | One or two source read BPA resource IDs used to produce this QC result |
 | `base_count` | Yes | Total number of bases after QC |
 | `read_count` | Yes | Total number of reads after QC |
 | `qc_bases_removed` | Yes | Number of bases removed during QC |
@@ -169,6 +177,10 @@ Each `checksums` entry:
 
 Validation rules:
 
+- `source_bpa_resource_ids` must contain one or two unique values
+- all referenced reads must exist
+- all referenced reads must belong to the same experiment
+- all referenced reads must be linked to the target assembly
 - One checksum entry: accepted for a single-file read set when the filename ends in `.cram`, `.fastq`, `.fastq.gz`, `.fq`, or `.fq.gz`
 - Two checksum entries: accepted for paired FASTQ when the filenames identify one R1/read1 file and one R2/read2 file
 - More than two files are rejected by this endpoint
@@ -321,8 +333,9 @@ POST /api/v1/assemblies/f47ac10b-.../runs
 → { "id": "a1b2c3d4-..." }
 
 # 3. QC stage completes — report QC reads, then report the stage result
-POST /api/v1/qc-reads/<read_id>/report
+POST /api/v1/assemblies/f47ac10b-.../qc-reads/report
 {
+  "source_bpa_resource_ids": ["RES-001", "RES-002"],
   "base_count": 15000000000,
   "read_count": 5000000,
   "qc_bases_removed": 120000,
