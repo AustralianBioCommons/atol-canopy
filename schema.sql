@@ -713,7 +713,8 @@ CREATE INDEX idx_genome_note_published ON genome_note(taxon_id, is_published)
 
 CREATE TABLE qc_read (
     id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
-    read_id UUID NOT NULL REFERENCES read(id) ON DELETE CASCADE,
+    experiment_id UUID NOT NULL REFERENCES experiment(id) ON DELETE CASCADE,
+    source_bpa_resource_ids TEXT[] NOT NULL,
     base_count BIGINT NOT NULL,
     read_count BIGINT NOT NULL,
     qc_bases_removed BIGINT NOT NULL,
@@ -769,13 +770,20 @@ CREATE TABLE qc_read_submission (
         DEFERRABLE INITIALLY DEFERRED
 );
 
+CREATE TABLE qc_read_assembly (
+    assembly_id UUID NOT NULL REFERENCES assembly(id) ON DELETE CASCADE,
+    qc_read_id UUID NOT NULL REFERENCES qc_read(id) ON DELETE CASCADE,
+    PRIMARY KEY (assembly_id, qc_read_id)
+);
+
 -- QC read indexes
-CREATE INDEX idx_qc_read_read_id ON qc_read(read_id);
+CREATE INDEX idx_qc_read_experiment_id ON qc_read(experiment_id);
 CREATE INDEX idx_qc_read_file_qc_read_id ON qc_read_file(qc_read_id);
 CREATE INDEX idx_qc_read_submission_attempt ON qc_read_submission (attempt_id);
 CREATE INDEX idx_qc_read_submission_finalised_attempt ON qc_read_submission (finalised_attempt_id);
 CREATE INDEX idx_qc_read_submission_lock_expires_at ON qc_read_submission (lock_expires_at);
 CREATE INDEX idx_qc_read_submission_status ON qc_read_submission (status);
+CREATE INDEX idx_qc_read_assembly_qc_read_id ON qc_read_assembly (qc_read_id);
 
 CREATE UNIQUE INDEX uq_qc_read_one_accepted
   ON qc_read_submission (qc_read_id, authority)

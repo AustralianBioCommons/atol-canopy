@@ -4,9 +4,10 @@ from types import SimpleNamespace
 
 from fastapi.testclient import TestClient
 
-from app.api.v1.endpoints import qc_reads
+from app.api.v1.endpoints import assemblies
 from app.main import app
-from app.models.qc_read import QcRead, QcReadFile, QcReadSubmission
+from app.models.assembly import Assembly, AssemblyRead
+from app.models.qc_read import QcRead, QcReadAssembly, QcReadFile, QcReadSubmission
 from app.models.read import Read
 
 
@@ -17,9 +18,9 @@ def _override_db(fake):
     return _gen
 
 
-class _QuerySingle:
-    def __init__(self, obj):
-        self.obj = obj
+class _QuerySequence:
+    def __init__(self, value):
+        self.value = value
 
     def filter(self, *_a, **_k):
         return self
@@ -28,20 +29,30 @@ class _QuerySingle:
         return self
 
     def first(self):
-        return self.obj
+        return self.value if not isinstance(self.value, list) else None
+
+    def all(self):
+        return self.value if isinstance(self.value, list) else []
 
 
-class _SessionQcReport:
-    def __init__(self, read_obj=None):
-        self.read_obj = read_obj
+class _SessionAssemblyQcReport:
+    def __init__(self, assembly_obj=None, read_rows=None, assembly_read_rows=None):
+        self.assembly_obj = assembly_obj
+        self.read_rows = read_rows or []
+        self.assembly_read_rows = assembly_read_rows or []
         self.qc_read = None
+        self.qc_read_assemblies = []
         self.qc_files = []
         self.submissions = []
 
     def query(self, model):
+        if model is Assembly:
+            return _QuerySequence(self.assembly_obj)
         if model is Read:
-            return _QuerySingle(self.read_obj)
-        return _QuerySingle(None)
+            return _QuerySequence(self.read_rows)
+        if model is AssemblyRead:
+            return _QuerySequence(self.assembly_read_rows)
+        return _QuerySequence(None)
 
     def add(self, obj):
         now = datetime.now(timezone.utc)
@@ -56,6 +67,8 @@ class _SessionQcReport:
             obj.files = []
             obj.submission_records = []
             self.qc_read = obj
+        elif isinstance(obj, QcReadAssembly):
+            self.qc_read_assemblies.append(obj)
         elif isinstance(obj, QcReadFile):
             self.qc_files.append(obj)
             if self.qc_read is not None:
@@ -81,23 +94,28 @@ class _SessionQcReport:
 
 def test_report_qc_result_creates_paired_fastq_qc_read():
     client = TestClient(app)
-    read_obj = Read(
-        id=uuid.uuid4(),
-        experiment_id=uuid.uuid4(),
-        bpa_resource_id="res-1",
-        file_name="input.fastq.gz",
-        file_format="fastq",
+    assembly_id = uuid.uuid4()
+    experiment_id = uuid.uuid4()
+    read_1 = Read(id=uuid.uuid4(), experiment_id=experiment_id, bpa_resource_id="res-1")
+    read_2 = Read(id=uuid.uuid4(), experiment_id=experiment_id, bpa_resource_id="res-2")
+    fake_db = _SessionAssemblyQcReport(
+        assembly_obj=Assembly(id=assembly_id, taxon_id=1, sample_id=uuid.uuid4(), data_types="PACBIO_SMRT"),
+        read_rows=[read_1, read_2],
+        assembly_read_rows=[
+            SimpleNamespace(assembly_id=assembly_id, read_id=read_1.id),
+            SimpleNamespace(assembly_id=assembly_id, read_id=read_2.id),
+        ],
     )
-    fake_db = _SessionQcReport(read_obj=read_obj)
-    app.dependency_overrides[qc_reads.get_current_active_user] = lambda: SimpleNamespace(
+    app.dependency_overrides[assemblies.get_current_active_user] = lambda: SimpleNamespace(
         is_active=True, roles=["genome_launcher"], is_superuser=False
     )
-    app.dependency_overrides[qc_reads.get_db] = _override_db(fake_db)
+    app.dependency_overrides[assemblies.get_db] = _override_db(fake_db)
 
     try:
         resp = client.post(
-            f"/api/v1/qc-reads/{read_obj.id}/report",
+            f"/api/v1/assemblies/{assembly_id}/qc-reads/report",
             json={
+                "source_bpa_resource_ids": ["res-1", "res-2"],
                 "base_count": 150,
                 "read_count": 10,
                 "qc_bases_removed": 5,
@@ -121,11 +139,14 @@ def test_report_qc_result_creates_paired_fastq_qc_read():
 
     assert resp.status_code == 201
     body = resp.json()
-    assert body["read_id"] == str(read_obj.id)
+    assert body["experiment_id"] == str(experiment_id)
+    assert body["source_bpa_resource_ids"] == ["res-1", "res-2"]
     assert sorted(f["file_type"] for f in body["files"]) == ["fastq_r1", "fastq_r2"]
     assert fake_db.qc_read is not None
-    assert fake_db.qc_read.read_id == read_obj.id
+    assert fake_db.qc_read.experiment_id == experiment_id
+    assert fake_db.qc_read.source_bpa_resource_ids == ["res-1", "res-2"]
     assert [f.file_type for f in fake_db.qc_files] == ["fastq_r1", "fastq_r2"]
+    assert fake_db.qc_read_assemblies[0].assembly_id == assembly_id
     assert fake_db.submissions[0].prepared_payload == {
         "files": [
             {
@@ -146,23 +167,24 @@ def test_report_qc_result_creates_paired_fastq_qc_read():
 
 def test_report_qc_result_accepts_single_end_fastq():
     client = TestClient(app)
-    read_obj = Read(
-        id=uuid.uuid4(),
-        experiment_id=uuid.uuid4(),
-        bpa_resource_id="res-2",
-        file_name="input.fastq.gz",
-        file_format="fastq",
+    assembly_id = uuid.uuid4()
+    experiment_id = uuid.uuid4()
+    read_1 = Read(id=uuid.uuid4(), experiment_id=experiment_id, bpa_resource_id="res-1")
+    fake_db = _SessionAssemblyQcReport(
+        assembly_obj=Assembly(id=assembly_id, taxon_id=1, sample_id=uuid.uuid4(), data_types="PACBIO_SMRT"),
+        read_rows=[read_1],
+        assembly_read_rows=[SimpleNamespace(assembly_id=assembly_id, read_id=read_1.id)],
     )
-    fake_db = _SessionQcReport(read_obj=read_obj)
-    app.dependency_overrides[qc_reads.get_current_active_user] = lambda: SimpleNamespace(
+    app.dependency_overrides[assemblies.get_current_active_user] = lambda: SimpleNamespace(
         is_active=True, roles=["genome_launcher"], is_superuser=False
     )
-    app.dependency_overrides[qc_reads.get_db] = _override_db(fake_db)
+    app.dependency_overrides[assemblies.get_db] = _override_db(fake_db)
 
     try:
         resp = client.post(
-            f"/api/v1/qc-reads/{read_obj.id}/report",
+            f"/api/v1/assemblies/{assembly_id}/qc-reads/report",
             json={
+                "source_bpa_resource_ids": ["res-1"],
                 "base_count": 200,
                 "read_count": 20,
                 "qc_bases_removed": 6,
@@ -187,23 +209,20 @@ def test_report_qc_result_accepts_single_end_fastq():
 
 def test_report_qc_result_rejects_unlabelled_fastq_pairs():
     client = TestClient(app)
-    read_obj = Read(
-        id=uuid.uuid4(),
-        experiment_id=uuid.uuid4(),
-        bpa_resource_id="res-3",
-        file_name="input.fastq.gz",
-        file_format="fastq",
+    assembly_id = uuid.uuid4()
+    fake_db = _SessionAssemblyQcReport(
+        assembly_obj=Assembly(id=assembly_id, taxon_id=1, sample_id=uuid.uuid4(), data_types="PACBIO_SMRT")
     )
-    fake_db = _SessionQcReport(read_obj=read_obj)
-    app.dependency_overrides[qc_reads.get_current_active_user] = lambda: SimpleNamespace(
+    app.dependency_overrides[assemblies.get_current_active_user] = lambda: SimpleNamespace(
         is_active=True, roles=["genome_launcher"], is_superuser=False
     )
-    app.dependency_overrides[qc_reads.get_db] = _override_db(fake_db)
+    app.dependency_overrides[assemblies.get_db] = _override_db(fake_db)
 
     try:
         resp = client.post(
-            f"/api/v1/qc-reads/{read_obj.id}/report",
+            f"/api/v1/assemblies/{assembly_id}/qc-reads/report",
             json={
+                "source_bpa_resource_ids": ["res-1", "res-2"],
                 "base_count": 200,
                 "read_count": 20,
                 "qc_bases_removed": 6,

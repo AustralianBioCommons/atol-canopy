@@ -1,6 +1,7 @@
 import uuid
 
 from sqlalchemy import (
+    ARRAY,
     BigInteger,
     CheckConstraint,
     Column,
@@ -24,7 +25,10 @@ class QcRead(Base):
     __tablename__ = "qc_read"
 
     id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
-    read_id = Column(UUID(as_uuid=True), ForeignKey("read.id", ondelete="CASCADE"), nullable=False)
+    experiment_id = Column(
+        UUID(as_uuid=True), ForeignKey("experiment.id", ondelete="CASCADE"), nullable=False
+    )
+    source_bpa_resource_ids = Column(ARRAY(Text), nullable=False, default=list)
     base_count = Column(BigInteger, nullable=False)
     read_count = Column(BigInteger, nullable=False)
     qc_bases_removed = Column(BigInteger, nullable=False)
@@ -39,10 +43,15 @@ class QcRead(Base):
         onupdate=func.now(),
     )
 
-    read = relationship("Read", backref=backref("qc_reads", cascade="all, delete-orphan"))
+    experiment = relationship(
+        "Experiment", backref=backref("qc_reads", cascade="all, delete-orphan")
+    )
     files = relationship("QcReadFile", back_populates="qc_read", cascade="all, delete-orphan")
     submission_records = relationship(
         "QcReadSubmission", back_populates="qc_read", cascade="all, delete-orphan"
+    )
+    assembly_links = relationship(
+        "QcReadAssembly", back_populates="qc_read", cascade="all, delete-orphan"
     )
 
 
@@ -143,3 +152,17 @@ class QcReadSubmission(Base):
             initially="DEFERRED",
         ),
     )
+
+
+class QcReadAssembly(Base):
+    """Association between a QC read result and an assembly."""
+
+    __tablename__ = "qc_read_assembly"
+
+    assembly_id = Column(UUID(as_uuid=True), ForeignKey("assembly.id", ondelete="CASCADE"), primary_key=True)
+    qc_read_id = Column(UUID(as_uuid=True), ForeignKey("qc_read.id", ondelete="CASCADE"), primary_key=True)
+
+    assembly = relationship(
+        "Assembly", backref=backref("qc_read_links", cascade="all, delete-orphan")
+    )
+    qc_read = relationship("QcRead", back_populates="assembly_links")
