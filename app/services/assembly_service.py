@@ -368,6 +368,19 @@ class AssemblyStageRunService(
         assembly_run_id: UUID,
         run_in: AssemblyStageRunCreate,
     ) -> AssemblyStageRun:
+        existing_run = (
+            db.query(AssemblyStageRun)
+            .filter(
+                AssemblyStageRun.assembly_run_id == assembly_run_id,
+                AssemblyStageRun.stage_name == run_in.stage_name,
+            )
+            .first()
+        )
+        if existing_run:
+            raise ValueError(
+                "Assembly stage run already exists for this assembly_run_id and stage_name."
+            )
+
         run = AssemblyStageRun(
             assembly_run_id=assembly_run_id,
             stage_name=run_in.stage_name,
@@ -376,19 +389,25 @@ class AssemblyStageRunService(
             completed_at=run_in.completed_at,
         )
         db.add(run)
-        db.flush()
-        for f in run_in.files:
-            db.add(
-                AssemblyStageRunFile(
-                    assembly_stage_run_id=run.id,
-                    storage_type=f.storage_type,
-                    endpoint=f.endpoint,
-                    location_root=f.location_root,
-                    location_path=f.location_path,
-                    sha256sum=f.sha256sum,
+        try:
+            db.flush()
+            for f in run_in.files:
+                db.add(
+                    AssemblyStageRunFile(
+                        assembly_stage_run_id=run.id,
+                        storage_type=f.storage_type,
+                        endpoint=f.endpoint,
+                        location_root=f.location_root,
+                        location_path=f.location_path,
+                        sha256sum=f.sha256sum,
+                    )
                 )
-            )
-        db.commit()
+            db.commit()
+        except IntegrityError:
+            db.rollback()
+            raise ValueError(
+                "Assembly stage run already exists for this assembly_run_id and stage_name"
+            ) from None
         db.refresh(run)
         return run
 
