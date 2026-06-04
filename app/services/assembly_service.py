@@ -371,7 +371,6 @@ class AssemblyStageRunService(
         run = AssemblyStageRun(
             assembly_run_id=assembly_run_id,
             stage_name=run_in.stage_name,
-            external_run_id=run_in.external_run_id,
             data=run_in.data,
             started_at=run_in.started_at,
             completed_at=run_in.completed_at,
@@ -400,8 +399,6 @@ class AssemblyStageRunService(
         db_obj: AssemblyStageRun,
         update_in: AssemblyStageRunUpdate,
     ) -> AssemblyStageRun:
-        if update_in.external_run_id is not None:
-            db_obj.external_run_id = update_in.external_run_id
         if update_in.data is not None:
             db_obj.data = update_in.data
         if update_in.started_at is not None:

@@ -236,7 +236,6 @@ The created record belongs to `run_id` (`assembly_run`), not directly to `assemb
 | `data` | No | Arbitrary key/value result data for this stage (e.g. N50, contig counts) |
 | `started_at` | No | When the stage started (ISO 8601 with timezone) |
 | `completed_at` | No | When the stage finished (ISO 8601 with timezone) |
-| `external_run_id` | No | An external job or run ID from the pipeline scheduler |
 | `files` | No | Output files produced by this stage (see [Reporting files](#reporting-files)) |
 
 ### Known stages

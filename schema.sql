@@ -625,13 +625,13 @@ INSERT INTO assembly_stage (name, category) VALUES
     ('ascc',           'pipeline'),
     ('treeval',        'pipeline'),
     ('curation-pretext', 'pipeline'),
+    ('qc',             'pipeline'),
     ('manual-curation',  'manual');
 
 CREATE TABLE assembly_stage_run (
     id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
     assembly_run_id UUID NOT NULL REFERENCES assembly_run(id) ON DELETE CASCADE,
     stage_name TEXT NOT NULL REFERENCES assembly_stage(name),
-    external_run_id TEXT,
     data JSONB NOT NULL DEFAULT '{}',
     started_at TIMESTAMPTZ,
     completed_at TIMESTAMPTZ,
