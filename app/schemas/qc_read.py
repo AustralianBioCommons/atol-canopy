@@ -104,7 +104,8 @@ def classify_reported_files(checksums: Dict[str, QcFileChecksums]) -> List[Class
 class QcCallbackRequest(BaseModel):
     """Payload posted by the genome launcher after QC completes for one QC read-set."""
 
-    source_bpa_resource_ids: List[str]
+    bpa_package_id: str
+    source_read_file_checksums: List[str]
     base_count: int
     read_count: int
     qc_bases_removed: int
@@ -115,10 +116,17 @@ class QcCallbackRequest(BaseModel):
 
     @model_validator(mode="after")
     def validate_file_set(self) -> "QcCallbackRequest":
-        if not (1 <= len(self.source_bpa_resource_ids) <= 2):
-            raise ValueError("source_bpa_resource_ids must contain one or two BPA resource IDs")
-        if len(set(self.source_bpa_resource_ids)) != len(self.source_bpa_resource_ids):
-            raise ValueError("source_bpa_resource_ids must not contain duplicates")
+        if not self.bpa_package_id.strip():
+            raise ValueError("bpa_package_id must not be empty")
+        if not (1 <= len(self.source_read_file_checksums) <= 2):
+            raise ValueError("source_read_file_checksums must contain one or two MD5 sums")
+        if len(set(self.source_read_file_checksums)) != len(self.source_read_file_checksums):
+            raise ValueError("source_read_file_checksums must not contain duplicates")
+        for md5sum in self.source_read_file_checksums:
+            if not _MD5_RE.match(md5sum):
+                raise ValueError(
+                    "source_read_file_checksums entries must be 32 lowercase hex characters"
+                )
         classify_reported_files(self.checksums)
         return self
 
@@ -158,7 +166,7 @@ class QcReadSubmissionOut(BaseModel):
 class QcReadOut(BaseModel):
     id: UUID
     experiment_id: UUID
-    source_bpa_resource_ids: List[str]
+    source_read_file_checksums: List[str]
     base_count: int
     read_count: int
     qc_bases_removed: int

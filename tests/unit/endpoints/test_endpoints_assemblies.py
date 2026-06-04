@@ -244,6 +244,57 @@ def test_get_assembly_manifest_success(monkeypatch):
     assert body["manifest"] == manifest_json
 
 
+def test_get_assembly_manifest_returns_empty_manifest_when_missing():
+    client = TestClient(app)
+
+    organism = SimpleNamespace(scientific_name="Test Species", taxon_id=172942)
+    assembly_without_manifest = SimpleNamespace(
+        id="run-2",
+        taxon_id=172942,
+        tol_id="tol-123",
+        version=2,
+        manifest_json=None,
+    )
+
+    class MockQuery:
+        def __init__(self, return_value):
+            self.return_value = return_value
+
+        def filter(self, *args, **kwargs):
+            return self
+
+        def order_by(self, *args, **kwargs):
+            return self
+
+        def first(self):
+            return self.return_value if not isinstance(self.return_value, list) else None
+
+    class MockDB:
+        def __init__(self):
+            self.call_count = 0
+
+        def query(self, model):
+            self.call_count += 1
+            if self.call_count == 1:
+                return MockQuery(organism)
+            if self.call_count == 2:
+                return MockQuery(assembly_without_manifest)
+            return MockQuery(None)
+
+    app.dependency_overrides[assemblies.get_current_active_user] = lambda: SimpleNamespace(
+        is_active=True, roles=["admin"], is_superuser=False
+    )
+    app.dependency_overrides[assemblies.get_db] = lambda: MockDB()
+
+    resp = client.get("/api/v1/assemblies/manifest/172942")
+
+    assert resp.status_code == 200
+    body = resp.json()
+    assert body["assembly_id"] == "run-2"
+    assert body["version"] == 2
+    assert body["manifest"] == {}
+
+
 def test_get_assembly_manifest_organism_not_found():
     """Test error when organism not found."""
     client = TestClient(app)

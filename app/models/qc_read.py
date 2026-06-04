@@ -28,7 +28,7 @@ class QcRead(Base):
     experiment_id = Column(
         UUID(as_uuid=True), ForeignKey("experiment.id", ondelete="CASCADE"), nullable=False
     )
-    source_bpa_resource_ids = Column(ARRAY(Text), nullable=False, default=list)
+    source_read_file_checksums = Column(ARRAY(Text), nullable=False, default=list)
     base_count = Column(BigInteger, nullable=False)
     read_count = Column(BigInteger, nullable=False)
     qc_bases_removed = Column(BigInteger, nullable=False)
@@ -159,8 +159,12 @@ class QcReadAssembly(Base):
 
     __tablename__ = "qc_read_assembly"
 
-    assembly_id = Column(UUID(as_uuid=True), ForeignKey("assembly.id", ondelete="CASCADE"), primary_key=True)
-    qc_read_id = Column(UUID(as_uuid=True), ForeignKey("qc_read.id", ondelete="CASCADE"), primary_key=True)
+    assembly_id = Column(
+        UUID(as_uuid=True), ForeignKey("assembly.id", ondelete="CASCADE"), primary_key=True
+    )
+    qc_read_id = Column(
+        UUID(as_uuid=True), ForeignKey("qc_read.id", ondelete="CASCADE"), primary_key=True
+    )
 
     assembly = relationship(
         "Assembly", backref=backref("qc_read_links", cascade="all, delete-orphan")
