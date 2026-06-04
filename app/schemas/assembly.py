@@ -329,9 +329,8 @@ class AssemblyStageRunCreate(BaseModel):
     """Schema for reporting a stage run result."""
 
     stage_name: str
-    status: str
     external_run_id: Optional[str] = None
-    stats: Dict[str, Any] = {}
+    data: Dict[str, Any] = {}
     started_at: Optional[datetime] = None
     completed_at: Optional[datetime] = None
     files: List[AssemblyStageRunFileCreate] = []
@@ -340,9 +339,8 @@ class AssemblyStageRunCreate(BaseModel):
 class AssemblyStageRunUpdate(BaseModel):
     """Schema for updating an existing stage run. If files is provided, replaces all existing files."""
 
-    status: Optional[str] = None
     external_run_id: Optional[str] = None
-    stats: Optional[Dict[str, Any]] = None
+    data: Optional[Dict[str, Any]] = None
     started_at: Optional[datetime] = None
     completed_at: Optional[datetime] = None
     files: Optional[List[AssemblyStageRunFileCreate]] = None
@@ -370,9 +368,8 @@ class AssemblyStageRunOut(BaseModel):
     id: UUID
     assembly_run_id: UUID
     stage_name: str
-    status: str
     external_run_id: Optional[str]
-    stats: Dict[str, Any]
+    data: Dict[str, Any]
     started_at: Optional[datetime]
     completed_at: Optional[datetime]
     created_at: datetime

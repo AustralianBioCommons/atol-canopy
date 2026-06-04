@@ -631,16 +631,12 @@ CREATE TABLE assembly_stage_run (
     id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
     assembly_run_id UUID NOT NULL REFERENCES assembly_run(id) ON DELETE CASCADE,
     stage_name TEXT NOT NULL REFERENCES assembly_stage(name),
-    status TEXT NOT NULL,
     external_run_id TEXT,
-    stats JSONB NOT NULL DEFAULT '{}',
+    data JSONB NOT NULL DEFAULT '{}',
     started_at TIMESTAMPTZ,
     completed_at TIMESTAMPTZ,
     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-    CONSTRAINT ck_assembly_stage_run_status CHECK (
-        status IN ('running', 'succeeded', 'failed', 'cancelled')
-    ),
     CONSTRAINT uq_stage_run_assembly_run_stage UNIQUE (assembly_run_id, stage_name)
 );
 

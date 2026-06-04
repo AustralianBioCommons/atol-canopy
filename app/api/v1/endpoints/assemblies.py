@@ -1092,7 +1092,7 @@ def update_stage_run(
     update_in: AssemblyStageRunUpdate,
     current_user: User = Depends(get_current_active_user),
 ) -> Any:
-    """Update status, stats, or files for an existing stage run."""
+    """Update reported data, timings, or files for an existing stage run."""
     stage_run = (
         db.query(AssemblyStageRun)
         .filter(
