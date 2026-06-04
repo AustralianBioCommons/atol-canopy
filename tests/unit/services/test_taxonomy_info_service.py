@@ -202,6 +202,8 @@ def test_bulk_import_batches_ncbi_lookup_and_creates_taxonomy_info(monkeypatch):
 
     assert calls == [({9612: "Canis lupus", 9685: "Felis catus"}, 20)]
     assert result.created_count == 2
+    assert result.ncbi_retryable_count == 0
+    assert result.ncbi_retryable_taxon_ids is None
     assert result.skipped_count == 0
     saved_dog = db.data[TaxonomyInfo][9612]
     saved_cat = db.data[TaxonomyInfo][9685]
@@ -243,6 +245,8 @@ def test_bulk_import_skips_new_rows_when_ncbi_lookup_is_unmapped(monkeypatch):
     assert result.created_count == 0
     assert result.updated_count == 0
     assert result.skipped_count == 1
+    assert result.ncbi_retryable_count == 1
+    assert result.ncbi_retryable_taxon_ids == [9612]
     assert result.errors == [
         "9612: ncbi enrichment returned no mapped taxonomy; taxonomy_info was not created"
     ]
@@ -286,6 +290,8 @@ def test_bulk_import_retries_existing_unsynced_rows(monkeypatch):
     assert result.created_count == 0
     assert result.updated_count == 1
     assert result.skipped_count == 0
+    assert result.ncbi_retryable_count == 0
+    assert result.ncbi_retryable_taxon_ids is None
     saved = db.data[TaxonomyInfo][9612]
     assert saved is existing
     assert saved.genetic_code_id == 2
