@@ -16,11 +16,11 @@ depends_on = None
 
 
 def upgrade() -> None:
-    op.drop_constraint("ck_assembly_status", "assembly", type_="check")
+    op.drop_constraint("ck_assembly_status", "assembly", type_="check", if_exists=True)
     op.drop_column("assembly", "status")
 
-    op.drop_constraint("ck_qc_read_file_md5", "qc_read_file", type_="check")
-    op.drop_constraint("ck_qc_read_file_sha256", "qc_read_file", type_="check")
+    op.drop_constraint("ck_qc_read_file_md5", "qc_read_file", type_="check", if_exists=True)
+    op.drop_constraint("ck_qc_read_file_sha256", "qc_read_file", type_="check", if_exists=True)
 
     op.alter_column("qc_read_file", "path_to_file", new_column_name="file_name")
     op.alter_column("qc_read_file", "md5_checksum", new_column_name="md5", nullable=False)
@@ -37,8 +37,8 @@ def upgrade() -> None:
 
 
 def downgrade() -> None:
-    op.drop_constraint("ck_qc_read_file_md5", "qc_read_file", type_="check")
-    op.drop_constraint("ck_qc_read_file_sha256", "qc_read_file", type_="check")
+    op.drop_constraint("ck_qc_read_file_md5", "qc_read_file", type_="check", if_exists=True)
+    op.drop_constraint("ck_qc_read_file_sha256", "qc_read_file", type_="check", if_exists=True)
 
     op.add_column("qc_read_file", sa.Column("storage_backend", sa.Text(), nullable=True))
     op.add_column("qc_read_file", sa.Column("storage_profile", sa.Text(), nullable=True))
