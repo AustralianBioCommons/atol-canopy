@@ -1,25 +1,19 @@
-"""Repurpose assembly_run as pipeline invocation (github_repo + git_commit); link stage runs to it.
+"""Refactor assembly reporting schema around pipeline invocations and stage results.
 
 Revision ID: 0003_assembly_run_github
 Revises: 0002_update_taxon_cols
 Create Date: 2026-05-28
 
-Changes:
-- Drop the legacy assembly_run table (version-reservation model, unused)
-- Create new assembly_run table: (assembly_id, github_repo, git_commit)
-  unique on (assembly_id, github_repo, git_commit)
-- Alter assembly_stage_run:
-    - Drop attempt column
-    - Drop assembly_id FK column
-    - Add assembly_run_id FK → assembly_run.id
-    - Replace unique constraint uq_stage_run_assembly_stage_attempt
-      with uq_stage_run_assembly_run_stage (assembly_run_id, stage_name)
-    - Replace index ix_assembly_stage_run_assembly_id
-      with ix_assembly_stage_run_assembly_run_id
+This squashes the branch-local reporting migrations into one revision:
+- repurpose `assembly_run` as a pipeline invocation keyed by repo + commit
+- remove `assembly.status`
+- link `assembly_stage_run` to `assembly_run`
+- remove stage-run `status`, rename `stats` -> `data`
+- reshape stage-run files to `endpoint`, `location_root`, `location_path`, `sha256sum`
 """
 
 import sqlalchemy as sa
-from sqlalchemy.dialects.postgresql import UUID
+from sqlalchemy.dialects.postgresql import JSONB, UUID
 
 from alembic import op
 
@@ -33,6 +27,9 @@ LEGACY_STAGE_RUN_COMMIT = "pre-0003-migration"
 
 
 def upgrade() -> None:
+    op.drop_constraint("ck_assembly_status", "assembly", type_="check", if_exists=True)
+    op.drop_column("assembly", "status")
+
     # ── 1. Drop legacy assembly_run table ────────────────────────────────────
     op.drop_table("assembly_run")
 
@@ -75,11 +72,9 @@ def upgrade() -> None:
     op.create_index("ix_assembly_run_assembly_id", "assembly_run", ["assembly_id"])
 
     # ── 3. Alter assembly_stage_run ───────────────────────────────────────────
-    # Drop old unique constraint and index
     op.drop_constraint("uq_stage_run_assembly_stage_attempt", "assembly_stage_run", type_="unique")
     op.drop_index("ix_assembly_stage_run_assembly_id", table_name="assembly_stage_run")
 
-    # Add assembly_run_id as nullable first so existing rows can be backfilled.
     op.add_column(
         "assembly_stage_run",
         sa.Column(
@@ -120,11 +115,17 @@ def upgrade() -> None:
     )
     op.alter_column("assembly_stage_run", "assembly_run_id", nullable=False)
 
-    # Drop old columns once the replacement FK is populated.
     op.drop_column("assembly_stage_run", "attempt")
     op.drop_column("assembly_stage_run", "assembly_id")
+    op.drop_constraint(
+        "ck_assembly_stage_run_status",
+        "assembly_stage_run",
+        type_="check",
+        if_exists=True,
+    )
+    op.drop_column("assembly_stage_run", "status")
+    op.alter_column("assembly_stage_run", "stats", new_column_name="data", nullable=False)
 
-    # New unique constraint and index
     op.create_unique_constraint(
         "uq_stage_run_assembly_run_stage",
         "assembly_stage_run",
@@ -134,11 +135,98 @@ def upgrade() -> None:
         "ix_assembly_stage_run_assembly_run_id", "assembly_stage_run", ["assembly_run_id"]
     )
 
+    # ── 4. Reshape assembly_stage_run_file ───────────────────────────────────
+    op.add_column("assembly_stage_run_file", sa.Column("endpoint", sa.Text(), nullable=True))
+    op.add_column("assembly_stage_run_file", sa.Column("location_root", sa.Text(), nullable=True))
+    op.add_column("assembly_stage_run_file", sa.Column("location_path", sa.Text(), nullable=True))
+    op.add_column(
+        "assembly_stage_run_file",
+        sa.Column(
+            "updated_at",
+            sa.DateTime(timezone=True),
+            nullable=False,
+            server_default=sa.text("NOW()"),
+        ),
+    )
+
+    op.execute(
+        sa.text(
+            """
+            UPDATE assembly_stage_run_file
+            SET
+                endpoint = NULLIF(storage_details->>'endpoint', ''),
+                location_root = split_part(
+                    regexp_replace(storage_uri, '^[a-zA-Z0-9+.-]+://', ''),
+                    '/',
+                    1
+                ),
+                location_path = regexp_replace(
+                    regexp_replace(storage_uri, '^[a-zA-Z0-9+.-]+://', ''),
+                    '^[^/]+/?',
+                    ''
+                ),
+                updated_at = created_at
+            """
+        )
+    )
+    op.alter_column("assembly_stage_run_file", "location_root", nullable=False)
+    op.alter_column("assembly_stage_run_file", "location_path", nullable=False)
+    op.drop_column("assembly_stage_run_file", "storage_uri")
+    op.drop_column("assembly_stage_run_file", "storage_details")
+
 
 def downgrade() -> None:
+    # ── Reverse assembly_stage_run_file changes ──────────────────────────────
+    op.add_column(
+        "assembly_stage_run_file",
+        sa.Column("storage_details", JSONB(), nullable=True, server_default=sa.text("'{}'::jsonb")),
+    )
+    op.add_column(
+        "assembly_stage_run_file",
+        sa.Column("storage_uri", sa.Text(), nullable=True),
+    )
+    op.execute(
+        sa.text(
+            """
+            UPDATE assembly_stage_run_file
+            SET
+                storage_uri = CASE
+                    WHEN location_root = '' THEN location_path
+                    WHEN location_path = '' THEN storage_type || '://' || location_root
+                    ELSE storage_type || '://' || location_root || '/' || location_path
+                END,
+                storage_details = CASE
+                    WHEN endpoint IS NULL THEN '{}'::jsonb
+                    ELSE jsonb_build_object('endpoint', endpoint)
+                END
+            """
+        )
+    )
+    op.alter_column("assembly_stage_run_file", "storage_uri", nullable=False)
+    op.alter_column(
+        "assembly_stage_run_file",
+        "storage_details",
+        nullable=False,
+        server_default=sa.text("'{}'::jsonb"),
+        existing_type=JSONB(),
+    )
+    op.drop_column("assembly_stage_run_file", "updated_at")
+    op.drop_column("assembly_stage_run_file", "location_path")
+    op.drop_column("assembly_stage_run_file", "location_root")
+    op.drop_column("assembly_stage_run_file", "endpoint")
+
     # ── Reverse assembly_stage_run changes ────────────────────────────────────
     op.drop_constraint("uq_stage_run_assembly_run_stage", "assembly_stage_run", type_="unique")
     op.drop_index("ix_assembly_stage_run_assembly_run_id", table_name="assembly_stage_run")
+    op.alter_column("assembly_stage_run", "data", new_column_name="stats", nullable=False)
+    op.add_column("assembly_stage_run", sa.Column("status", sa.Text(), nullable=True))
+    op.execute(sa.text("UPDATE assembly_stage_run SET status = 'succeeded' WHERE status IS NULL"))
+    op.alter_column("assembly_stage_run", "status", nullable=False)
+    op.create_check_constraint(
+        "ck_assembly_stage_run_status",
+        "assembly_stage_run",
+        "status IN ('running', 'succeeded', 'failed', 'cancelled')",
+    )
     op.add_column(
         "assembly_stage_run",
         sa.Column(
@@ -204,4 +292,15 @@ def downgrade() -> None:
             nullable=False,
             server_default=sa.func.now(),
         ),
+    )
+
+    op.add_column(
+        "assembly", sa.Column("status", sa.Text(), nullable=True, server_default="requested")
+    )
+    op.execute(sa.text("UPDATE assembly SET status = 'requested' WHERE status IS NULL"))
+    op.alter_column("assembly", "status", nullable=False, server_default="requested")
+    op.create_check_constraint(
+        "ck_assembly_status",
+        "assembly",
+        "status IN ('requested', 'running', 'curating', 'completed', 'failed', 'cancelled')",
     )
