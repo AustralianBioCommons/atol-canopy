@@ -1028,6 +1028,81 @@ def test_get_manifest_by_assembly_id_not_found():
     assert "Assembly not found" in resp.json()["error"]["message"]
 
 
+def test_create_assembly_run_success(monkeypatch):
+    client = TestClient(app)
+    assembly_id = uuid4()
+    now = datetime.now(timezone.utc)
+    assembly = SimpleNamespace(id=assembly_id)
+    created_run = SimpleNamespace(
+        id=uuid4(),
+        assembly_id=assembly_id,
+        github_repo="https://github.com/org/pipeline",
+        git_commit="abc123",
+        created_at=now,
+        updated_at=now,
+        stage_runs=[],
+    )
+
+    monkeypatch.setattr(assemblies.assembly_service, "get", lambda db, id: assembly)
+    monkeypatch.setattr(
+        assemblies.assembly_run_service,
+        "create_for_assembly",
+        lambda db, assembly_id, run_in: created_run,
+    )
+
+    app.dependency_overrides[assemblies.get_current_active_user] = lambda: SimpleNamespace(
+        is_active=True, roles=["admin"], is_superuser=False
+    )
+    app.dependency_overrides[assemblies.get_db] = _override_db(_FakeSession())
+
+    resp = client.post(
+        f"/api/v1/assemblies/{assembly_id}/runs",
+        json={
+            "github_repo": "https://github.com/org/pipeline",
+            "git_commit": "abc123",
+        },
+    )
+
+    assert resp.status_code == 200
+    body = resp.json()
+    assert body["assembly_id"] == str(assembly_id)
+    assert body["github_repo"] == "https://github.com/org/pipeline"
+    assert body["git_commit"] == "abc123"
+
+
+def test_create_assembly_run_rejects_duplicate_repo_commit(monkeypatch):
+    client = TestClient(app)
+    assembly_id = uuid4()
+    assembly = SimpleNamespace(id=assembly_id)
+
+    monkeypatch.setattr(assemblies.assembly_service, "get", lambda db, id: assembly)
+
+    def _raise_duplicate(*_args, **_kwargs):
+        raise ValueError(
+            "Assembly run already exists for this assembly_id, github_repo, and git_commit"
+        )
+
+    monkeypatch.setattr(assemblies.assembly_run_service, "create_for_assembly", _raise_duplicate)
+
+    app.dependency_overrides[assemblies.get_current_active_user] = lambda: SimpleNamespace(
+        is_active=True, roles=["admin"], is_superuser=False
+    )
+    app.dependency_overrides[assemblies.get_db] = _override_db(_FakeSession())
+
+    resp = client.post(
+        f"/api/v1/assemblies/{assembly_id}/runs",
+        json={
+            "github_repo": "https://github.com/org/pipeline",
+            "git_commit": "abc123",
+        },
+    )
+
+    assert resp.status_code == 409
+    response_data = resp.json()
+    error_msg = response_data.get("detail") or response_data.get("error", {}).get("message", "")
+    assert "already exists" in error_msg
+
+
 # ── Stage-run endpoint tests ────────────────────────────────────────────────
 
 
@@ -1123,10 +1198,12 @@ def test_create_stage_run_success(monkeypatch):
             id=uuid4(),
             assembly_stage_run_id=stage_run.id,
             storage_type="s3",
-            storage_uri="s3://bucket/key",
-            storage_details={"region": "ap-southeast-2"},
+            endpoint="https://projects.pawsey.org.au",
+            location_root="bucket",
+            location_path="key",
             sha256sum="deadbeef",
             created_at=stage_run.created_at,
+            updated_at=stage_run.updated_at,
         )
     ]
 
@@ -1161,8 +1238,9 @@ def test_create_stage_run_success(monkeypatch):
             "files": [
                 {
                     "storage_type": "s3",
-                    "storage_uri": "s3://bucket/key",
-                    "storage_details": {"region": "ap-southeast-2"},
+                    "endpoint": "https://projects.pawsey.org.au",
+                    "location_root": "bucket",
+                    "location_path": "key",
                     "sha256sum": "deadbeef",
                 }
             ],
@@ -1175,6 +1253,9 @@ def test_create_stage_run_success(monkeypatch):
     assert body["status"] == "succeeded"
     assert len(body["files"]) == 1
     assert body["files"][0]["storage_type"] == "s3"
+    assert body["files"][0]["endpoint"] == "https://projects.pawsey.org.au"
+    assert body["files"][0]["location_root"] == "bucket"
+    assert body["files"][0]["location_path"] == "key"
     assert body["files"][0]["sha256sum"] == "deadbeef"
 
 
@@ -1235,10 +1316,12 @@ def test_update_stage_run_replaces_files(monkeypatch):
         id=uuid4(),
         assembly_stage_run_id=stage_run.id,
         storage_type="gcs",
-        storage_uri="gs://bucket/new-key",
-        storage_details={},
+        endpoint="https://storage.googleapis.com",
+        location_root="bucket",
+        location_path="new-key",
         sha256sum="cafebabe",
         created_at=datetime(2026, 1, 3, tzinfo=timezone.utc),
+        updated_at=datetime(2026, 1, 3, tzinfo=timezone.utc),
     )
     updated_run = _make_stage_run(assembly_run_id=run_id)
     updated_run.id = stage_run.id
@@ -1276,8 +1359,9 @@ def test_update_stage_run_replaces_files(monkeypatch):
             "files": [
                 {
                     "storage_type": "gcs",
-                    "storage_uri": "gs://bucket/new-key",
-                    "storage_details": {},
+                    "endpoint": "https://storage.googleapis.com",
+                    "location_root": "bucket",
+                    "location_path": "new-key",
                     "sha256sum": "cafebabe",
                 }
             ]
@@ -1287,8 +1371,11 @@ def test_update_stage_run_replaces_files(monkeypatch):
     assert resp.status_code == 200
     body = resp.json()
     assert len(body["files"]) == 1
-    assert body["files"][0]["sha256sum"] == "cafebabe"
     assert body["files"][0]["storage_type"] == "gcs"
+    assert body["files"][0]["endpoint"] == "https://storage.googleapis.com"
+    assert body["files"][0]["location_root"] == "bucket"
+    assert body["files"][0]["location_path"] == "new-key"
+    assert body["files"][0]["sha256sum"] == "cafebabe"
 
 
 def test_update_assembly_updates_version_and_manifest():

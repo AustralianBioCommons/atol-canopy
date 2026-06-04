@@ -319,8 +319,9 @@ class AssemblyStageRunFileCreate(BaseModel):
     """File payload for a stage run."""
 
     storage_type: str
-    storage_uri: str
-    storage_details: Dict[str, Any] = {}
+    endpoint: str
+    location_root: str
+    location_path: str
     sha256sum: str
 
 
@@ -353,10 +354,12 @@ class AssemblyStageRunFileOut(BaseModel):
     id: UUID
     assembly_stage_run_id: UUID
     storage_type: str
-    storage_uri: str
-    storage_details: Dict[str, Any]
+    endpoint: Optional[str]
+    location_root: str
+    location_path: str
     sha256sum: str
     created_at: datetime
+    updated_at: datetime
 
     model_config = ConfigDict(from_attributes=True)
 

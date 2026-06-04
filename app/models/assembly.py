@@ -305,11 +305,17 @@ class AssemblyStageRunFile(Base):
         nullable=False,
     )
     storage_type = Column(Text, nullable=False)
-    storage_uri = Column(Text, nullable=False)
-    storage_details = Column(JSONB, nullable=False, default=dict)
+    endpoint = Column(Text, nullable=True)
+    location_root = Column(Text, nullable=False)
+    location_path = Column(Text, nullable=False)
     sha256sum = Column(Text, nullable=False)
-
     created_at = Column(DateTime(timezone=True), nullable=False, server_default=func.now())
+    updated_at = Column(
+        DateTime(timezone=True),
+        nullable=False,
+        server_default=func.now(),
+        onupdate=func.now(),
+    )
 
     stage_run = relationship(
         "AssemblyStageRun", backref=backref("files", cascade="all, delete-orphan")

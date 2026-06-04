@@ -650,10 +650,12 @@ CREATE TABLE assembly_stage_run_file (
     id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
     assembly_stage_run_id UUID NOT NULL REFERENCES assembly_stage_run(id) ON DELETE CASCADE,
     storage_type TEXT NOT NULL,
-    storage_uri TEXT NOT NULL,
-    storage_details JSONB NOT NULL DEFAULT '{}',
+    endpoint TEXT,
+    location_root TEXT NOT NULL,
+    location_path TEXT NOT NULL,
     sha256sum TEXT NOT NULL,
-    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
 CREATE INDEX ix_assembly_stage_run_file_run_id ON assembly_stage_run_file(assembly_stage_run_id);

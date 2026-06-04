@@ -222,8 +222,9 @@ The created record belongs to `run_id` (`assembly_run`), not directly to `assemb
   "files": [
     {
       "storage_type": "s3",
-      "storage_uri": "s3://your-bucket/path/to/assembly.fasta",
-      "storage_details": { "region": "ap-southeast-2" },
+      "endpoint": "https://projects.pawsey.org.au",
+      "location_root": "your-bucket",
+      "location_path": "path/to/assembly.fasta",
       "sha256sum": "abc123..."
     }
   ]
@@ -257,9 +258,27 @@ Each entry in the `files` array describes one output file:
 | Field | Required | Description |
 |-------|----------|-------------|
 | `storage_type` | Yes | Storage backend, e.g. `s3`, `gcs` |
-| `storage_uri` | Yes | Full URI to the file, e.g. `s3://bucket/path/file.fasta` |
-| `storage_details` | No | Additional storage metadata, e.g. `{"region": "ap-southeast-2"}` |
+| `endpoint` | Yes | Storage service endpoint, e.g. `https://projects.pawsey.org.au` |
+| `location_root` | Yes | Top-level storage namespace, such as a bucket or filesystem root |
+| `location_path` | Yes | Path/key within `location_root` |
 | `sha256sum` | Yes | SHA-256 checksum of the file for integrity verification |
+
+For the usual S3-compatible workflow used by this project:
+
+- `location_root` = bucket
+- `location_path` = remote path / object key within that bucket
+
+Example:
+
+```json
+{
+  "storage_type": "s3",
+  "endpoint": "https://projects.pawsey.org.au",
+  "location_root": "assembly-results",
+  "location_path": "genomeassembly/assembly.fasta.gz",
+  "sha256sum": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+}
+```
 
 ### Updating a stage result
 
@@ -381,8 +400,9 @@ POST /api/v1/assemblies/f47ac10b-.../runs/a1b2c3d4-.../stage-runs
   "files": [
     {
       "storage_type": "s3",
-      "storage_uri": "s3://assembly-results/ascc/report.html",
-      "storage_details": { "region": "ap-southeast-2" },
+      "endpoint": "https://projects.pawsey.org.au",
+      "location_root": "assembly-results",
+      "location_path": "ascc/report.html",
       "sha256sum": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
     }
   ]
@@ -402,8 +422,9 @@ POST /api/v1/assemblies/f47ac10b-.../runs/a1b2c3d4-.../stage-runs
   "files": [
     {
       "storage_type": "s3",
-      "storage_uri": "s3://assembly-results/genomeassembly/assembly.fasta.gz",
-      "storage_details": { "region": "ap-southeast-2" },
+      "endpoint": "https://projects.pawsey.org.au",
+      "location_root": "assembly-results",
+      "location_path": "genomeassembly/assembly.fasta.gz",
       "sha256sum": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
     }
   ]
@@ -422,8 +443,9 @@ POST /api/v1/assemblies/f47ac10b-.../runs/a1b2c3d4-.../stage-runs
   "files": [
     {
       "storage_type": "s3",
-      "storage_uri": "s3://assembly-results/treeval/summary.json",
-      "storage_details": { "region": "ap-southeast-2" },
+      "endpoint": "https://projects.pawsey.org.au",
+      "location_root": "assembly-results",
+      "location_path": "treeval/summary.json",
       "sha256sum": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc"
     }
   ]
