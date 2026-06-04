@@ -282,12 +282,14 @@ class TaxonomyInfoService:
         if unmapped:
             logger.warning("NCBI bulk enrichment returned unmapped taxon_ids: %s", unmapped)
 
-        created_count, updated_count, row_skipped, row_errors, retryable_taxon_ids = self._bulk_process_rows(
-            db,
-            candidates=candidates,
-            ncbi_by_taxon_id=ncbi_by_taxon_id,
-            skip_unmapped=True,
-            create_only_when_mapped=True,
+        created_count, updated_count, row_skipped, row_errors, retryable_taxon_ids = (
+            self._bulk_process_rows(
+                db,
+                candidates=candidates,
+                ncbi_by_taxon_id=ncbi_by_taxon_id,
+                skip_unmapped=True,
+                create_only_when_mapped=True,
+            )
         )
         skipped_count += row_skipped
         errors.extend(row_errors)
@@ -333,11 +335,13 @@ class TaxonomyInfoService:
         if unmapped:
             logger.warning("NCBI bulk enrichment returned unmapped taxon_ids: %s", unmapped)
 
-        created_count, updated_count, row_skipped, row_errors, retryable_taxon_ids = self._bulk_process_rows(
-            db,
-            candidates=candidates,
-            ncbi_by_taxon_id=ncbi_by_taxon_id,
-            create_only_when_mapped=True,
+        created_count, updated_count, row_skipped, row_errors, retryable_taxon_ids = (
+            self._bulk_process_rows(
+                db,
+                candidates=candidates,
+                ncbi_by_taxon_id=ncbi_by_taxon_id,
+                create_only_when_mapped=True,
+            )
         )
         skipped_count += row_skipped
         errors.extend(row_errors)

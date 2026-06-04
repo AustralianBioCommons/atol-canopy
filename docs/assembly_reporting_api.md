@@ -201,7 +201,7 @@ Once this call succeeds, the QC stage result should then be reported as a stage 
 
 ## Step 4 — Report stage results
 
-Call this endpoint once for each pipeline stage that completes within a specific pipeline invocation. Stages can be reported in any order and do not need to all succeed before reporting.
+Call this endpoint once for each successful pipeline stage result within a specific pipeline invocation.
 
 **Endpoint:** `POST /api/v1/assemblies/{assembly_id}/runs/{run_id}/stage-runs`
 
@@ -212,8 +212,7 @@ The created record belongs to `run_id` (`assembly_run`), not directly to `assemb
 ```json
 {
   "stage_name": "genomeassembly",
-  "status": "succeeded",
-  "stats": {
+  "data": {
     "n50": 15000,
     "num_contigs": 42
   },
@@ -234,8 +233,7 @@ The created record belongs to `run_id` (`assembly_run`), not directly to `assemb
 | Field | Required | Description |
 |-------|----------|-------------|
 | `stage_name` | Yes | Name of the pipeline stage (see [Known stages](#known-stages)) |
-| `status` | Yes | One of: `running`, `succeeded`, `failed`, `cancelled` |
-| `stats` | No | Arbitrary key/value metrics for this stage (e.g. N50, contig counts) |
+| `data` | No | Arbitrary key/value result data for this stage (e.g. N50, contig counts) |
 | `started_at` | No | When the stage started (ISO 8601 with timezone) |
 | `completed_at` | No | When the stage finished (ISO 8601 with timezone) |
 | `external_run_id` | No | An external job or run ID from the pipeline scheduler |
@@ -282,7 +280,7 @@ Example:
 
 ### Updating a stage result
 
-If a stage result needs to be corrected after submission (for example, to update the status from `running` to `failed`), use the PATCH endpoint:
+If a stage result needs to be corrected after submission, use the PATCH endpoint:
 
 **Endpoint:** `PATCH /api/v1/assemblies/{assembly_id}/runs/{run_id}/stage-runs/{stage_run_id}`
 
@@ -290,7 +288,9 @@ All fields are optional. Only the fields provided will be updated.
 
 ```json
 {
-  "status": "failed"
+  "data": {
+    "n50": 16000
+  }
 }
 ```
 
@@ -322,8 +322,7 @@ Returns every pipeline invocation for the assembly, newest first. Each run inclu
         "id": "b2c3d4e5-...",
         "assembly_run_id": "a1b2c3d4-...",
         "stage_name": "genomeassembly",
-        "status": "succeeded",
-        "stats": { "n50": 15000, "num_contigs": 42 },
+        "data": { "n50": 15000, "num_contigs": 42 },
         "started_at": "2026-05-28T10:00:00Z",
         "completed_at": "2026-05-28T14:30:00Z",
         "files": [ ... ]
@@ -390,8 +389,7 @@ POST /api/v1/assemblies/f47ac10b-.../qc-reads/report
 POST /api/v1/assemblies/f47ac10b-.../runs/a1b2c3d4-.../stage-runs
 {
   "stage_name": "ascc",
-  "status": "succeeded",
-  "stats": {
+  "data": {
     "contamination_score": 0.02,
     "adapter_content_pct": 0.1
   },
@@ -412,8 +410,7 @@ POST /api/v1/assemblies/f47ac10b-.../runs/a1b2c3d4-.../stage-runs
 POST /api/v1/assemblies/f47ac10b-.../runs/a1b2c3d4-.../stage-runs
 {
   "stage_name": "genomeassembly",
-  "status": "succeeded",
-  "stats": {
+  "data": {
     "n50": 15000000,
     "num_contigs": 42
   },
@@ -433,8 +430,7 @@ POST /api/v1/assemblies/f47ac10b-.../runs/a1b2c3d4-.../stage-runs
 POST /api/v1/assemblies/f47ac10b-.../runs/a1b2c3d4-.../stage-runs
 {
   "stage_name": "treeval",
-  "status": "succeeded",
-  "stats": {
+  "data": {
     "pass": true,
     "warnings": 0
   },

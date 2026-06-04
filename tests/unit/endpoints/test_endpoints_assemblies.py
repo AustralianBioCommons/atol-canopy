@@ -1114,9 +1114,8 @@ def _make_stage_run(assembly_run_id=None):
         id=uuid4(),
         assembly_run_id=assembly_run_id or uuid4(),
         stage_name="genomeassembly",
-        status="succeeded",
         external_run_id="ext-123",
-        stats={"n50": 10000},
+        data={"n50": 10000},
         started_at=datetime(2026, 1, 1, tzinfo=timezone.utc),
         completed_at=datetime(2026, 1, 2, tzinfo=timezone.utc),
         created_at=datetime(2026, 1, 1, tzinfo=timezone.utc),
@@ -1160,7 +1159,7 @@ def test_list_stage_runs(monkeypatch):
     assert isinstance(body, list)
     assert len(body) == 1
     assert body[0]["stage_name"] == "genomeassembly"
-    assert body[0]["status"] == "succeeded"
+    assert body[0]["data"] == {"n50": 10000}
 
 
 def test_list_stage_runs_assembly_not_found(monkeypatch):
@@ -1233,8 +1232,7 @@ def test_create_stage_run_success(monkeypatch):
         f"/api/v1/assemblies/{assembly_id}/runs/{run_id}/stage-runs",
         json={
             "stage_name": "genomeassembly",
-            "status": "succeeded",
-            "stats": {"n50": 10000},
+            "data": {"n50": 10000},
             "files": [
                 {
                     "storage_type": "s3",
@@ -1250,7 +1248,7 @@ def test_create_stage_run_success(monkeypatch):
     assert resp.status_code == 200
     body = resp.json()
     assert body["stage_name"] == "genomeassembly"
-    assert body["status"] == "succeeded"
+    assert body["data"] == {"n50": 10000}
     assert len(body["files"]) == 1
     assert body["files"][0]["storage_type"] == "s3"
     assert body["files"][0]["endpoint"] == "https://projects.pawsey.org.au"
@@ -1259,15 +1257,15 @@ def test_create_stage_run_success(monkeypatch):
     assert body["files"][0]["sha256sum"] == "deadbeef"
 
 
-def test_update_stage_run_status(monkeypatch):
-    """PATCH /{assembly_id}/runs/{run_id}/stage-runs/{stage_run_id} updates status."""
+def test_update_stage_run_data(monkeypatch):
+    """PATCH /{assembly_id}/runs/{run_id}/stage-runs/{stage_run_id} updates data."""
     client = TestClient(app)
     assembly_id = uuid4()
     run_id = uuid4()
     stage_run = _make_stage_run(assembly_run_id=run_id)
     updated_run = _make_stage_run(assembly_run_id=run_id)
     updated_run.id = stage_run.id
-    updated_run.status = "failed"
+    updated_run.data = {"n50": 15000}
 
     class _Q:
         def filter(self, *_a, **_k):
@@ -1297,11 +1295,11 @@ def test_update_stage_run_status(monkeypatch):
 
     resp = client.patch(
         f"/api/v1/assemblies/{assembly_id}/runs/{run_id}/stage-runs/{stage_run.id}",
-        json={"status": "failed"},
+        json={"data": {"n50": 15000}},
     )
 
     assert resp.status_code == 200
-    assert resp.json()["status"] == "failed"
+    assert resp.json()["data"] == {"n50": 15000}
 
 
 def test_update_stage_run_replaces_files(monkeypatch):
