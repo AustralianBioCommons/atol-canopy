@@ -1,6 +1,6 @@
 """Reshape assembly stage run file storage fields.
 
-Revision ID: 0006_reshape_assembly_stage_run_file_fields
+Revision ID: 0006_reshape_assembly_sr_file
 Revises: 0005_remove_assembly_status
 Create Date: 2026-06-04
 """
@@ -10,7 +10,7 @@ from sqlalchemy.dialects import postgresql
 
 from alembic import op
 
-revision = "0006_reshape_assembly_stage_run_file_fields"
+revision = "0006_reshape_assembly_sr_file"
 down_revision = "0005_remove_assembly_status"
 branch_labels = None
 depends_on = None

@@ -22,6 +22,7 @@ def _build_prepared_payload(qc_read: QcRead, files: list[QcReadFile]) -> dict:
         "files": [
             {
                 "filename": f.file_name,
+                # TODO test this logic
                 "filetype": f.file_type.replace("_r1", "").replace("_r2", ""),
                 "checksum": f.md5,
                 "checksum_method": "MD5",

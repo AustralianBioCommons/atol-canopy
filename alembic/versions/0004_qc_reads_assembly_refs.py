@@ -103,6 +103,41 @@ def downgrade() -> None:
         "qc_read_submission",
         ["experiment_id"],
     )
+    op.execute(
+        sa.text(
+            """
+            UPDATE qc_read_submission AS submission
+            SET experiment_id = qc_read.experiment_id
+            FROM qc_read
+            WHERE submission.qc_read_id = qc_read.id
+              AND submission.experiment_id IS NULL
+            """
+        )
+    )
+
+    op.execute(
+        sa.text(
+            """
+            UPDATE qc_read_file
+            SET
+                storage_backend = COALESCE(storage_backend, 'legacy_unknown'),
+                storage_profile = COALESCE(storage_profile, 'legacy_unknown'),
+                bucket_name = COALESCE(bucket_name, 'legacy_unknown')
+            WHERE storage_backend IS NULL
+               OR storage_profile IS NULL
+               OR bucket_name IS NULL
+            """
+        )
+    )
+    op.execute(
+        sa.text(
+            """
+            UPDATE qc_read_file
+            SET file_type = 'fastq_r1'
+            WHERE file_type = 'fastq'
+            """
+        )
+    )
 
     op.alter_column("qc_read_file", "bucket_name", nullable=False)
     op.alter_column("qc_read_file", "storage_profile", nullable=False)

@@ -48,7 +48,8 @@ def bulk_import_taxonomy_info(
     """
     Bulk import taxonomy info from a dictionary keyed by taxon_id.
 
-    Insert-only — existing rows are skipped and reported as errors.
+    Insert-only for fully-synced rows — existing rows that never completed NCBI sync
+    are retried so a rerun can repair prior partial imports.
     The taxon_id key must reference an existing organism.
     """
     return taxonomy_info_service.bulk_import(db, data=data.root)
