@@ -931,7 +931,21 @@ def report_assembly_qc_read(
         )
 
     allowed_sample_ids = _get_allowed_sample_ids_for_assembly(db, assembly)
-    if experiment.sample_id not in allowed_sample_ids:
+    sample = db.query(Sample).filter(Sample.id == experiment.sample_id).first()
+    if not sample or sample.derived_from_sample_id not in allowed_sample_ids:
+        lineage_lookup = _get_assembly_lineage_debug_details(db, assembly)
+        logger.warning(
+            "QC read lineage validation failed: assembly_id=%s bpa_package_id=%s "
+            "experiment_id=%s experiment_sample_id=%s "
+            "experiment_specimen_sample_id=%s allowed_sample_ids=%s lineage_lookup=%s",
+            str(assembly.id),
+            payload.bpa_package_id,
+            str(experiment.id),
+            str(experiment.sample_id) if experiment.sample_id else None,
+            str(sample.derived_from_sample_id) if sample else None,
+            sorted(str(sample_id) for sample_id in allowed_sample_ids),
+            allowed_sample_ids,
+        )
         raise HTTPException(
             status_code=422,
             detail=(

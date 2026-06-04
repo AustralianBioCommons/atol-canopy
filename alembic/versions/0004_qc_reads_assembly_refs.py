@@ -117,4 +117,4 @@ def downgrade() -> None:
     op.drop_index("idx_qc_read_assembly_qc_read_id", table_name="qc_read_assembly")
     op.drop_table("qc_read_assembly")
 
-    op.drop_column("qc_read", "source_read_file_checksums")
+    op.drop_column("qc_read", "source_read_file_checksums", if_exists=True)
