@@ -59,6 +59,8 @@ When `taxonomy_info` is bulk imported:
 - taxon IDs are collected first
 - NCBI lookup is performed in batches
 - mapped NCBI fields are stored per row
+- new rows are only created when NCBI enrichment succeeds
+- rows left behind from an earlier partial import with no successful NCBI sync are retried on rerun
 - `taxonomy_info.ncbi_last_synced_at` is set for successfully mapped rows
 - `organism.scientific_name` is recomputed per organism
 
@@ -78,6 +80,8 @@ When `taxonomy_info` is deleted:
 
 `POST /api/v1/taxonomy-info/bulk-import`
 - Bulk creates taxonomy info rows and performs batched NCBI enrichment.
+- If NCBI enrichment fails for a new row, that row is skipped instead of creating an empty placeholder.
+- If a prior run created a row without a successful NCBI sync, rerunning bulk import retries that row.
 
 At the moment, the taxonomy-info create/bulk-import flows are treated as insert-oriented paths rather than explicit upsert endpoints.
 
