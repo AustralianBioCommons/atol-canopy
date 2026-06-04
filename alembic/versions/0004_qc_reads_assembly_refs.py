@@ -1,4 +1,4 @@
-"""Add qc_read source read file checksums and assembly association.
+"""Refactor QC read reporting schema for source-read tracking and simplified files.
 
 Revision ID: 0004_qc_reads_assembly_refs
 Revises: 0003_assembly_run_github
@@ -77,9 +77,21 @@ def upgrade() -> None:
         "qc_read_file",
         "file_type IN ('cram', 'fastq', 'fastq_r1', 'fastq_r2')",
     )
-    op.alter_column("qc_read_file", "storage_backend", nullable=True)
-    op.alter_column("qc_read_file", "storage_profile", nullable=True)
-    op.alter_column("qc_read_file", "bucket_name", nullable=True)
+    op.drop_constraint("ck_qc_read_file_md5", "qc_read_file", type_="check", if_exists=True)
+    op.drop_constraint("ck_qc_read_file_sha256", "qc_read_file", type_="check", if_exists=True)
+
+    op.alter_column("qc_read_file", "path_to_file", new_column_name="file_name")
+    op.alter_column("qc_read_file", "md5_checksum", new_column_name="md5", nullable=False)
+    op.alter_column("qc_read_file", "sha256_checksum", new_column_name="sha256", nullable=False)
+
+    op.drop_column("qc_read_file", "storage_backend")
+    op.drop_column("qc_read_file", "storage_profile")
+    op.drop_column("qc_read_file", "bucket_name")
+
+    op.create_check_constraint("ck_qc_read_file_md5", "qc_read_file", "md5 ~ '^[a-f0-9]{32}$'")
+    op.create_check_constraint(
+        "ck_qc_read_file_sha256", "qc_read_file", "sha256 ~ '^[a-f0-9]{64}$'"
+    )
 
     op.drop_index("idx_qc_read_submission_experiment_id", table_name="qc_read_submission")
     op.drop_column("qc_read_submission", "experiment_id")
@@ -115,6 +127,19 @@ def downgrade() -> None:
         )
     )
 
+    op.drop_index("idx_qc_read_assembly_qc_read_id", table_name="qc_read_assembly")
+    op.drop_table("qc_read_assembly")
+
+    op.drop_constraint("ck_qc_read_file_md5", "qc_read_file", type_="check", if_exists=True)
+    op.drop_constraint("ck_qc_read_file_sha256", "qc_read_file", type_="check", if_exists=True)
+    op.add_column("qc_read_file", sa.Column("storage_backend", sa.Text(), nullable=True))
+    op.add_column("qc_read_file", sa.Column("storage_profile", sa.Text(), nullable=True))
+    op.add_column("qc_read_file", sa.Column("bucket_name", sa.Text(), nullable=True))
+
+    op.alter_column("qc_read_file", "file_name", new_column_name="path_to_file")
+    op.alter_column("qc_read_file", "md5", new_column_name="md5_checksum", nullable=False)
+    op.alter_column("qc_read_file", "sha256", new_column_name="sha256_checksum", nullable=False)
+
     op.execute(
         sa.text(
             """
@@ -148,8 +173,11 @@ def downgrade() -> None:
         "qc_read_file",
         "file_type IN ('cram', 'fastq_r1', 'fastq_r2')",
     )
-
-    op.drop_index("idx_qc_read_assembly_qc_read_id", table_name="qc_read_assembly")
-    op.drop_table("qc_read_assembly")
+    op.create_check_constraint(
+        "ck_qc_read_file_md5", "qc_read_file", "md5_checksum ~ '^[a-f0-9]{32}$'"
+    )
+    op.create_check_constraint(
+        "ck_qc_read_file_sha256", "qc_read_file", "sha256_checksum ~ '^[a-f0-9]{64}$'"
+    )
 
     op.drop_column("qc_read", "source_read_file_checksums", if_exists=True)
