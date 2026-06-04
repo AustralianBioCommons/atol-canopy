@@ -284,9 +284,7 @@ class AssemblyStageRun(Base):
     )
 
     __table_args__ = (
-        UniqueConstraint(
-            "assembly_run_id", "stage_name", name="uq_stage_run_assembly_run_stage"
-        ),
+        UniqueConstraint("assembly_run_id", "stage_name", name="uq_stage_run_assembly_run_stage"),
     )
 
     assembly_run = relationship(
