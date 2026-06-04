@@ -172,11 +172,7 @@ class OrganismService(BaseService[Organism, OrganismCreate, OrganismUpdate]):
                 )
                 response.experiments = experiment_submission_records
 
-                qc_reads = (
-                    db.query(QcRead)
-                    .filter(QcRead.experiment_id.in_(experiment_ids))
-                    .all()
-                )
+                qc_reads = db.query(QcRead).filter(QcRead.experiment_id.in_(experiment_ids)).all()
                 qc_read_ids = [qr.id for qr in qc_reads]
 
                 if qc_read_ids:

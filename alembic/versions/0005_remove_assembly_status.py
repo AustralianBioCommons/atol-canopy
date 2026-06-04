@@ -21,7 +21,9 @@ def upgrade() -> None:
 
 
 def downgrade() -> None:
-    op.add_column("assembly", sa.Column("status", sa.Text(), nullable=True, server_default="requested"))
+    op.add_column(
+        "assembly", sa.Column("status", sa.Text(), nullable=True, server_default="requested")
+    )
     op.execute(sa.text("UPDATE assembly SET status = 'requested' WHERE status IS NULL"))
     op.alter_column("assembly", "status", nullable=False, server_default="requested")
     op.create_check_constraint(

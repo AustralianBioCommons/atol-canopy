@@ -245,11 +245,7 @@ def get_samples_experiments_and_reads_for_specimen(
         experiment_payload = []
         for experiment in experiments:
             reads = db.query(Read).filter(Read.experiment_id == experiment.id).all()
-            qc_reads = (
-                db.query(QcRead)
-                .filter(QcRead.experiment_id == experiment.id)
-                .all()
-            )
+            qc_reads = db.query(QcRead).filter(QcRead.experiment_id == experiment.id).all()
             experiment_payload.append(
                 {"experiment": experiment, "reads": reads, "qc_reads": qc_reads}
             )
