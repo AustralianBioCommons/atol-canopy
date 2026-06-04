@@ -42,19 +42,19 @@ class QcFileChecksums(BaseModel):
 
 
 class ClassifiedQcFile(BaseModel):
-    path_to_file: str
+    file_name: str
     file_type: FileType
-    md5_checksum: str
-    sha256_checksum: str
+    md5: str
+    sha256: str
 
 
 def classify_reported_files(checksums: Dict[str, QcFileChecksums]) -> List[ClassifiedQcFile]:
     items = list(checksums.items())
     if len(items) == 1:
-        path_to_file, checksum = items[0]
-        if _CRAM_EXT_RE.search(path_to_file):
+        file_name, checksum = items[0]
+        if _CRAM_EXT_RE.search(file_name):
             file_type: FileType = "cram"
-        elif _FASTQ_EXT_RE.search(path_to_file):
+        elif _FASTQ_EXT_RE.search(file_name):
             file_type = "fastq"
         else:
             raise ValueError(
@@ -62,10 +62,10 @@ def classify_reported_files(checksums: Dict[str, QcFileChecksums]) -> List[Class
             )
         return [
             ClassifiedQcFile(
-                path_to_file=path_to_file,
+                file_name=file_name,
                 file_type=file_type,
-                md5_checksum=checksum.md5,
-                sha256_checksum=checksum.sha256,
+                md5=checksum.md5,
+                sha256=checksum.sha256,
             )
         ]
 
@@ -74,12 +74,12 @@ def classify_reported_files(checksums: Dict[str, QcFileChecksums]) -> List[Class
 
     classified: List[ClassifiedQcFile] = []
     seen_types: set[FileType] = set()
-    for path_to_file, checksum in items:
-        if not _FASTQ_EXT_RE.search(path_to_file):
+    for file_name, checksum in items:
+        if not _FASTQ_EXT_RE.search(file_name):
             raise ValueError("paired QC reports must use FASTQ filenames")
-        if _FASTQ_R1_RE.search(path_to_file):
+        if _FASTQ_R1_RE.search(file_name):
             file_type = "fastq_r1"
-        elif _FASTQ_R2_RE.search(path_to_file):
+        elif _FASTQ_R2_RE.search(file_name):
             file_type = "fastq_r2"
         else:
             raise ValueError(
@@ -88,10 +88,10 @@ def classify_reported_files(checksums: Dict[str, QcFileChecksums]) -> List[Class
         seen_types.add(file_type)
         classified.append(
             ClassifiedQcFile(
-                path_to_file=path_to_file,
+                file_name=file_name,
                 file_type=file_type,
-                md5_checksum=checksum.md5,
-                sha256_checksum=checksum.sha256,
+                md5=checksum.md5,
+                sha256=checksum.sha256,
             )
         )
 
@@ -140,12 +140,9 @@ class QcReadFileOut(BaseModel):
     id: UUID
     qc_read_id: UUID
     file_type: str
-    storage_backend: Optional[str]
-    storage_profile: Optional[str]
-    bucket_name: Optional[str]
-    path_to_file: str
-    md5_checksum: str
-    sha256_checksum: str
+    file_name: str
+    md5: str
+    sha256: str
     created_at: datetime
 
     model_config = {"from_attributes": True}

@@ -721,12 +721,9 @@ CREATE TABLE qc_read_file (
     id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
     qc_read_id UUID NOT NULL REFERENCES qc_read(id) ON DELETE CASCADE,
     file_type TEXT NOT NULL CHECK (file_type IN ('cram', 'fastq', 'fastq_r1', 'fastq_r2')),
-    storage_backend TEXT,
-    storage_profile TEXT,
-    bucket_name TEXT,
-    path_to_file TEXT NOT NULL,
-    md5_checksum TEXT NOT NULL CHECK (md5_checksum ~ '^[a-f0-9]{32}$'),
-    sha256_checksum TEXT NOT NULL CHECK (sha256_checksum ~ '^[a-f0-9]{64}$'),
+    file_name TEXT NOT NULL,
+    md5 TEXT NOT NULL CHECK (md5 ~ '^[a-f0-9]{32}$'),
+    sha256 TEXT NOT NULL CHECK (sha256 ~ '^[a-f0-9]{64}$'),
     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );

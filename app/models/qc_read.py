@@ -66,12 +66,9 @@ class QcReadFile(Base):
     )
     # 'cram', 'fastq', 'fastq_r1', or 'fastq_r2'
     file_type = Column(Text, nullable=False)
-    storage_backend = Column(Text, nullable=True)
-    storage_profile = Column(Text, nullable=True)
-    bucket_name = Column(Text, nullable=True)
-    path_to_file = Column(Text, nullable=False)
-    md5_checksum = Column(Text, nullable=False)
-    sha256_checksum = Column(Text, nullable=False)
+    file_name = Column(Text, nullable=False)
+    md5 = Column(Text, nullable=False)
+    sha256 = Column(Text, nullable=False)
     created_at = Column(DateTime(timezone=True), nullable=False, server_default=func.now())
     updated_at = Column(
         DateTime(timezone=True),
@@ -87,8 +84,8 @@ class QcReadFile(Base):
             "file_type IN ('cram', 'fastq', 'fastq_r1', 'fastq_r2')",
             name="ck_qc_read_file_type",
         ),
-        CheckConstraint("md5_checksum ~ '^[a-f0-9]{32}$'", name="ck_qc_read_file_md5"),
-        CheckConstraint("sha256_checksum ~ '^[a-f0-9]{64}$'", name="ck_qc_read_file_sha256"),
+        CheckConstraint("md5 ~ '^[a-f0-9]{32}$'", name="ck_qc_read_file_md5"),
+        CheckConstraint("sha256 ~ '^[a-f0-9]{64}$'", name="ck_qc_read_file_sha256"),
     )
 
 

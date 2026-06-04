@@ -933,7 +933,6 @@ def report_assembly_qc_read(
     allowed_sample_ids = _get_allowed_sample_ids_for_assembly(db, assembly)
     sample = db.query(Sample).filter(Sample.id == experiment.sample_id).first()
     if not sample or sample.derived_from_sample_id not in allowed_sample_ids:
-        lineage_lookup = _get_assembly_lineage_debug_details(db, assembly)
         logger.warning(
             "QC read lineage validation failed: assembly_id=%s bpa_package_id=%s "
             "experiment_id=%s experiment_sample_id=%s "
@@ -1003,12 +1002,9 @@ def report_assembly_qc_read(
         QcReadFile(
             qc_read_id=qc_read.id,
             file_type=f.file_type,
-            storage_backend=None,
-            storage_profile=None,
-            bucket_name=None,
-            path_to_file=f.path_to_file,
-            md5_checksum=f.md5_checksum,
-            sha256_checksum=f.sha256_checksum,
+            file_name=f.file_name,
+            md5=f.md5,
+            sha256=f.sha256,
         )
         for f in reported_files
     ]

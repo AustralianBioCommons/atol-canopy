@@ -11,6 +11,7 @@ from app.models.assembly import Assembly
 from app.models.experiment import Experiment
 from app.models.qc_read import QcRead, QcReadAssembly, QcReadFile, QcReadSubmission
 from app.models.read import Read
+from app.models.sample import Sample
 
 
 def _override_db(fake):
@@ -38,10 +39,11 @@ class _QuerySequence:
 
 
 class _SessionAssemblyQcReport:
-    def __init__(self, assembly_obj=None, experiment_obj=None, read_objs=None):
+    def __init__(self, assembly_obj=None, experiment_obj=None, read_objs=None, sample_obj=None):
         self.assembly_obj = assembly_obj
         self.experiment_obj = experiment_obj
         self.read_objs = read_objs or []
+        self.sample_obj = sample_obj
         self.qc_read = None
         self.qc_read_assemblies = []
         self.qc_files = []
@@ -54,6 +56,8 @@ class _SessionAssemblyQcReport:
             return _QuerySequence(self.experiment_obj)
         if model is Read:
             return _QuerySequence(self.read_objs)
+        if model is Sample:
+            return _QuerySequence(self.sample_obj)
         return _QuerySequence(None)
 
     def add(self, obj):
@@ -98,6 +102,7 @@ def test_report_qc_result_creates_paired_fastq_qc_read():
     client = TestClient(app)
     assembly_id = uuid.uuid4()
     experiment_id = uuid.uuid4()
+    specimen_sample_id = uuid.uuid4()
     fake_db = _SessionAssemblyQcReport(
         assembly_obj=Assembly(
             id=assembly_id, taxon_id=1, sample_id=uuid.uuid4(), data_types="PACBIO_SMRT"
@@ -112,6 +117,7 @@ def test_report_qc_result_creates_paired_fastq_qc_read():
             Read(experiment_id=experiment_id, bpa_resource_id="res-1", file_checksum="a" * 32),
             Read(experiment_id=experiment_id, bpa_resource_id="res-2", file_checksum="b" * 32),
         ],
+        sample_obj=Sample(id=uuid.uuid4(), derived_from_sample_id=specimen_sample_id),
     )
     app.dependency_overrides[assemblies.get_current_active_user] = lambda: SimpleNamespace(
         is_active=True, roles=["genome_launcher"], is_superuser=False
@@ -121,7 +127,7 @@ def test_report_qc_result_creates_paired_fastq_qc_read():
     monkeypatch.setattr(
         assemblies,
         "_get_allowed_sample_ids_for_assembly",
-        lambda db, assembly: {fake_db.experiment_obj.sample_id},
+        lambda db, assembly: {specimen_sample_id},
     )
     monkeypatch.setattr(assemblies, "_assembly_manifest_package_ids", lambda assembly: {"pkg-1"})
     try:
@@ -193,6 +199,7 @@ def test_report_qc_result_accepts_single_end_fastq():
     client = TestClient(app)
     assembly_id = uuid.uuid4()
     experiment_id = uuid.uuid4()
+    specimen_sample_id = uuid.uuid4()
     fake_db = _SessionAssemblyQcReport(
         assembly_obj=Assembly(
             id=assembly_id, taxon_id=1, sample_id=uuid.uuid4(), data_types="PACBIO_SMRT"
@@ -210,6 +217,7 @@ def test_report_qc_result_accepts_single_end_fastq():
                 file_checksum="900150983cd24fb0d6963f7d28e17f72",
             )
         ],
+        sample_obj=Sample(id=uuid.uuid4(), derived_from_sample_id=specimen_sample_id),
     )
     app.dependency_overrides[assemblies.get_current_active_user] = lambda: SimpleNamespace(
         is_active=True, roles=["genome_launcher"], is_superuser=False
@@ -219,7 +227,7 @@ def test_report_qc_result_accepts_single_end_fastq():
     monkeypatch.setattr(
         assemblies,
         "_get_allowed_sample_ids_for_assembly",
-        lambda db, assembly: {fake_db.experiment_obj.sample_id},
+        lambda db, assembly: {specimen_sample_id},
     )
     monkeypatch.setattr(assemblies, "_assembly_manifest_package_ids", lambda assembly: {"pkg-1"})
     try:
@@ -255,6 +263,7 @@ def test_report_qc_result_rejects_unlabelled_fastq_pairs():
     client = TestClient(app)
     assembly_id = uuid.uuid4()
     experiment_id = uuid.uuid4()
+    specimen_sample_id = uuid.uuid4()
     fake_db = _SessionAssemblyQcReport(
         assembly_obj=Assembly(
             id=assembly_id, taxon_id=1, sample_id=uuid.uuid4(), data_types="PACBIO_SMRT"
@@ -269,6 +278,7 @@ def test_report_qc_result_rejects_unlabelled_fastq_pairs():
             Read(experiment_id=experiment_id, bpa_resource_id="res-1", file_checksum="a" * 32),
             Read(experiment_id=experiment_id, bpa_resource_id="res-2", file_checksum="b" * 32),
         ],
+        sample_obj=Sample(id=uuid.uuid4(), derived_from_sample_id=specimen_sample_id),
     )
     app.dependency_overrides[assemblies.get_current_active_user] = lambda: SimpleNamespace(
         is_active=True, roles=["genome_launcher"], is_superuser=False
@@ -278,7 +288,7 @@ def test_report_qc_result_rejects_unlabelled_fastq_pairs():
     monkeypatch.setattr(
         assemblies,
         "_get_allowed_sample_ids_for_assembly",
-        lambda db, assembly: {fake_db.experiment_obj.sample_id},
+        lambda db, assembly: {specimen_sample_id},
     )
     monkeypatch.setattr(assemblies, "_assembly_manifest_package_ids", lambda assembly: {"pkg-1"})
     try:
@@ -320,6 +330,7 @@ def test_report_qc_result_rejects_experiment_outside_assembly_lineage():
     client = TestClient(app)
     assembly_id = uuid.uuid4()
     experiment_id = uuid.uuid4()
+    specimen_sample_id = uuid.uuid4()
     fake_db = _SessionAssemblyQcReport(
         assembly_obj=Assembly(
             id=assembly_id, taxon_id=1, sample_id=uuid.uuid4(), data_types="PACBIO_SMRT"
@@ -337,6 +348,7 @@ def test_report_qc_result_rejects_experiment_outside_assembly_lineage():
                 file_checksum="900150983cd24fb0d6963f7d28e17f72",
             )
         ],
+        sample_obj=Sample(id=uuid.uuid4(), derived_from_sample_id=specimen_sample_id),
     )
     app.dependency_overrides[assemblies.get_current_active_user] = lambda: SimpleNamespace(
         is_active=True, roles=["genome_launcher"], is_superuser=False
@@ -379,6 +391,7 @@ def test_report_qc_result_rejects_experiment_missing_from_manifest():
     client = TestClient(app)
     assembly_id = uuid.uuid4()
     experiment_id = uuid.uuid4()
+    specimen_sample_id = uuid.uuid4()
     fake_db = _SessionAssemblyQcReport(
         assembly_obj=Assembly(
             id=assembly_id, taxon_id=1, sample_id=uuid.uuid4(), data_types="PACBIO_SMRT"
@@ -396,6 +409,7 @@ def test_report_qc_result_rejects_experiment_missing_from_manifest():
                 file_checksum="900150983cd24fb0d6963f7d28e17f72",
             )
         ],
+        sample_obj=Sample(id=uuid.uuid4(), derived_from_sample_id=specimen_sample_id),
     )
     app.dependency_overrides[assemblies.get_current_active_user] = lambda: SimpleNamespace(
         is_active=True, roles=["genome_launcher"], is_superuser=False
@@ -405,7 +419,7 @@ def test_report_qc_result_rejects_experiment_missing_from_manifest():
     monkeypatch.setattr(
         assemblies,
         "_get_allowed_sample_ids_for_assembly",
-        lambda db, assembly: {fake_db.experiment_obj.sample_id},
+        lambda db, assembly: {specimen_sample_id},
     )
     monkeypatch.setattr(assemblies, "_assembly_manifest_package_ids", lambda assembly: {"pkg-2"})
     try:
@@ -440,6 +454,7 @@ def test_report_qc_result_rejects_missing_source_md5_for_experiment():
     client = TestClient(app)
     assembly_id = uuid.uuid4()
     experiment_id = uuid.uuid4()
+    specimen_sample_id = uuid.uuid4()
     fake_db = _SessionAssemblyQcReport(
         assembly_obj=Assembly(
             id=assembly_id, taxon_id=1, sample_id=uuid.uuid4(), data_types="PACBIO_SMRT"
@@ -457,6 +472,7 @@ def test_report_qc_result_rejects_missing_source_md5_for_experiment():
                 file_checksum="900150983cd24fb0d6963f7d28e17f72",
             )
         ],
+        sample_obj=Sample(id=uuid.uuid4(), derived_from_sample_id=specimen_sample_id),
     )
     app.dependency_overrides[assemblies.get_current_active_user] = lambda: SimpleNamespace(
         is_active=True, roles=["genome_launcher"], is_superuser=False
@@ -466,7 +482,7 @@ def test_report_qc_result_rejects_missing_source_md5_for_experiment():
     monkeypatch.setattr(
         assemblies,
         "_get_allowed_sample_ids_for_assembly",
-        lambda db, assembly: {fake_db.experiment_obj.sample_id},
+        lambda db, assembly: {specimen_sample_id},
     )
     monkeypatch.setattr(assemblies, "_assembly_manifest_package_ids", lambda assembly: {"pkg-1"})
     try:
