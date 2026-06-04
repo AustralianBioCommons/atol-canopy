@@ -82,6 +82,7 @@ When `taxonomy_info` is deleted:
 - Bulk creates taxonomy info rows and performs batched NCBI enrichment.
 - If NCBI enrichment fails for a new row, that row is skipped instead of creating an empty placeholder.
 - If a prior run created a row without a successful NCBI sync, rerunning bulk import retries that row.
+- The bulk response includes `ncbi_retryable_count` and `ncbi_retryable_taxon_ids` so callers can distinguish retryable NCBI lookup misses from other skipped rows.
 
 At the moment, the taxonomy-info create/bulk-import flows are treated as insert-oriented paths rather than explicit upsert endpoints.
 

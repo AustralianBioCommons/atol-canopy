@@ -54,6 +54,8 @@ class BulkImportResponse(BaseModel):
     created_count: int
     updated_count: Optional[int] = 0
     skipped_count: Optional[int] = 0
+    ncbi_retryable_count: Optional[int] = 0
+    ncbi_retryable_taxon_ids: Optional[List[int]] = None
     message: str
     errors: Optional[List[str]] = None  # List of all errors with context
     debug: Optional[Dict[str, int]] = None

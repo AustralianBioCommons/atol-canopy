@@ -302,6 +302,8 @@ def test_bulk_import_happy_path(monkeypatch):
     body = resp.json()
     assert body["created_count"] == 2
     assert body["skipped_count"] == 0
+    assert body["ncbi_retryable_count"] == 0
+    assert body["ncbi_retryable_taxon_ids"] is None
 
 
 def test_bulk_import_skips_missing_organisms(monkeypatch):
@@ -323,6 +325,7 @@ def test_bulk_import_skips_missing_organisms(monkeypatch):
     assert resp.status_code == 200
     body = resp.json()
     assert body["skipped_count"] == 1
+    assert body["ncbi_retryable_count"] == 0
     assert any("does not exist" in e for e in body["errors"])
 
 
@@ -345,6 +348,7 @@ def test_bulk_import_skips_duplicates(monkeypatch):
     assert resp.status_code == 200
     body = resp.json()
     assert body["skipped_count"] == 1
+    assert body["ncbi_retryable_count"] == 0
     assert any("already exists" in e for e in body["errors"])
 
 
