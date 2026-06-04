@@ -1114,7 +1114,6 @@ def _make_stage_run(assembly_run_id=None):
         id=uuid4(),
         assembly_run_id=assembly_run_id or uuid4(),
         stage_name="genomeassembly",
-        external_run_id="ext-123",
         data={"n50": 10000},
         started_at=datetime(2026, 1, 1, tzinfo=timezone.utc),
         completed_at=datetime(2026, 1, 2, tzinfo=timezone.utc),

@@ -269,7 +269,6 @@ class AssemblyStageRun(Base):
         UUID(as_uuid=True), ForeignKey("assembly_run.id", ondelete="CASCADE"), nullable=False
     )
     stage_name = Column(Text, ForeignKey("assembly_stage.name"), nullable=False)
-    external_run_id = Column(Text, nullable=True)
     data = Column(JSONB, nullable=False, default=dict)
     started_at = Column(DateTime(timezone=True), nullable=True)
     completed_at = Column(DateTime(timezone=True), nullable=True)
