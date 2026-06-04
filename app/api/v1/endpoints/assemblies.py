@@ -1071,11 +1071,14 @@ def create_stage_run(
     )
     if not assembly_run:
         raise HTTPException(status_code=404, detail="Assembly run not found")
-    return assembly_stage_run_service.create_with_files(
-        db,
-        assembly_run_id=run_id,
-        run_in=run_in,
-    )
+    try:
+        return assembly_stage_run_service.create_with_files(
+            db,
+            assembly_run_id=run_id,
+            run_in=run_in,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
 
 
 @router.patch(

@@ -1256,6 +1256,51 @@ def test_create_stage_run_success(monkeypatch):
     assert body["files"][0]["sha256sum"] == "deadbeef"
 
 
+def test_create_stage_run_rejects_duplicate_stage_name(monkeypatch):
+    """POST /{assembly_id}/runs/{run_id}/stage-runs returns 409 for duplicate stage name."""
+    client = TestClient(app)
+    assembly_id = uuid4()
+    run_id = uuid4()
+
+    monkeypatch.setattr(
+        assemblies.assembly_stage_run_service,
+        "create_with_files",
+        lambda db, **kwargs: (_ for _ in ()).throw(
+            ValueError("Assembly stage run already exists for this assembly_run_id and stage_name")
+        ),
+    )
+
+    class _Q:
+        def filter(self, *_a, **_k):
+            return self
+
+        def first(self):
+            return SimpleNamespace(id=run_id, assembly_id=assembly_id)
+
+    class _DB:
+        def query(self, _model):
+            return _Q()
+
+    app.dependency_overrides[assemblies.get_current_active_user] = lambda: SimpleNamespace(
+        is_active=True, roles=["curator"], is_superuser=False
+    )
+    app.dependency_overrides[assemblies.get_db] = lambda: _DB()
+
+    resp = client.post(
+        f"/api/v1/assemblies/{assembly_id}/runs/{run_id}/stage-runs",
+        json={
+            "stage_name": "genomeassembly",
+            "data": {"n50": 10000},
+            "files": [],
+        },
+    )
+
+    assert resp.status_code == 409
+    response_data = resp.json()
+    error_msg = response_data.get("detail") or response_data.get("error", {}).get("message", "")
+    assert "already exists" in error_msg
+
+
 def test_update_stage_run_data(monkeypatch):
     """PATCH /{assembly_id}/runs/{run_id}/stage-runs/{stage_run_id} updates data."""
     client = TestClient(app)
