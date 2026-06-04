@@ -2,6 +2,7 @@ from typing import List, Optional
 from uuid import UUID
 
 from sqlalchemy import func
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from app.models.assembly import (
@@ -314,13 +315,33 @@ class AssemblyRunService(BaseService[AssemblyRun, AssemblyRunCreate, AssemblyRun
         assembly_id: UUID,
         run_in: AssemblyRunCreate,
     ) -> AssemblyRun:
+        existing_run = (
+            db.query(AssemblyRun)
+            .filter(
+                AssemblyRun.assembly_id == assembly_id,
+                AssemblyRun.github_repo == run_in.github_repo,
+                AssemblyRun.git_commit == run_in.git_commit,
+            )
+            .first()
+        )
+        if existing_run:
+            raise ValueError(
+                "Assembly run already exists for this assembly_id, github_repo, and git_commit."
+            )
+
         run = AssemblyRun(
             assembly_id=assembly_id,
             github_repo=run_in.github_repo,
             git_commit=run_in.git_commit,
         )
         db.add(run)
-        db.commit()
+        try:
+            db.commit()
+        except IntegrityError:
+            db.rollback()
+            raise ValueError(
+                "Assembly run already exists for this assembly_id, github_repo, and git_commit"
+            ) from None
         db.refresh(run)
         return run
 
@@ -363,8 +384,9 @@ class AssemblyStageRunService(
                 AssemblyStageRunFile(
                     assembly_stage_run_id=run.id,
                     storage_type=f.storage_type,
-                    storage_uri=f.storage_uri,
-                    storage_details=f.storage_details,
+                    endpoint=f.endpoint,
+                    location_root=f.location_root,
+                    location_path=f.location_path,
                     sha256sum=f.sha256sum,
                 )
             )
@@ -400,8 +422,9 @@ class AssemblyStageRunService(
                     AssemblyStageRunFile(
                         assembly_stage_run_id=db_obj.id,
                         storage_type=f.storage_type,
-                        storage_uri=f.storage_uri,
-                        storage_details=f.storage_details,
+                        endpoint=f.endpoint,
+                        location_root=f.location_root,
+                        location_path=f.location_path,
                         sha256sum=f.sha256sum,
                     )
                 )

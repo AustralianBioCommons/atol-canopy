@@ -900,11 +900,14 @@ def create_assembly_run(
     assembly = assembly_service.get(db, id=assembly_id)
     if not assembly:
         raise HTTPException(status_code=404, detail="Assembly not found")
-    return assembly_run_service.create_for_assembly(
-        db,
-        assembly_id=assembly_id,
-        run_in=run_in,
-    )
+    try:
+        return assembly_run_service.create_for_assembly(
+            db,
+            assembly_id=assembly_id,
+            run_in=run_in,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
 
 
 @router.post("/{assembly_id}/qc-reads/report", response_model=QcReadOut, status_code=201)
