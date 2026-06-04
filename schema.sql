@@ -706,7 +706,7 @@ CREATE INDEX idx_genome_note_published ON genome_note(taxon_id, is_published)
 CREATE TABLE qc_read (
     id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
     experiment_id UUID NOT NULL REFERENCES experiment(id) ON DELETE CASCADE,
-    source_bpa_resource_ids TEXT[] NOT NULL,
+    source_read_file_checksums TEXT[] NOT NULL,
     base_count BIGINT NOT NULL,
     read_count BIGINT NOT NULL,
     qc_bases_removed BIGINT NOT NULL,

@@ -126,7 +126,7 @@ This endpoint records the QC metrics and output files against a specific assembl
 
 - the source experiment
 - the target assembly
-- one or two source reads identified by `source_bpa_resource_ids`
+- one or two source read MD5 sums listed in `source_read_file_checksums`
 
 The reported files must be either a single-file read set (for example one CRAM or one single-end FASTQ) or a paired FASTQ set (one R1 and one R2).
 
@@ -140,7 +140,11 @@ Unlike stage results, QC read reports are linked directly to `assembly_id`; they
 
 ```json
 {
-  "source_bpa_resource_ids": ["RES-001", "RES-002"],
+  "bpa_package_id": "pkg-001",
+  "source_read_file_checksums": [
+    "d41d8cd98f00b204e9800998ecf8427e",
+    "0cc175b9c0f1b6a831c399e269772661"
+  ],
   "base_count": 15000000000,
   "read_count": 5000000,
   "qc_bases_removed": 120000,
@@ -162,7 +166,8 @@ Unlike stage results, QC read reports are linked directly to `assembly_id`; they
 
 | Field | Required | Description |
 |-------|----------|-------------|
-| `source_bpa_resource_ids` | Yes | One or two source read BPA resource IDs used to produce this QC result |
+| `bpa_package_id` | Yes | BPA package ID for the experiment this QC result belongs to |
+| `source_read_file_checksums` | Yes | One or two source read file checksums used to produce this QC result |
 | `base_count` | Yes | Total number of bases after QC |
 | `read_count` | Yes | Total number of reads after QC |
 | `qc_bases_removed` | Yes | Number of bases removed during QC |
@@ -181,10 +186,11 @@ Each `checksums` entry:
 
 Validation rules:
 
-- `source_bpa_resource_ids` must contain one or two unique values
-- all referenced reads must exist
-- all referenced reads must belong to the same experiment
-- all referenced reads must be linked to the target assembly
+- `bpa_package_id` must identify an existing experiment
+- the resolved experiment must belong to the target assembly specimen lineage
+- the resolved experiment must be present in the target assembly manifest inputs
+- `source_read_file_checksums` must contain one or two unique MD5 sums
+- every submitted source MD5 sum must match a `read.file_checksum` belonging to the resolved experiment
 - One checksum entry: accepted for a single-file read set when the filename ends in `.cram`, `.fastq`, `.fastq.gz`, `.fq`, or `.fq.gz`
 - Two checksum entries: accepted for paired FASTQ when the filenames identify one R1/read1 file and one R2/read2 file
 - More than two files are rejected by this endpoint
@@ -339,7 +345,11 @@ POST /api/v1/assemblies/f47ac10b-.../runs
 # 3. QC stage completes — report QC reads, then report the stage result
 POST /api/v1/assemblies/f47ac10b-.../qc-reads/report
 {
-  "source_bpa_resource_ids": ["RES-001", "RES-002"],
+  "bpa_package_id": "pkg-001",
+  "source_read_file_checksums": [
+    "d41d8cd98f00b204e9800998ecf8427e",
+    "0cc175b9c0f1b6a831c399e269772661"
+  ],
   "base_count": 15000000000,
   "read_count": 5000000,
   "qc_bases_removed": 120000,

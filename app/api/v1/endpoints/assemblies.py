@@ -1,10 +1,12 @@
-from typing import Any, Dict, List, Optional
+import logging
+from typing import Any, Dict, List, Optional, Set
 from uuid import UUID
 
 from fastapi import APIRouter, Body, Depends, HTTPException, Query
 from fastapi.responses import JSONResponse
 from sqlalchemy.orm import Session, joinedload
 
+from app.api.v1.endpoints.qc_reads import _build_prepared_payload
 from app.core.dependencies import get_current_active_user, get_db
 from app.core.errors import AppError
 from app.core.pagination import Pagination, apply_pagination, pagination_params
@@ -12,7 +14,6 @@ from app.core.policy import policy
 from app.models.assembly import (
     Assembly,
     AssemblyFile,
-    AssemblyRead,
     AssemblyRun,
     AssemblyStageRun,
     AssemblySubmission,
@@ -63,10 +64,10 @@ from app.services.assembly_service import (
     assembly_stage_run_service,
     assembly_submission_service,
 )
-from app.api.v1.endpoints.qc_reads import _build_prepared_payload
 from app.services.organism_service import organism_service
 
 router = APIRouter()
+logger = logging.getLogger(__name__)
 
 _ASSEMBLY_MUTABLE_FIELDS = {
     column.name
@@ -156,6 +157,32 @@ def _get_lineage_sample_ids_for_specimen(db: Session, specimen_sample: Sample) -
         .all()
     )
     return [specimen_sample.id] + [sample.id for sample in derived_samples]
+
+
+def _get_allowed_sample_ids_for_assembly(db: Session, assembly: Assembly) -> Set[UUID]:
+    """Return the specimen-sample lineage ids that are valid inputs for an assembly."""
+    allowed_sample_ids: Set[UUID] = set()
+
+    if assembly.long_read_specimen_sample_id:
+        long_read_sample = (
+            db.query(Sample).filter(Sample.id == assembly.long_read_specimen_sample_id).first()
+        )
+        if long_read_sample:
+            allowed_sample_ids.update(_get_lineage_sample_ids_for_specimen(db, long_read_sample))
+
+    hic_specimen_sample_ids = assembly.hic_specimen_sample_ids or []
+    for hic_sample_id in hic_specimen_sample_ids:
+        hic_sample = db.query(Sample).filter(Sample.id == hic_sample_id).first()
+        if hic_sample:
+            allowed_sample_ids.update(_get_lineage_sample_ids_for_specimen(db, hic_sample))
+
+    return allowed_sample_ids
+
+
+def _assembly_manifest_package_ids(assembly: Assembly) -> Set[str]:
+    manifest = assembly.manifest_json or {}
+    read_files = manifest.get("read_files") or []
+    return {entry["name"] for entry in read_files if isinstance(entry, dict) and entry.get("name")}
 
 
 @router.get("/specimen-samples/{taxon_id}", response_model=AssemblySpecimenSampleDiscoveryResponse)
@@ -322,16 +349,17 @@ def get_assembly_manifest(
         raise HTTPException(status_code=404, detail="No assembly manifest found")
 
     if assembly.manifest_json is None:
-        raise HTTPException(
-            status_code=404,
-            detail="No manifest stored for this assembly. Re-submit an intent to generate one.",
+        logger.error(
+            "Assembly %s for taxon_id %s has no manifest_json; returning empty manifest",
+            assembly.id,
+            taxon_id,
         )
 
     return JSONResponse(
         content={
             "assembly_id": str(assembly.id),
             "version": assembly.version,
-            "manifest": assembly.manifest_json,
+            "manifest": assembly.manifest_json or {},
         }
     )
 
@@ -888,54 +916,62 @@ def report_assembly_qc_read(
     payload: QcCallbackRequest,
     current_user: User = Depends(get_current_active_user),
 ) -> Any:
-    """Create a QC read result for an assembly from one or two source BPA resource IDs."""
+    """Create a QC read result for an assembly from one or two source read MD5 sums."""
     assembly = assembly_service.get(db, id=assembly_id)
     if not assembly:
         raise HTTPException(status_code=404, detail="Assembly not found")
 
+    experiment = (
+        db.query(Experiment).filter(Experiment.bpa_package_id == payload.bpa_package_id).first()
+    )
+    if not experiment:
+        raise HTTPException(
+            status_code=422,
+            detail=f"Experiment not found for bpa_package_id: {payload.bpa_package_id}",
+        )
+
+    allowed_sample_ids = _get_allowed_sample_ids_for_assembly(db, assembly)
+    if experiment.sample_id not in allowed_sample_ids:
+        raise HTTPException(
+            status_code=422,
+            detail=(
+                "Experiment sample is not part of the target assembly specimen lineage "
+                f"for bpa_package_id: {payload.bpa_package_id}"
+            ),
+        )
+
+    manifest_package_ids = _assembly_manifest_package_ids(assembly)
+    if payload.bpa_package_id not in manifest_package_ids:
+        raise HTTPException(
+            status_code=422,
+            detail=(
+                "Experiment is not present in the target assembly manifest inputs "
+                f"for bpa_package_id: {payload.bpa_package_id}"
+            ),
+        )
+
     source_reads = (
         db.query(Read)
-        .filter(Read.bpa_resource_id.in_(payload.source_bpa_resource_ids))
-        .all()
-    )
-    reads_by_resource_id = {read.bpa_resource_id: read for read in source_reads}
-    missing_resource_ids = [
-        resource_id
-        for resource_id in payload.source_bpa_resource_ids
-        if resource_id not in reads_by_resource_id
-    ]
-    if missing_resource_ids:
-        raise HTTPException(
-            status_code=422,
-            detail=f"Source reads not found for BPA resource IDs: {', '.join(missing_resource_ids)}",
-        )
-
-    source_read_ids = [
-        reads_by_resource_id[resource_id].id for resource_id in payload.source_bpa_resource_ids
-    ]
-    assembly_read_rows = (
-        db.query(AssemblyRead)
         .filter(
-            AssemblyRead.assembly_id == assembly_id,
-            AssemblyRead.read_id.in_(source_read_ids),
+            Read.experiment_id == experiment.id,
+            Read.file_checksum.in_(payload.source_read_file_checksums),
         )
         .all()
     )
-    linked_read_ids = {row.read_id for row in assembly_read_rows}
-    for read_id in source_read_ids:
-        if read_id not in linked_read_ids:
-            db.add(AssemblyRead(assembly_id=assembly_id, read_id=read_id))
-
-    experiment_ids = {read.experiment_id for read in source_reads}
-    if len(experiment_ids) != 1:
+    matched_md5s = {read.file_checksum for read in source_reads if read.file_checksum}
+    missing_md5s = sorted(set(payload.source_read_file_checksums) - matched_md5s)
+    if missing_md5s:
         raise HTTPException(
             status_code=422,
-            detail="All source reads for a QC report must belong to the same experiment",
+            detail=(
+                "Source read MD5 sums are not linked to the experiment for "
+                f"bpa_package_id: {payload.bpa_package_id}. Missing MD5 sums: {missing_md5s}"
+            ),
         )
 
     qc_read = QcRead(
-        experiment_id=source_reads[0].experiment_id,
-        source_bpa_resource_ids=payload.source_bpa_resource_ids,
+        experiment_id=experiment.id,
+        source_read_file_checksums=payload.source_read_file_checksums,
         base_count=payload.base_count,
         read_count=payload.read_count,
         qc_bases_removed=payload.qc_bases_removed,

@@ -1,4 +1,4 @@
-"""Add qc_read source BPA resource IDs and assembly association.
+"""Add qc_read source read file checksums and assembly association.
 
 Revision ID: 0004_qc_reads_assembly_refs
 Revises: 0003_assembly_run_github
@@ -49,10 +49,10 @@ def _drop_qc_read_file_type_checks() -> None:
 def upgrade() -> None:
     op.add_column(
         "qc_read",
-        sa.Column("source_bpa_resource_ids", postgresql.ARRAY(sa.Text()), nullable=True),
+        sa.Column("source_read_file_checksums", postgresql.ARRAY(sa.Text()), nullable=True),
     )
-    op.execute("UPDATE qc_read SET source_bpa_resource_ids = ARRAY[]::text[]")
-    op.alter_column("qc_read", "source_bpa_resource_ids", nullable=False)
+    op.execute("UPDATE qc_read SET source_read_file_checksums = ARRAY[]::text[]")
+    op.alter_column("qc_read", "source_read_file_checksums", nullable=False)
 
     op.create_table(
         "qc_read_assembly",
@@ -117,4 +117,4 @@ def downgrade() -> None:
     op.drop_index("idx_qc_read_assembly_qc_read_id", table_name="qc_read_assembly")
     op.drop_table("qc_read_assembly")
 
-    op.drop_column("qc_read", "source_bpa_resource_ids")
+    op.drop_column("qc_read", "source_read_file_checksums")
