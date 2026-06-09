@@ -54,7 +54,6 @@ class AssemblyBase(BaseModel):
     moleculetype: str = "genomic DNA"
     description: Optional[str] = None
     version: int = 1
-    status: str = "requested"
 
 
 # Schema for creating a new assembly
@@ -94,8 +93,7 @@ class AssemblyIntentResponse(BaseModel):
 
     assembly_id: UUID
     version: int
-    status: str
-    manifest_json: Dict[str, Any]
+    manifest: Dict[str, Any]
 
 
 class AssemblySpecimenSampleOption(BaseModel):
@@ -138,7 +136,6 @@ class AssemblyUpdate(BaseModel):
     moleculetype: Optional[str] = None
     version: Optional[int] = None
     description: Optional[str] = None
-    status: Optional[str] = None
     long_read_specimen_sample_id: Optional[UUID] = None
     hic_specimen_sample_id: Optional[UUID] = None
     manifest_json: Optional[Dict[str, Any]] = None
@@ -288,6 +285,32 @@ class AssemblyFile(AssemblyFileInDBBase):
 
 
 # ==========================================
+# AssemblyRun schemas
+# ==========================================
+
+
+class AssemblyRunCreate(BaseModel):
+    """Schema for creating an assembly run (one pipeline invocation)."""
+
+    github_repo: str
+    git_commit: str
+
+
+class AssemblyRunOut(BaseModel):
+    """Assembly run response schema."""
+
+    id: UUID
+    assembly_id: UUID
+    github_repo: str
+    git_commit: str
+    created_at: datetime
+    updated_at: datetime
+    stage_runs: List["AssemblyStageRunOut"] = []
+
+    model_config = ConfigDict(from_attributes=True)
+
+
+# ==========================================
 # AssemblyStageRun schemas
 # ==========================================
 
@@ -296,8 +319,9 @@ class AssemblyStageRunFileCreate(BaseModel):
     """File payload for a stage run."""
 
     storage_type: str
-    storage_uri: str
-    storage_details: Dict[str, Any] = {}
+    endpoint: str
+    location_root: str
+    location_path: str
     sha256sum: str
 
 
@@ -305,10 +329,7 @@ class AssemblyStageRunCreate(BaseModel):
     """Schema for reporting a stage run result."""
 
     stage_name: str
-    status: str
-    external_run_id: Optional[str] = None
-    attempt: int = 1
-    stats: Dict[str, Any] = {}
+    data: Dict[str, Any] = {}
     started_at: Optional[datetime] = None
     completed_at: Optional[datetime] = None
     files: List[AssemblyStageRunFileCreate] = []
@@ -317,9 +338,7 @@ class AssemblyStageRunCreate(BaseModel):
 class AssemblyStageRunUpdate(BaseModel):
     """Schema for updating an existing stage run. If files is provided, replaces all existing files."""
 
-    status: Optional[str] = None
-    external_run_id: Optional[str] = None
-    stats: Optional[Dict[str, Any]] = None
+    data: Optional[Dict[str, Any]] = None
     started_at: Optional[datetime] = None
     completed_at: Optional[datetime] = None
     files: Optional[List[AssemblyStageRunFileCreate]] = None
@@ -331,10 +350,12 @@ class AssemblyStageRunFileOut(BaseModel):
     id: UUID
     assembly_stage_run_id: UUID
     storage_type: str
-    storage_uri: str
-    storage_details: Dict[str, Any]
+    endpoint: Optional[str]
+    location_root: str
+    location_path: str
     sha256sum: str
     created_at: datetime
+    updated_at: datetime
 
     model_config = ConfigDict(from_attributes=True)
 
@@ -343,12 +364,9 @@ class AssemblyStageRunOut(BaseModel):
     """Stage run response schema."""
 
     id: UUID
-    assembly_id: UUID
+    assembly_run_id: UUID
     stage_name: str
-    status: str
-    external_run_id: Optional[str]
-    attempt: int
-    stats: Dict[str, Any]
+    data: Dict[str, Any]
     started_at: Optional[datetime]
     completed_at: Optional[datetime]
     created_at: datetime
@@ -356,3 +374,6 @@ class AssemblyStageRunOut(BaseModel):
     files: List[AssemblyStageRunFileOut] = []
 
     model_config = ConfigDict(from_attributes=True)
+
+
+AssemblyRunOut.model_rebuild()

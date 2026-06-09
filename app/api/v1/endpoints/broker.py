@@ -18,6 +18,7 @@ from app.models.experiment import Experiment, ExperimentSubmission
 from app.models.organism import Organism
 from app.models.project import Project, ProjectSubmission
 from app.models.qc_read import QcRead, QcReadSubmission
+from app.models.read import Read
 from app.models.sample import Sample, SampleSubmission
 from app.models.user import User
 from app.schemas.broker_contract import (
@@ -624,7 +625,7 @@ def _lookup_taxonomy_for_entity(
             .first()
         )
     else:
-        # RUN entity_id is a qc_read_id; traverse qc_read → experiment → sample → organism
+        # RUN entity_id is a qc_read_id; traverse qc_read → read → experiment → sample → organism
         row = (
             db.query(Sample.taxon_id, Organism.taxon_id)
             .join(Experiment, Experiment.sample_id == Sample.id)

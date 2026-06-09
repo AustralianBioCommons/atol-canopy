@@ -15,7 +15,10 @@ class QcReadSubmissionService:
 
     def get_by_experiment_id(self, db: Session, experiment_id: UUID) -> List[QcReadSubmission]:
         return (
-            db.query(QcReadSubmission).filter(QcReadSubmission.experiment_id == experiment_id).all()
+            db.query(QcReadSubmission)
+            .join(QcRead, QcRead.id == QcReadSubmission.qc_read_id)
+            .filter(QcRead.experiment_id == experiment_id)
+            .all()
         )
 
     def get_by_project_id(self, db: Session, project_id: UUID) -> List[QcReadSubmission]:

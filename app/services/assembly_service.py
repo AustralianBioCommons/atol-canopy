@@ -2,6 +2,7 @@ from typing import List, Optional
 from uuid import UUID
 
 from sqlalchemy import func
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from app.models.assembly import (
@@ -20,6 +21,7 @@ from app.schemas.assembly import (
     AssemblyCreate,
     AssemblyFileCreate,
     AssemblyFileUpdate,
+    AssemblyRunCreate,
     AssemblyStageRunCreate,
     AssemblyStageRunUpdate,
     AssemblySubmissionCreate,
@@ -159,10 +161,6 @@ class AssemblyService(BaseService[Assembly, AssemblyCreate, AssemblyUpdate]):
         sample_id: UUID,
         data_types: str,
     ) -> int:
-        # Assembly is the primary source of truth for version numbers.
-        # AssemblyRun is also checked during the transition period to avoid conflicts
-        # with legacy reservations. Remove the AssemblyRun check once legacy records
-        # are resolved and the table is dropped.
         max_assembly = (
             db.query(func.max(Assembly.version))
             .filter(
@@ -172,16 +170,7 @@ class AssemblyService(BaseService[Assembly, AssemblyCreate, AssemblyUpdate]):
             )
             .scalar()
         )
-        max_run = (
-            db.query(func.max(AssemblyRun.version))
-            .filter(
-                AssemblyRun.data_types == data_types,
-                AssemblyRun.taxon_id == taxon_id,
-                AssemblyRun.sample_id == sample_id,
-            )
-            .scalar()
-        )
-        return max(max_assembly or 0, max_run or 0) + 1
+        return (max_assembly or 0) + 1
 
     def get_next_version_for_intent(
         self,
@@ -218,7 +207,7 @@ class AssemblyService(BaseService[Assembly, AssemblyCreate, AssemblyUpdate]):
         project_id: Optional[UUID],
         manifest_json: Optional[dict] = None,
     ) -> Assembly:
-        """Create an Assembly at manifest-request time with status='requested'.
+        """Create an Assembly at manifest-request time.
 
         Versioning is scoped by (taxon_id, long_read_specimen_sample_id) only —
         data_types and hic_specimen_sample_ids are excluded from the version key.
@@ -243,7 +232,6 @@ class AssemblyService(BaseService[Assembly, AssemblyCreate, AssemblyUpdate]):
             version=version,
             tol_id=tol_id,
             project_id=project_id,
-            status="requested",
             manifest_json=manifest_json,
         )
         db.add(assembly)
@@ -309,15 +297,66 @@ class AssemblyReadService(BaseService[AssemblyRead, AssemblyCreate, AssemblyUpda
         return db.query(AssemblyRead).filter(AssemblyRead.assembly_id == assembly_id).all()
 
 
+class AssemblyRunService(BaseService[AssemblyRun, AssemblyRunCreate, AssemblyRunCreate]):
+    """Service for AssemblyRun (pipeline invocation) operations."""
+
+    def get_by_assembly_id(self, db: Session, *, assembly_id: UUID) -> List[AssemblyRun]:
+        return (
+            db.query(AssemblyRun)
+            .filter(AssemblyRun.assembly_id == assembly_id)
+            .order_by(AssemblyRun.created_at.desc())
+            .all()
+        )
+
+    def create_for_assembly(
+        self,
+        db: Session,
+        *,
+        assembly_id: UUID,
+        run_in: AssemblyRunCreate,
+    ) -> AssemblyRun:
+        existing_run = (
+            db.query(AssemblyRun)
+            .filter(
+                AssemblyRun.assembly_id == assembly_id,
+                AssemblyRun.github_repo == run_in.github_repo,
+                AssemblyRun.git_commit == run_in.git_commit,
+            )
+            .first()
+        )
+        if existing_run:
+            raise ValueError(
+                "Assembly run already exists for this assembly_id, github_repo, and git_commit."
+            )
+
+        run = AssemblyRun(
+            assembly_id=assembly_id,
+            github_repo=run_in.github_repo,
+            git_commit=run_in.git_commit,
+        )
+        db.add(run)
+        try:
+            db.commit()
+        except IntegrityError:
+            db.rollback()
+            raise ValueError(
+                "Assembly run already exists for this assembly_id, github_repo, and git_commit"
+            ) from None
+        db.refresh(run)
+        return run
+
+
 class AssemblyStageRunService(
     BaseService[AssemblyStageRun, AssemblyStageRunCreate, AssemblyStageRunUpdate]
 ):
     """Service for AssemblyStageRun operations."""
 
-    def get_by_assembly_id(self, db: Session, assembly_id: UUID) -> List[AssemblyStageRun]:
+    def get_by_assembly_run_id(
+        self, db: Session, *, assembly_run_id: UUID
+    ) -> List[AssemblyStageRun]:
         return (
             db.query(AssemblyStageRun)
-            .filter(AssemblyStageRun.assembly_id == assembly_id)
+            .filter(AssemblyStageRun.assembly_run_id == assembly_run_id)
             .order_by(AssemblyStageRun.created_at.desc())
             .all()
         )
@@ -326,32 +365,49 @@ class AssemblyStageRunService(
         self,
         db: Session,
         *,
-        assembly_id: UUID,
+        assembly_run_id: UUID,
         run_in: AssemblyStageRunCreate,
     ) -> AssemblyStageRun:
+        existing_run = (
+            db.query(AssemblyStageRun)
+            .filter(
+                AssemblyStageRun.assembly_run_id == assembly_run_id,
+                AssemblyStageRun.stage_name == run_in.stage_name,
+            )
+            .first()
+        )
+        if existing_run:
+            raise ValueError(
+                "Assembly stage run already exists for this assembly_run_id and stage_name."
+            )
+
         run = AssemblyStageRun(
-            assembly_id=assembly_id,
+            assembly_run_id=assembly_run_id,
             stage_name=run_in.stage_name,
-            status=run_in.status,
-            external_run_id=run_in.external_run_id,
-            attempt=run_in.attempt,
-            stats=run_in.stats,
+            data=run_in.data,
             started_at=run_in.started_at,
             completed_at=run_in.completed_at,
         )
         db.add(run)
-        db.flush()
-        for f in run_in.files:
-            db.add(
-                AssemblyStageRunFile(
-                    assembly_stage_run_id=run.id,
-                    storage_type=f.storage_type,
-                    storage_uri=f.storage_uri,
-                    storage_details=f.storage_details,
-                    sha256sum=f.sha256sum,
+        try:
+            db.flush()
+            for f in run_in.files:
+                db.add(
+                    AssemblyStageRunFile(
+                        assembly_stage_run_id=run.id,
+                        storage_type=f.storage_type,
+                        endpoint=f.endpoint,
+                        location_root=f.location_root,
+                        location_path=f.location_path,
+                        sha256sum=f.sha256sum,
+                    )
                 )
-            )
-        db.commit()
+            db.commit()
+        except IntegrityError:
+            db.rollback()
+            raise ValueError(
+                "Assembly stage run already exists for this assembly_run_id and stage_name"
+            ) from None
         db.refresh(run)
         return run
 
@@ -362,12 +418,8 @@ class AssemblyStageRunService(
         db_obj: AssemblyStageRun,
         update_in: AssemblyStageRunUpdate,
     ) -> AssemblyStageRun:
-        if update_in.status is not None:
-            db_obj.status = update_in.status
-        if update_in.external_run_id is not None:
-            db_obj.external_run_id = update_in.external_run_id
-        if update_in.stats is not None:
-            db_obj.stats = update_in.stats
+        if update_in.data is not None:
+            db_obj.data = update_in.data
         if update_in.started_at is not None:
             db_obj.started_at = update_in.started_at
         if update_in.completed_at is not None:
@@ -383,8 +435,9 @@ class AssemblyStageRunService(
                     AssemblyStageRunFile(
                         assembly_stage_run_id=db_obj.id,
                         storage_type=f.storage_type,
-                        storage_uri=f.storage_uri,
-                        storage_details=f.storage_details,
+                        endpoint=f.endpoint,
+                        location_root=f.location_root,
+                        location_path=f.location_path,
                         sha256sum=f.sha256sum,
                     )
                 )
@@ -395,6 +448,7 @@ class AssemblyStageRunService(
 
 
 assembly_service = AssemblyService(Assembly)
+assembly_run_service = AssemblyRunService(AssemblyRun)
 assembly_submission_service = AssemblySubmissionService(AssemblySubmission)
 assembly_file_service = AssemblyFileService(AssemblyFile)
 assembly_read_service = AssemblyReadService(AssemblyRead)

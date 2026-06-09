@@ -53,7 +53,6 @@ class Assembly(Base):
     coverage = Column(Float, nullable=True)
     program = Column(Text, nullable=True)
     mingaplength = Column(Float, nullable=True)
-    status = Column(Text, nullable=False, default="requested")
     moleculetype = Column(
         SQLAlchemyEnum("genomic DNA", "genomic RNA", name="molecule_type"),
         nullable=False,
@@ -87,31 +86,20 @@ class Assembly(Base):
 
 class AssemblyRun(Base):
     """
-    AssemblyRun model for reserving versions and tracking assembly intents.
+    A single pipeline invocation for an assembly, identified by a GitHub repo + commit.
 
-    This model corresponds to the 'assembly_run' table in the database.
+    Each AssemblyRun represents one end-to-end execution of the assembly pipeline.
+    All stages within that run share the same github_repo and git_commit.
     """
 
     __tablename__ = "assembly_run"
 
     id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
-    taxon_id = Column("taxon_id", ForeignKey("organism.taxon_id"), nullable=False)
-    sample_id = Column(UUID(as_uuid=True), ForeignKey("sample.id"), nullable=False)
-    data_types = Column(
-        SQLAlchemyEnum(
-            "PACBIO_SMRT",
-            "PACBIO_SMRT_HIC",
-            "OXFORD_NANOPORE",
-            "OXFORD_NANOPORE_HIC",
-            "PACBIO_SMRT_OXFORD_NANOPORE",
-            "PACBIO_SMRT_OXFORD_NANOPORE_HIC",
-            name="assembly_data_types",
-        ),
-        nullable=False,
+    assembly_id = Column(
+        UUID(as_uuid=True), ForeignKey("assembly.id", ondelete="CASCADE"), nullable=False
     )
-    version = Column(Integer, nullable=False)
-    tol_id = Column(Text, nullable=True)
-    status = Column(Text, nullable=False, default="reserved")
+    github_repo = Column(Text, nullable=False)
+    git_commit = Column(Text, nullable=False)
 
     created_at = Column(DateTime(timezone=True), nullable=False, server_default=func.now())
     updated_at = Column(
@@ -121,8 +109,16 @@ class AssemblyRun(Base):
         onupdate=func.now(),
     )
 
-    organism = relationship("Organism", backref="assembly_runs")
-    sample = relationship("Sample", backref="assembly_runs")
+    __table_args__ = (
+        UniqueConstraint(
+            "assembly_id",
+            "github_repo",
+            "git_commit",
+            name="uq_assembly_run_assembly_repo_commit",
+        ),
+    )
+
+    assembly = relationship("Assembly", backref=backref("runs", cascade="all, delete-orphan"))
 
 
 class AssemblySubmission(Base):
@@ -269,14 +265,11 @@ class AssemblyStageRun(Base):
     __tablename__ = "assembly_stage_run"
 
     id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
-    assembly_id = Column(
-        UUID(as_uuid=True), ForeignKey("assembly.id", ondelete="CASCADE"), nullable=False
+    assembly_run_id = Column(
+        UUID(as_uuid=True), ForeignKey("assembly_run.id", ondelete="CASCADE"), nullable=False
     )
     stage_name = Column(Text, ForeignKey("assembly_stage.name"), nullable=False)
-    status = Column(Text, nullable=False)
-    external_run_id = Column(Text, nullable=True)
-    attempt = Column(Integer, nullable=False, default=1)
-    stats = Column(JSONB, nullable=False, default=dict)
+    data = Column(JSONB, nullable=False, default=dict)
     started_at = Column(DateTime(timezone=True), nullable=True)
     completed_at = Column(DateTime(timezone=True), nullable=True)
 
@@ -289,12 +282,12 @@ class AssemblyStageRun(Base):
     )
 
     __table_args__ = (
-        UniqueConstraint(
-            "assembly_id", "stage_name", "attempt", name="uq_stage_run_assembly_stage_attempt"
-        ),
+        UniqueConstraint("assembly_run_id", "stage_name", name="uq_stage_run_assembly_run_stage"),
     )
 
-    assembly = relationship("Assembly", backref=backref("stage_runs", cascade="all, delete-orphan"))
+    assembly_run = relationship(
+        "AssemblyRun", backref=backref("stage_runs", cascade="all, delete-orphan")
+    )
     stage = relationship("AssemblyStage", backref="runs")
 
 
@@ -310,11 +303,17 @@ class AssemblyStageRunFile(Base):
         nullable=False,
     )
     storage_type = Column(Text, nullable=False)
-    storage_uri = Column(Text, nullable=False)
-    storage_details = Column(JSONB, nullable=False, default=dict)
+    endpoint = Column(Text, nullable=True)
+    location_root = Column(Text, nullable=False)
+    location_path = Column(Text, nullable=False)
     sha256sum = Column(Text, nullable=False)
-
     created_at = Column(DateTime(timezone=True), nullable=False, server_default=func.now())
+    updated_at = Column(
+        DateTime(timezone=True),
+        nullable=False,
+        server_default=func.now(),
+        onupdate=func.now(),
+    )
 
     stage_run = relationship(
         "AssemblyStageRun", backref=backref("files", cascade="all, delete-orphan")

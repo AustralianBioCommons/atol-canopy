@@ -531,28 +531,21 @@ CREATE TABLE assembly (
     -- Version is scoped by (taxon_id, long_read_specimen_sample_id) for intent-flow assemblies
     version INTEGER NOT NULL DEFAULT 1,
 
-    -- Assembly lifecycle status
-    status TEXT NOT NULL DEFAULT 'requested',
-
     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-    updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-
-    CONSTRAINT ck_assembly_status CHECK (
-        status IN ('requested', 'running', 'curating', 'completed', 'failed', 'cancelled')
-    )
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
 CREATE TABLE assembly_run (
     id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
-    taxon_id INT REFERENCES organism(taxon_id) NOT NULL,
-    sample_id UUID REFERENCES sample(id) NOT NULL,
-    data_types assembly_data_types NOT NULL,
-    version INTEGER NOT NULL,
-    tol_id TEXT,
-    status TEXT NOT NULL DEFAULT 'reserved',
+    assembly_id UUID NOT NULL REFERENCES assembly(id) ON DELETE CASCADE,
+    github_repo TEXT NOT NULL,
+    git_commit TEXT NOT NULL,
     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-    updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    CONSTRAINT uq_assembly_run_assembly_repo_commit UNIQUE (assembly_id, github_repo, git_commit)
 );
+
+CREATE INDEX ix_assembly_run_assembly_id ON assembly_run(assembly_id);
 
 CREATE TABLE assembly_file (
     id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
@@ -632,36 +625,33 @@ INSERT INTO assembly_stage (name, category) VALUES
     ('ascc',           'pipeline'),
     ('treeval',        'pipeline'),
     ('curation-pretext', 'pipeline'),
+    ('qc',             'pipeline'),
     ('manual-curation',  'manual');
 
 CREATE TABLE assembly_stage_run (
     id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
-    assembly_id UUID NOT NULL REFERENCES assembly(id) ON DELETE CASCADE,
+    assembly_run_id UUID NOT NULL REFERENCES assembly_run(id) ON DELETE CASCADE,
     stage_name TEXT NOT NULL REFERENCES assembly_stage(name),
-    status TEXT NOT NULL,
-    external_run_id TEXT,
-    attempt INTEGER NOT NULL DEFAULT 1,
-    stats JSONB NOT NULL DEFAULT '{}',
+    data JSONB NOT NULL DEFAULT '{}',
     started_at TIMESTAMPTZ,
     completed_at TIMESTAMPTZ,
     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-    CONSTRAINT ck_assembly_stage_run_status CHECK (
-        status IN ('running', 'succeeded', 'failed', 'cancelled')
-    ),
-    CONSTRAINT uq_stage_run_assembly_stage_attempt UNIQUE (assembly_id, stage_name, attempt)
+    CONSTRAINT uq_stage_run_assembly_run_stage UNIQUE (assembly_run_id, stage_name)
 );
 
-CREATE INDEX ix_assembly_stage_run_assembly_id ON assembly_stage_run(assembly_id);
+CREATE INDEX ix_assembly_stage_run_assembly_run_id ON assembly_stage_run(assembly_run_id);
 
 CREATE TABLE assembly_stage_run_file (
     id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
     assembly_stage_run_id UUID NOT NULL REFERENCES assembly_stage_run(id) ON DELETE CASCADE,
     storage_type TEXT NOT NULL,
-    storage_uri TEXT NOT NULL,
-    storage_details JSONB NOT NULL DEFAULT '{}',
+    endpoint TEXT,
+    location_root TEXT NOT NULL,
+    location_path TEXT NOT NULL,
     sha256sum TEXT NOT NULL,
-    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
 CREATE INDEX ix_assembly_stage_run_file_run_id ON assembly_stage_run_file(assembly_stage_run_id);
@@ -714,6 +704,7 @@ CREATE INDEX idx_genome_note_published ON genome_note(taxon_id, is_published)
 CREATE TABLE qc_read (
     id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
     experiment_id UUID NOT NULL REFERENCES experiment(id) ON DELETE CASCADE,
+    source_read_file_checksums TEXT[] NOT NULL,
     base_count BIGINT NOT NULL,
     read_count BIGINT NOT NULL,
     qc_bases_removed BIGINT NOT NULL,
@@ -727,13 +718,10 @@ CREATE TABLE qc_read (
 CREATE TABLE qc_read_file (
     id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
     qc_read_id UUID NOT NULL REFERENCES qc_read(id) ON DELETE CASCADE,
-    file_type TEXT NOT NULL CHECK (file_type IN ('cram', 'fastq_r1', 'fastq_r2')),
-    storage_backend TEXT NOT NULL,
-    storage_profile TEXT NOT NULL,
-    bucket_name TEXT NOT NULL,
-    path_to_file TEXT NOT NULL,
-    md5_checksum TEXT NOT NULL CHECK (md5_checksum ~ '^[a-f0-9]{32}$'),
-    sha256_checksum TEXT NOT NULL CHECK (sha256_checksum ~ '^[a-f0-9]{64}$'),
+    file_type TEXT NOT NULL CHECK (file_type IN ('cram', 'fastq', 'fastq_r1', 'fastq_r2')),
+    file_name TEXT NOT NULL,
+    md5 TEXT NOT NULL CHECK (md5 ~ '^[a-f0-9]{32}$'),
+    sha256 TEXT NOT NULL CHECK (sha256 ~ '^[a-f0-9]{64}$'),
     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
@@ -741,7 +729,6 @@ CREATE TABLE qc_read_file (
 CREATE TABLE qc_read_submission (
     id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
     qc_read_id UUID NOT NULL REFERENCES qc_read(id) ON DELETE CASCADE,
-    experiment_id UUID REFERENCES experiment(id) ON DELETE CASCADE,
     authority authority_type NOT NULL DEFAULT 'ENA',
     status submission_status NOT NULL DEFAULT 'draft',
 
@@ -770,14 +757,20 @@ CREATE TABLE qc_read_submission (
         DEFERRABLE INITIALLY DEFERRED
 );
 
+CREATE TABLE qc_read_assembly (
+    assembly_id UUID NOT NULL REFERENCES assembly(id) ON DELETE CASCADE,
+    qc_read_id UUID NOT NULL REFERENCES qc_read(id) ON DELETE CASCADE,
+    PRIMARY KEY (assembly_id, qc_read_id)
+);
+
 -- QC read indexes
 CREATE INDEX idx_qc_read_experiment_id ON qc_read(experiment_id);
 CREATE INDEX idx_qc_read_file_qc_read_id ON qc_read_file(qc_read_id);
 CREATE INDEX idx_qc_read_submission_attempt ON qc_read_submission (attempt_id);
-CREATE INDEX idx_qc_read_submission_experiment_id ON qc_read_submission (experiment_id);
 CREATE INDEX idx_qc_read_submission_finalised_attempt ON qc_read_submission (finalised_attempt_id);
 CREATE INDEX idx_qc_read_submission_lock_expires_at ON qc_read_submission (lock_expires_at);
 CREATE INDEX idx_qc_read_submission_status ON qc_read_submission (status);
+CREATE INDEX idx_qc_read_assembly_qc_read_id ON qc_read_assembly (qc_read_id);
 
 CREATE UNIQUE INDEX uq_qc_read_one_accepted
   ON qc_read_submission (qc_read_id, authority)

@@ -202,6 +202,8 @@ def test_bulk_import_batches_ncbi_lookup_and_creates_taxonomy_info(monkeypatch):
 
     assert calls == [({9612: "Canis lupus", 9685: "Felis catus"}, 20)]
     assert result.created_count == 2
+    assert result.ncbi_retryable_count == 0
+    assert result.ncbi_retryable_taxon_ids is None
     assert result.skipped_count == 0
     saved_dog = db.data[TaxonomyInfo][9612]
     saved_cat = db.data[TaxonomyInfo][9685]
@@ -217,6 +219,87 @@ def test_bulk_import_batches_ncbi_lookup_and_creates_taxonomy_info(monkeypatch):
     assert saved_cat.genetic_code_id == 1
     assert organisms[9612].scientific_name == "Canis lupus familiaris"
     assert organisms[9685].scientific_name == "Felis silvestris catus"
+
+
+def test_bulk_import_skips_new_rows_when_ncbi_lookup_is_unmapped(monkeypatch):
+    organism = Organism(taxon_id=9612, bpa_scientific_name="Canis lupus")
+    db = _Session({Organism: {9612: organism}, TaxonomyInfo: {}})
+    calls = []
+
+    monkeypatch.setattr(
+        ti_service_module,
+        "fetch_taxonomy_for_taxon_ids",
+        lambda taxa, batch_size=20: (calls.append((taxa, batch_size)) or {}, [9612]),
+    )
+
+    result = ti_service_module.taxonomy_info_service.bulk_import(
+        db,
+        data=BulkTaxonomyInfoImport.model_validate(
+            {
+                "9612": {"genetic_code_id": 2},
+            }
+        ).root,
+    )
+
+    assert calls == [({9612: "Canis lupus"}, 20)]
+    assert result.created_count == 0
+    assert result.updated_count == 0
+    assert result.skipped_count == 1
+    assert result.ncbi_retryable_count == 1
+    assert result.ncbi_retryable_taxon_ids == [9612]
+    assert result.errors == [
+        "9612: ncbi enrichment returned no mapped taxonomy; taxonomy_info was not created"
+    ]
+    assert 9612 not in db.data[TaxonomyInfo]
+    assert organism.scientific_name is None
+
+
+def test_bulk_import_retries_existing_unsynced_rows(monkeypatch):
+    organism = Organism(taxon_id=9612, bpa_scientific_name="Canis lupus")
+    existing = TaxonomyInfo(taxon_id=9612, genetic_code_id=1)
+    db = _Session({Organism: {9612: organism}, TaxonomyInfo: {9612: existing}})
+    calls = []
+
+    monkeypatch.setattr(
+        ti_service_module,
+        "fetch_taxonomy_for_taxon_ids",
+        lambda taxa, batch_size=20: (
+            calls.append((taxa, batch_size))
+            or {
+                9612: {
+                    "taxon_id": 9612,
+                    "ncbi_taxon_id": 9612,
+                    "ncbi_rank": "species",
+                    "ncbi_scientific_name": "Canis lupus familiaris",
+                }
+            },
+            [],
+        ),
+    )
+
+    result = ti_service_module.taxonomy_info_service.bulk_import(
+        db,
+        data=BulkTaxonomyInfoImport.model_validate(
+            {
+                "9612": {"genetic_code_id": 2},
+            }
+        ).root,
+    )
+
+    assert calls == [({9612: "Canis lupus"}, 20)]
+    assert result.created_count == 0
+    assert result.updated_count == 1
+    assert result.skipped_count == 0
+    assert result.ncbi_retryable_count == 0
+    assert result.ncbi_retryable_taxon_ids is None
+    saved = db.data[TaxonomyInfo][9612]
+    assert saved is existing
+    assert saved.genetic_code_id == 2
+    assert saved.ncbi_taxon_id == 9612
+    assert saved.ncbi_rank == "species"
+    assert saved.ncbi_scientific_name == "Canis lupus familiaris"
+    assert saved.ncbi_last_synced_at is not None
+    assert organism.scientific_name == "Canis lupus familiaris"
 
 
 def test_delete_taxonomy_info_falls_back_to_bpa_scientific_name():

@@ -18,6 +18,10 @@ class TaxonomyInfoService:
     """Service for TaxonomyInfo CRUD and bulk import operations."""
 
     @staticmethod
+    def _has_successful_ncbi_sync(ti: TaxonomyInfo) -> bool:
+        return getattr(ti, "ncbi_last_synced_at", None) is not None
+
+    @staticmethod
     def _apply_payload_values(ti: TaxonomyInfo, values: Dict[str, Any]) -> None:
         for field, value in values.items():
             if field == "taxon_id":
@@ -169,24 +173,47 @@ class TaxonomyInfoService:
         ],
         ncbi_by_taxon_id: Dict[int, Any],
         apply_payload: bool = True,
-    ) -> tuple[int, int, int, List[str]]:
+        skip_unmapped: bool = False,
+        create_only_when_mapped: bool = False,
+    ) -> tuple[int, int, int, List[str], List[int]]:
         """Apply NCBI data (and optionally payload values) to a list of validated candidates.
 
-        Returns (created_count, updated_count, skipped_count, errors).
+        Returns (created_count, updated_count, skipped_count, errors, retryable_taxon_ids).
         """
         created_count = 0
         updated_count = 0
         skipped_count = 0
         errors: List[str] = []
+        retryable_taxon_ids: List[int] = []
 
         for taxon_id, row, organism, existing_ti in candidates:
             try:
                 is_new = existing_ti is None
+                mapped = ncbi_by_taxon_id.get(taxon_id)
+                if not mapped:
+                    logger.warning(
+                        "NCBI enrichment returned no mapped taxonomy for taxon_id=%s",
+                        taxon_id,
+                    )
+                    if create_only_when_mapped and is_new:
+                        errors.append(
+                            f"{taxon_id}: ncbi enrichment returned no mapped taxonomy; taxonomy_info was not created"
+                        )
+                        retryable_taxon_ids.append(taxon_id)
+                        skipped_count += 1
+                        continue
+                    if skip_unmapped:
+                        errors.append(
+                            f"{taxon_id}: ncbi enrichment returned no mapped taxonomy; taxonomy_info was left unchanged"
+                        )
+                        retryable_taxon_ids.append(taxon_id)
+                        skipped_count += 1
+                        continue
+
                 ti = existing_ti if existing_ti else TaxonomyInfo(taxon_id=taxon_id)
                 if is_new:
                     db.add(ti)
 
-                mapped = ncbi_by_taxon_id.get(taxon_id)
                 if mapped:
                     applied_fields = self._apply_ncbi_values(ti, mapped)
                     ti.ncbi_last_synced_at = datetime.now(timezone.utc)
@@ -195,11 +222,6 @@ class TaxonomyInfoService:
                         "created" if is_new else "updated",
                         taxon_id,
                         applied_fields,
-                    )
-                else:
-                    logger.warning(
-                        "NCBI enrichment returned no mapped taxonomy for taxon_id=%s",
-                        taxon_id,
                     )
 
                 if apply_payload and row is not None:
@@ -221,14 +243,14 @@ class TaxonomyInfoService:
                 db.rollback()
                 skipped_count += 1
 
-        return created_count, updated_count, skipped_count, errors
+        return created_count, updated_count, skipped_count, errors, retryable_taxon_ids
 
     def bulk_import(
         self, db: Session, *, data: Dict[int, TaxonomyInfoUpdate]
     ) -> BulkImportResponse:
         skipped_count = 0
         errors: List[str] = []
-        candidates: List[tuple[int, TaxonomyInfoUpdate, Organism, None]] = []
+        candidates: List[tuple[int, TaxonomyInfoUpdate, Organism, Optional[TaxonomyInfo]]] = []
 
         for taxon_id, row in data.items():
             try:
@@ -238,7 +260,7 @@ class TaxonomyInfoService:
                     skipped_count += 1
                     continue
                 existing = db.query(TaxonomyInfo).filter(TaxonomyInfo.taxon_id == taxon_id).first()
-                if existing:
+                if existing and self._has_successful_ncbi_sync(existing):
                     errors.append(
                         f"{taxon_id}: taxonomy_info for taxon_id {taxon_id} already exists"
                     )
@@ -250,7 +272,7 @@ class TaxonomyInfoService:
                 skipped_count += 1
                 continue
 
-            candidates.append((taxon_id, row, organism, None))
+            candidates.append((taxon_id, row, organism, existing))
 
         scientific_names_by_taxon_id = {
             taxon_id: getattr(organism, "bpa_scientific_name", None)
@@ -260,16 +282,25 @@ class TaxonomyInfoService:
         if unmapped:
             logger.warning("NCBI bulk enrichment returned unmapped taxon_ids: %s", unmapped)
 
-        created_count, _, row_skipped, row_errors = self._bulk_process_rows(
-            db, candidates=candidates, ncbi_by_taxon_id=ncbi_by_taxon_id
+        created_count, updated_count, row_skipped, row_errors, retryable_taxon_ids = (
+            self._bulk_process_rows(
+                db,
+                candidates=candidates,
+                ncbi_by_taxon_id=ncbi_by_taxon_id,
+                skip_unmapped=True,
+                create_only_when_mapped=True,
+            )
         )
         skipped_count += row_skipped
         errors.extend(row_errors)
 
         return BulkImportResponse(
             created_count=created_count,
+            updated_count=updated_count,
             skipped_count=skipped_count,
-            message=f"TaxonomyInfo import complete. Created: {created_count}, Skipped: {skipped_count}",
+            ncbi_retryable_count=len(retryable_taxon_ids),
+            ncbi_retryable_taxon_ids=retryable_taxon_ids or None,
+            message=f"TaxonomyInfo import complete. Created: {created_count}, Updated: {updated_count}, Skipped: {skipped_count}",
             errors=errors if errors else None,
         )
 
@@ -304,8 +335,13 @@ class TaxonomyInfoService:
         if unmapped:
             logger.warning("NCBI bulk enrichment returned unmapped taxon_ids: %s", unmapped)
 
-        created_count, updated_count, row_skipped, row_errors = self._bulk_process_rows(
-            db, candidates=candidates, ncbi_by_taxon_id=ncbi_by_taxon_id
+        created_count, updated_count, row_skipped, row_errors, retryable_taxon_ids = (
+            self._bulk_process_rows(
+                db,
+                candidates=candidates,
+                ncbi_by_taxon_id=ncbi_by_taxon_id,
+                create_only_when_mapped=True,
+            )
         )
         skipped_count += row_skipped
         errors.extend(row_errors)
@@ -314,6 +350,8 @@ class TaxonomyInfoService:
             created_count=created_count,
             updated_count=updated_count,
             skipped_count=skipped_count,
+            ncbi_retryable_count=len(retryable_taxon_ids),
+            ncbi_retryable_taxon_ids=retryable_taxon_ids or None,
             message=f"TaxonomyInfo upsert complete. Created: {created_count}, Updated: {updated_count}, Skipped: {skipped_count}",
             errors=errors if errors else None,
         )
@@ -353,8 +391,12 @@ class TaxonomyInfoService:
         if unmapped:
             logger.warning("NCBI bulk refresh returned unmapped taxon_ids: %s", unmapped)
 
-        _, updated_count, row_skipped, row_errors = self._bulk_process_rows(
-            db, candidates=candidates, ncbi_by_taxon_id=ncbi_by_taxon_id, apply_payload=False
+        _, updated_count, row_skipped, row_errors, retryable_taxon_ids = self._bulk_process_rows(
+            db,
+            candidates=candidates,
+            ncbi_by_taxon_id=ncbi_by_taxon_id,
+            apply_payload=False,
+            skip_unmapped=True,
         )
         skipped_count += row_skipped
         errors.extend(row_errors)
@@ -363,6 +405,8 @@ class TaxonomyInfoService:
             created_count=0,
             updated_count=updated_count,
             skipped_count=skipped_count,
+            ncbi_retryable_count=len(retryable_taxon_ids),
+            ncbi_retryable_taxon_ids=retryable_taxon_ids or None,
             message=f"NCBI taxonomy refresh complete. Updated: {updated_count}, Skipped: {skipped_count}",
             errors=errors if errors else None,
         )

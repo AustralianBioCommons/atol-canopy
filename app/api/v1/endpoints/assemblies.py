@@ -1,10 +1,12 @@
-from typing import Any, Dict, List, Optional
+import logging
+from typing import Any, Dict, List, Optional, Set
 from uuid import UUID
 
 from fastapi import APIRouter, Body, Depends, HTTPException, Query
 from fastapi.responses import JSONResponse
 from sqlalchemy.orm import Session, joinedload
 
+from app.api.v1.endpoints.qc_reads import _build_prepared_payload
 from app.core.dependencies import get_current_active_user, get_db
 from app.core.errors import AppError
 from app.core.pagination import Pagination, apply_pagination, pagination_params
@@ -18,6 +20,7 @@ from app.models.assembly import (
 )
 from app.models.experiment import Experiment
 from app.models.organism import Organism
+from app.models.qc_read import QcRead, QcReadAssembly, QcReadFile, QcReadSubmission
 from app.models.read import Read
 from app.models.sample import Sample
 from app.models.user import User
@@ -31,6 +34,8 @@ from app.schemas.assembly import (
     AssemblyFileUpdate,
     AssemblyIntent,
     AssemblyIntentCancel,
+    AssemblyRunCreate,
+    AssemblyRunOut,
     AssemblySpecimenSampleDiscoveryResponse,
     AssemblyStageRunCreate,
     AssemblyStageRunOut,
@@ -46,6 +51,7 @@ from app.schemas.assembly import (
     AssemblySubmission as AssemblySubmissionSchema,
 )
 from app.schemas.common import SubmissionStatus
+from app.schemas.qc_read import QcCallbackRequest, QcReadOut, classify_reported_files
 from app.services.assembly_helper import (
     determine_assembly_data_types,
     generate_assembly_manifest_json,
@@ -53,6 +59,7 @@ from app.services.assembly_helper import (
 )
 from app.services.assembly_service import (
     assembly_file_service,
+    assembly_run_service,
     assembly_service,
     assembly_stage_run_service,
     assembly_submission_service,
@@ -60,6 +67,7 @@ from app.services.assembly_service import (
 from app.services.organism_service import organism_service
 
 router = APIRouter()
+logger = logging.getLogger(__name__)
 
 _ASSEMBLY_MUTABLE_FIELDS = {
     column.name
@@ -149,6 +157,32 @@ def _get_lineage_sample_ids_for_specimen(db: Session, specimen_sample: Sample) -
         .all()
     )
     return [specimen_sample.id] + [sample.id for sample in derived_samples]
+
+
+def _get_allowed_sample_ids_for_assembly(db: Session, assembly: Assembly) -> Set[UUID]:
+    """Return the specimen-sample lineage ids that are valid inputs for an assembly."""
+    allowed_sample_ids: Set[UUID] = set()
+
+    if assembly.long_read_specimen_sample_id:
+        long_read_sample = (
+            db.query(Sample).filter(Sample.id == assembly.long_read_specimen_sample_id).first()
+        )
+        if long_read_sample:
+            allowed_sample_ids.update(_get_lineage_sample_ids_for_specimen(db, long_read_sample))
+
+    hic_specimen_sample_ids = assembly.hic_specimen_sample_ids or []
+    for hic_sample_id in hic_specimen_sample_ids:
+        hic_sample = db.query(Sample).filter(Sample.id == hic_sample_id).first()
+        if hic_sample:
+            allowed_sample_ids.update(_get_lineage_sample_ids_for_specimen(db, hic_sample))
+
+    return allowed_sample_ids
+
+
+def _assembly_manifest_package_ids(assembly: Assembly) -> Set[str]:
+    manifest = assembly.manifest_json or {}
+    read_files = manifest.get("read_files") or []
+    return {entry["name"] for entry in read_files if isinstance(entry, dict) and entry.get("name")}
 
 
 @router.get("/specimen-samples/{taxon_id}", response_model=AssemblySpecimenSampleDiscoveryResponse)
@@ -295,7 +329,7 @@ def get_assembly_manifest(
     current_user: User = Depends(get_current_active_user),
 ) -> Any:
     """
-    Retrieve the stored manifest JSON for the latest requested assembly for a taxon.
+    Retrieve the stored manifest JSON for the latest assembly for a taxon.
 
     Returns the manifest that was generated and stored when the intent was created.
     """
@@ -305,29 +339,27 @@ def get_assembly_manifest(
 
     assembly_query = (
         db.query(Assembly)
-        .filter(
-            Assembly.taxon_id == _organism_taxon_id(organism),
-            Assembly.status == "requested",
-        )
+        .filter(Assembly.taxon_id == _organism_taxon_id(organism))
         .order_by(Assembly.created_at.desc())
     )
     if version is not None:
         assembly_query = assembly_query.filter(Assembly.version == version)
     assembly = assembly_query.first()
     if not assembly:
-        raise HTTPException(status_code=404, detail="No requested assembly manifest found")
+        raise HTTPException(status_code=404, detail="No assembly manifest found")
 
     if assembly.manifest_json is None:
-        raise HTTPException(
-            status_code=404,
-            detail="No manifest stored for this assembly. Re-submit an intent to generate one.",
+        logger.error(
+            "Assembly %s for taxon_id %s has no manifest_json; returning empty manifest",
+            assembly.id,
+            taxon_id,
         )
 
     return JSONResponse(
         content={
             "assembly_id": str(assembly.id),
             "version": assembly.version,
-            "manifest": assembly.manifest_json,
+            "manifest": assembly.manifest_json or {},
         }
     )
 
@@ -350,7 +382,7 @@ def create_assembly_intent(
 
     Both samples must be kind='specimen' and belong to the given taxon_id.
 
-    Returns JSON with assembly_id, version, status, and the generated manifest.
+    Returns JSON with assembly_id, version, and the generated manifest.
     """
     # 1. Resolve organism
     organism_query = db.query(Organism)
@@ -528,7 +560,7 @@ def cancel_assembly_intent(
     cancel_in: AssemblyIntentCancel,
     current_user: User = Depends(get_current_active_user),
 ) -> Any:
-    """Cancel a requested assembly by ID."""
+    """Delete an assembly intent by ID."""
     organism = db.query(Organism).filter(Organism.taxon_id == taxon_id).first()
     if not organism:
         raise HTTPException(status_code=404, detail=f"Organism with taxon_id {taxon_id} not found")
@@ -538,12 +570,11 @@ def cancel_assembly_intent(
         .filter(
             Assembly.id == cancel_in.assembly_id,
             Assembly.taxon_id == _organism_taxon_id(organism),
-            Assembly.status == "requested",
         )
         .first()
     )
     if not assembly:
-        raise HTTPException(status_code=404, detail="No requested assembly found to cancel")
+        raise HTTPException(status_code=404, detail="Assembly not found to cancel")
     if cancel_in.version is not None and cancel_in.version != assembly.version:
         raise AppError(
             status_code=409,
@@ -556,11 +587,7 @@ def cancel_assembly_intent(
             },
         )
 
-    assembly.status = "cancelled"
-    db.add(assembly)
-    db.commit()
-    db.refresh(assembly)
-    return {
+    response = {
         "id": str(assembly.id),
         "taxon_id": assembly.taxon_id,
         "long_read_specimen_sample_id": str(assembly.long_read_specimen_sample_id)
@@ -568,8 +595,11 @@ def cancel_assembly_intent(
         else None,
         "hic_specimen_sample_ids": assembly.hic_specimen_sample_ids or [],
         "version": assembly.version,
-        "status": assembly.status,
+        "deleted": True,
     }
+    db.delete(assembly)
+    db.commit()
+    return response
 
 
 @router.get("/optimal-sample/{taxon_id}")
@@ -839,61 +869,241 @@ def delete_assembly_file(
 
 
 # ==========================================
-# Assembly Stage Run endpoints
+# Assembly Run endpoints (pipeline invocations)
 # ==========================================
 
 
-@router.get("/{assembly_id}/stage-runs", response_model=List[AssemblyStageRunOut])
-def list_stage_runs(
+@router.get("/{assembly_id}/runs", response_model=List[AssemblyRunOut])
+def list_assembly_runs(
     *,
     db: Session = Depends(get_db),
     assembly_id: UUID,
     current_user: User = Depends(get_current_active_user),
 ) -> Any:
-    """List all stage runs for an assembly, newest first."""
+    """List all pipeline runs for an assembly, newest first."""
     assembly = assembly_service.get(db, id=assembly_id)
     if not assembly:
         raise HTTPException(status_code=404, detail="Assembly not found")
-    return assembly_stage_run_service.get_by_assembly_id(db, assembly_id=assembly_id)
+    return assembly_run_service.get_by_assembly_id(db, assembly_id=assembly_id)
 
 
-@router.post("/{assembly_id}/stage-runs", response_model=AssemblyStageRunOut)
+@router.post("/{assembly_id}/runs", response_model=AssemblyRunOut)
+@policy("assemblies:write")
+def create_assembly_run(
+    *,
+    db: Session = Depends(get_db),
+    assembly_id: UUID,
+    run_in: AssemblyRunCreate,
+    current_user: User = Depends(get_current_active_user),
+) -> Any:
+    """Register a new pipeline invocation for an assembly (github_repo + git_commit)."""
+    assembly = assembly_service.get(db, id=assembly_id)
+    if not assembly:
+        raise HTTPException(status_code=404, detail="Assembly not found")
+    try:
+        return assembly_run_service.create_for_assembly(
+            db,
+            assembly_id=assembly_id,
+            run_in=run_in,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+
+
+@router.post("/{assembly_id}/qc-reads/report", response_model=QcReadOut, status_code=201)
+@policy("qc_reads:report")
+def report_assembly_qc_read(
+    *,
+    db: Session = Depends(get_db),
+    assembly_id: UUID,
+    payload: QcCallbackRequest,
+    current_user: User = Depends(get_current_active_user),
+) -> Any:
+    """Create a QC read result for an assembly from one or two source read MD5 sums."""
+    assembly = assembly_service.get(db, id=assembly_id)
+    if not assembly:
+        raise HTTPException(status_code=404, detail="Assembly not found")
+
+    experiment = (
+        db.query(Experiment).filter(Experiment.bpa_package_id == payload.bpa_package_id).first()
+    )
+    if not experiment:
+        raise HTTPException(
+            status_code=422,
+            detail=f"Experiment not found for bpa_package_id: {payload.bpa_package_id}",
+        )
+
+    allowed_sample_ids = _get_allowed_sample_ids_for_assembly(db, assembly)
+    sample = db.query(Sample).filter(Sample.id == experiment.sample_id).first()
+    if not sample or sample.derived_from_sample_id not in allowed_sample_ids:
+        logger.warning(
+            "QC read lineage validation failed: assembly_id=%s bpa_package_id=%s "
+            "experiment_id=%s experiment_sample_id=%s "
+            "experiment_specimen_sample_id=%s allowed_sample_ids=%s lineage_lookup=%s",
+            str(assembly.id),
+            payload.bpa_package_id,
+            str(experiment.id),
+            str(experiment.sample_id) if experiment.sample_id else None,
+            str(sample.derived_from_sample_id) if sample else None,
+            sorted(str(sample_id) for sample_id in allowed_sample_ids),
+            allowed_sample_ids,
+        )
+        raise HTTPException(
+            status_code=422,
+            detail=(
+                "Experiment sample is not part of the target assembly specimen lineage "
+                f"for bpa_package_id: {payload.bpa_package_id}"
+            ),
+        )
+
+    manifest_package_ids = _assembly_manifest_package_ids(assembly)
+    if payload.bpa_package_id not in manifest_package_ids:
+        raise HTTPException(
+            status_code=422,
+            detail=(
+                "Experiment is not present in the target assembly manifest inputs "
+                f"for bpa_package_id: {payload.bpa_package_id}"
+            ),
+        )
+
+    source_reads = (
+        db.query(Read)
+        .filter(
+            Read.experiment_id == experiment.id,
+            Read.file_checksum.in_(payload.source_read_file_checksums),
+        )
+        .all()
+    )
+    matched_md5s = {read.file_checksum for read in source_reads if read.file_checksum}
+    missing_md5s = sorted(set(payload.source_read_file_checksums) - matched_md5s)
+    if missing_md5s:
+        raise HTTPException(
+            status_code=422,
+            detail=(
+                "Source read MD5 sums are not linked to the experiment for "
+                f"bpa_package_id: {payload.bpa_package_id}. Missing MD5 sums: {missing_md5s}"
+            ),
+        )
+
+    qc_read = QcRead(
+        experiment_id=experiment.id,
+        source_read_file_checksums=payload.source_read_file_checksums,
+        base_count=payload.base_count,
+        read_count=payload.read_count,
+        qc_bases_removed=payload.qc_bases_removed,
+        qc_reads_removed=payload.qc_reads_removed,
+        mean_gc_content=payload.mean_gc_content,
+        n50_length=payload.n50_length,
+    )
+    db.add(qc_read)
+    db.flush()
+
+    db.add(QcReadAssembly(assembly_id=assembly_id, qc_read_id=qc_read.id))
+
+    reported_files = classify_reported_files(payload.checksums)
+    qc_files = [
+        QcReadFile(
+            qc_read_id=qc_read.id,
+            file_type=f.file_type,
+            file_name=f.file_name,
+            md5=f.md5,
+            sha256=f.sha256,
+        )
+        for f in reported_files
+    ]
+    for qf in qc_files:
+        db.add(qf)
+    db.flush()
+
+    db.add(
+        QcReadSubmission(
+            qc_read_id=qc_read.id,
+            authority="ENA",
+            status="draft",
+            prepared_payload=_build_prepared_payload(qc_read, qc_files),
+            entity_type_const="qc_read",
+        )
+    )
+    db.commit()
+    db.refresh(qc_read)
+    return qc_read
+
+
+# ==========================================
+# Assembly Stage Run endpoints
+# ==========================================
+
+
+@router.get("/{assembly_id}/runs/{run_id}/stage-runs", response_model=List[AssemblyStageRunOut])
+def list_stage_runs(
+    *,
+    db: Session = Depends(get_db),
+    assembly_id: UUID,
+    run_id: UUID,
+    current_user: User = Depends(get_current_active_user),
+) -> Any:
+    """List all stage runs for a pipeline run, newest first."""
+    assembly_run = (
+        db.query(AssemblyRun)
+        .filter(AssemblyRun.id == run_id, AssemblyRun.assembly_id == assembly_id)
+        .first()
+    )
+    if not assembly_run:
+        raise HTTPException(status_code=404, detail="Assembly run not found")
+    return assembly_stage_run_service.get_by_assembly_run_id(db, assembly_run_id=run_id)
+
+
+@router.post("/{assembly_id}/runs/{run_id}/stage-runs", response_model=AssemblyStageRunOut)
 @policy("assemblies:write")
 def create_stage_run(
     *,
     db: Session = Depends(get_db),
     assembly_id: UUID,
+    run_id: UUID,
     run_in: AssemblyStageRunCreate,
     current_user: User = Depends(get_current_active_user),
 ) -> Any:
-    """Report a stage run result for an assembly."""
-    assembly = assembly_service.get(db, id=assembly_id)
-    if not assembly:
-        raise HTTPException(status_code=404, detail="Assembly not found")
-    return assembly_stage_run_service.create_with_files(
-        db,
-        assembly_id=assembly_id,
-        run_in=run_in,
+    """Report a stage result for a pipeline run."""
+    assembly_run = (
+        db.query(AssemblyRun)
+        .filter(AssemblyRun.id == run_id, AssemblyRun.assembly_id == assembly_id)
+        .first()
     )
+    if not assembly_run:
+        raise HTTPException(status_code=404, detail="Assembly run not found")
+    try:
+        return assembly_stage_run_service.create_with_files(
+            db,
+            assembly_run_id=run_id,
+            run_in=run_in,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
 
 
-@router.patch("/{assembly_id}/stage-runs/{stage_run_id}", response_model=AssemblyStageRunOut)
+@router.patch(
+    "/{assembly_id}/runs/{run_id}/stage-runs/{stage_run_id}",
+    response_model=AssemblyStageRunOut,
+)
 @policy("assemblies:write")
 def update_stage_run(
     *,
     db: Session = Depends(get_db),
     assembly_id: UUID,
+    run_id: UUID,
     stage_run_id: UUID,
     update_in: AssemblyStageRunUpdate,
     current_user: User = Depends(get_current_active_user),
 ) -> Any:
-    """Update status, stats, or files for an existing stage run."""
+    """Update reported data, timings, or files for an existing stage run."""
     stage_run = (
         db.query(AssemblyStageRun)
         .filter(
             AssemblyStageRun.id == stage_run_id,
-            AssemblyStageRun.assembly_id == assembly_id,
+            AssemblyStageRun.assembly_run_id == run_id,
         )
+        .join(AssemblyRun)
+        .filter(AssemblyRun.assembly_id == assembly_id)
         .first()
     )
     if not stage_run:
