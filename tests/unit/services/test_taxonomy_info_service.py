@@ -1,6 +1,9 @@
+import uuid
+
 import pytest
 
 from app.models.organism import Organism
+from app.models.project import Project, ProjectSubmission
 from app.models.taxonomy_info import TaxonomyInfo
 from app.schemas.bulk_import import BulkTaxonomyInfoImport
 from app.schemas.taxonomy_info import TaxonomyInfoCreate
@@ -11,21 +14,31 @@ class _Query:
     def __init__(self, session, model):
         self.session = session
         self.model = model
-        self._taxon_id = None
+        self._filters = {}
 
     def filter(self, *criteria, **_kwargs):
         for criterion in criteria:
+            left = getattr(criterion, "left", None)
             right = getattr(criterion, "right", None)
+            field_name = getattr(left, "name", None)
             value = getattr(right, "value", None)
-            if value is not None:
-                self._taxon_id = value
+            if field_name is not None and value is not None:
+                self._filters[field_name] = value
         return self
 
-    def first(self):
+    def all(self):
         store = self.session.data.get(self.model, {})
-        if self._taxon_id is None:
-            return next(iter(store.values()), None)
-        return store.get(self._taxon_id)
+        values = list(store.values())
+        if not self._filters:
+            return values
+        filtered = []
+        for item in values:
+            if all(getattr(item, field, None) == value for field, value in self._filters.items()):
+                filtered.append(item)
+        return filtered
+
+    def first(self):
+        return next(iter(self.all()), None)
 
 
 class _Session:
@@ -42,6 +55,9 @@ class _Session:
         if isinstance(obj, (Organism, TaxonomyInfo)):
             self.data.setdefault(type(obj), {})
             self.data[type(obj)][obj.taxon_id] = obj
+        elif isinstance(obj, (Project, ProjectSubmission)):
+            self.data.setdefault(type(obj), {})
+            self.data[type(obj)][obj.id] = obj
 
     def delete(self, obj):
         store = self.data.get(type(obj), {})
@@ -146,6 +162,105 @@ def test_create_taxonomy_info_fetches_ncbi_and_applies_payload(monkeypatch):
     assert organism.scientific_name == "Agaricus test"
     assert db.commit_count == 1
     assert db.refresh_count == 1
+
+
+def test_create_taxonomy_info_updates_existing_project_metadata(monkeypatch):
+    organism = Organism(taxon_id=5303, bpa_scientific_name="Agaricus")
+    root_project = Project(
+        id=uuid.uuid4(),
+        taxon_id=5303,
+        project_type="root",
+        study_type="Whole Genome Sequencing",
+        alias="Agaricus genome assembly and related data",
+        title="Agaricus",
+        description="Genome assemblies and related data for the organism Agaricus, brokered on behalf of the Australian Tree of Life (AToL) project",
+        centre_name="Australian Tree of Life (AToL)",
+        study_attributes=None,
+        status="draft",
+        authority="ENA",
+    )
+    genomic_project = Project(
+        id=uuid.uuid4(),
+        taxon_id=5303,
+        project_type="genomic_data",
+        study_type="Whole Genome Sequencing",
+        alias="Genomic data for Agaricus",
+        title="Agaricus - genomic data",
+        description="Genomic data for the organism Agaricus, brokered on behalf of the Australian Tree of Life (AToL) project",
+        centre_name="Australian Tree of Life (AToL)",
+        study_attributes=None,
+        status="draft",
+        authority="ENA",
+    )
+    draft_submission = ProjectSubmission(
+        id=uuid.uuid4(),
+        project_id=root_project.id,
+        status="draft",
+        prepared_payload={
+            "alias": root_project.alias,
+            "title": root_project.title,
+            "description": root_project.description,
+        },
+    )
+    accepted_submission = ProjectSubmission(
+        id=uuid.uuid4(),
+        project_id=genomic_project.id,
+        status="accepted",
+        prepared_payload={"alias": "Accepted alias", "title": "Accepted title"},
+    )
+    db = _Session(
+        {
+            Organism: {5303: organism},
+            TaxonomyInfo: {},
+            Project: {
+                root_project.id: root_project,
+                genomic_project.id: genomic_project,
+            },
+            ProjectSubmission: {
+                draft_submission.id: draft_submission,
+                accepted_submission.id: accepted_submission,
+            },
+        }
+    )
+
+    monkeypatch.setattr(
+        ti_service_module,
+        "fetch_taxonomy_for_taxon_ids",
+        lambda taxa, batch_size=20: (
+            {
+                5303: {
+                    "taxon_id": 5303,
+                    "ncbi_taxon_id": 5303,
+                    "ncbi_rank": "species",
+                    "ncbi_scientific_name": "Agaricus test",
+                }
+            },
+            [],
+        ),
+    )
+
+    ti_service_module.taxonomy_info_service.create(
+        db,
+        ti_in=TaxonomyInfoCreate(
+            taxon_id=5303,
+            genetic_code_id=11,
+        ),
+    )
+
+    assert organism.scientific_name == "Agaricus test"
+    assert root_project.alias == "Agaricus test genome assembly and related data"
+    assert root_project.title == "Agaricus test"
+    assert genomic_project.alias == "Genomic data for Agaricus test"
+    assert genomic_project.title == "Agaricus test - genomic data"
+    assert (
+        draft_submission.prepared_payload["alias"]
+        == "Agaricus test genome assembly and related data"
+    )
+    assert draft_submission.prepared_payload["title"] == "Agaricus test"
+    assert accepted_submission.prepared_payload == {
+        "alias": "Accepted alias",
+        "title": "Accepted title",
+    }
 
 
 def test_taxonomy_info_create_rejects_ncbi_fields():
