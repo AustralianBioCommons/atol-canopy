@@ -14,11 +14,11 @@ class TolidRequest(Base):
     __tablename__ = "tolid_request"
 
     id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
-    sample_id = Column(UUID(as_uuid=True), ForeignKey("sample.id", ondelete="CASCADE"), nullable=False)
-    tolid_external_id = Column(Text, nullable=False)
-    taxon_id = Column(
-        Integer, ForeignKey("organism.taxon_id", ondelete="CASCADE"), nullable=False
+    sample_id = Column(
+        UUID(as_uuid=True), ForeignKey("sample.id", ondelete="CASCADE"), nullable=False
     )
+    tolid_external_id = Column(Text, nullable=False)
+    taxon_id = Column(Integer, ForeignKey("organism.taxon_id", ondelete="CASCADE"), nullable=False)
     scientific_name = Column(Text, nullable=True)
     tolid = Column(Text, nullable=True)
     request_id = Column(Text, nullable=True)

@@ -2,8 +2,8 @@ from datetime import datetime
 from typing import Dict, Iterable, List, Optional
 from uuid import UUID
 
-from fastapi.encoders import jsonable_encoder
 from fastapi import status
+from fastapi.encoders import jsonable_encoder
 from sqlalchemy.orm import Session
 
 from app.core.errors import AppError
@@ -42,7 +42,9 @@ class TolidRequestService:
         return organism.scientific_name if organism else None
 
     def _find_row(self, db: Session, sample_id: UUID) -> Optional[TolidRequest]:
-        return next((row for row in db.query(TolidRequest).all() if row.sample_id == sample_id), None)
+        return next(
+            (row for row in db.query(TolidRequest).all() if row.sample_id == sample_id), None
+        )
 
     def _fallback_external_id(self, db: Session, sample: Sample) -> Optional[str]:
         submissions = db.query(SampleSubmission).all()
@@ -96,7 +98,9 @@ class TolidRequestService:
             taxon_id=sample.taxon_id,
             scientific_name=self._resolved_scientific_name(db=db, sample=sample, row=row),
             status=(
-                self._status_value(row) if row is not None else TolidRequestStatus.NOT_REQUESTED.value
+                self._status_value(row)
+                if row is not None
+                else TolidRequestStatus.NOT_REQUESTED.value
             ),
             request_id=(row.request_id if row is not None else None),
             tolid=(row.tolid if row is not None else None),
@@ -158,7 +162,9 @@ class TolidRequestService:
             )
 
         row = self._find_row(db, sample_id)
-        specimen_id = row.tolid_external_id if row is not None else self._fallback_external_id(db, sample)
+        specimen_id = (
+            row.tolid_external_id if row is not None else self._fallback_external_id(db, sample)
+        )
         if not specimen_id:
             raise AppError(
                 status_code=status.HTTP_404_NOT_FOUND,
