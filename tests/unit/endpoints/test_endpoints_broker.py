@@ -520,8 +520,13 @@ def test_broker_report_results_project_rejected_clears_lease():
     att_id = uuid4()
     sub_id = uuid4()
     proj_id = uuid4()
-    sub = SimpleNamespace(
-        id=sub_id, project_id=proj_id, status="submitting", attempt_id=att_id, authority="ENA"
+    submitted_at = datetime(2024, 1, 1, tzinfo=timezone.utc)
+    sub = ProjectSubmission(
+        id=sub_id,
+        project_id=proj_id,
+        status="submitting",
+        attempt_id=att_id,
+        authority="ENA",
     )
     db = FakeSession({ProjectSubmission: [sub]})
     payload = broker.ReportRequest(
@@ -531,7 +536,9 @@ def test_broker_report_results_project_rejected_clears_lease():
         reads=[],
         projects=[
             broker.ReportItem(
-                id=sub_id, status="rejected", submitted_at=datetime(2024, 1, 1, tzinfo=timezone.utc)
+                id=sub_id,
+                status="rejected",
+                submitted_at=submitted_at,
             )
         ],
     )
@@ -539,5 +546,6 @@ def test_broker_report_results_project_rejected_clears_lease():
         attempt_id=att_id, payload=payload, db=db, current_user=_broker_user()
     )
     assert result.updated_counts["projects"] == 1
+    assert sub.submitted_at == submitted_at
     assert sub.attempt_id is None
     assert getattr(sub, "finalised_attempt_id", None) == att_id
