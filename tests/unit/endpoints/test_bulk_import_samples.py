@@ -132,12 +132,12 @@ def test_bulk_import_specimens_success(monkeypatch):
         mock_open.return_value.__enter__.return_value.read.return_value = '{"sample": {}}'
         with patch("json.load", return_value={"sample": {}}):
             payload = {
-                "SPEC001_9606": {
-                    "taxon_id": 9606,
-                    "specimen_id": "SPEC001",
-                    "lifestage": "adult",
-                    "sex": "male",
-                    "organism_part": "blood",
+                "9606": {
+                    "SPEC001": {
+                        "lifestage": "adult",
+                        "sex": "male",
+                        "organism_part": "blood",
+                    }
                 }
             }
 
@@ -151,7 +151,7 @@ def test_bulk_import_specimens_success(monkeypatch):
 
 
 def test_bulk_import_specimens_missing_taxon_id():
-    """Test bulk import fails when taxon_id is missing."""
+    """Test bulk import fails when the taxon_id key is invalid."""
     client = TestClient(app)
 
     fake_session = FakeSession()
@@ -161,7 +161,7 @@ def test_bulk_import_specimens_missing_taxon_id():
 
     with patch("builtins.open", create=True):
         with patch("json.load", return_value={"sample": {}}):
-            payload = {"SPEC001_9606": {"specimen_id": "SPEC001", "lifestage": "adult"}}
+            payload = {"not-a-taxon": {"SPEC001": {"lifestage": "adult"}}}
 
             resp = client.post("/api/v1/samples/bulk-import-specimens", json=payload)
 
@@ -170,11 +170,11 @@ def test_bulk_import_specimens_missing_taxon_id():
     assert body["created_count"] == 0
     assert body["skipped_count"] == 1
     assert body["errors"] is not None
-    assert any("Missing taxon_id" in err for err in body["errors"])
+    assert any("Invalid taxon_id key" in err for err in body["errors"])
 
 
 def test_bulk_import_specimens_missing_specimen_id():
-    """Test bulk import fails when specimen_id is missing."""
+    """Test bulk import fails when specimen_id key is missing/empty."""
     client = TestClient(app)
 
     fake_organism = SimpleNamespace(taxon_id=9606)
@@ -185,7 +185,7 @@ def test_bulk_import_specimens_missing_specimen_id():
 
     with patch("builtins.open", create=True):
         with patch("json.load", return_value={"sample": {}}):
-            payload = {"SPEC001_9606": {"taxon_id": 9606, "lifestage": "adult"}}
+            payload = {"9606": {"": {"lifestage": "adult"}}}
 
             resp = client.post("/api/v1/samples/bulk-import-specimens", json=payload)
 
@@ -194,7 +194,7 @@ def test_bulk_import_specimens_missing_specimen_id():
     assert body["created_count"] == 0
     assert body["skipped_count"] == 1
     assert body["errors"] is not None
-    assert any("specimen_id is required" in err for err in body["errors"])
+    assert any("specimen_id key is required" in err for err in body["errors"])
 
 
 def test_bulk_import_specimens_duplicate_specimen(monkeypatch):
@@ -231,10 +231,10 @@ def test_bulk_import_specimens_duplicate_specimen(monkeypatch):
     with patch("builtins.open", create=True):
         with patch("json.load", return_value={"sample": {}}):
             payload = {
-                "SPEC001_9606": {
-                    "taxon_id": 9606,
-                    "specimen_id": "SPEC001",
-                    "lifestage": "adult",
+                "9606": {
+                    "SPEC001": {
+                        "lifestage": "adult",
+                    }
                 }
             }
 
@@ -260,10 +260,10 @@ def test_bulk_import_specimens_organism_not_found():
     with patch("builtins.open", create=True):
         with patch("json.load", return_value={"sample": {}}):
             payload = {
-                "SPEC001_9606": {
-                    "taxon_id": 9606,
-                    "specimen_id": "SPEC001",
-                    "lifestage": "adult",
+                "9606": {
+                    "SPEC001": {
+                        "lifestage": "adult",
+                    }
                 }
             }
 
@@ -313,13 +313,13 @@ def test_bulk_import_specimens_bpa_sample_id_optional(monkeypatch):
     with patch("builtins.open", create=True):
         with patch("json.load", return_value={"sample": {}}):
             payload = {
-                "SPEC001_9606": {
-                    "taxon_id": 9606,
-                    "specimen_id": "SPEC001",
-                    "lifestage": "adult",
-                    "sex": "male",
-                    "organism_part": "blood",
-                    # Note: no bpa_sample_id
+                "9606": {
+                    "SPEC001": {
+                        "lifestage": "adult",
+                        "sex": "male",
+                        "organism_part": "blood",
+                        # Note: no bpa_sample_id
+                    }
                 }
             }
 
@@ -606,7 +606,7 @@ def test_bulk_import_specimens_requires_curator_or_admin():
     app.dependency_overrides[samples.get_current_active_user] = _override_user(["viewer"])
     app.dependency_overrides[samples.get_db] = _override_db(FakeSession())
 
-    payload = {"SPEC001_9606": {"specimen_id": "SPEC001"}}
+    payload = {"9606": {"SPEC001": {}}}
 
     # This will fail at the require_role check
     # Note: The actual behavior depends on require_role implementation
@@ -682,20 +682,16 @@ def test_bulk_import_specimens_multiple_samples(monkeypatch):
     with patch("builtins.open", create=True):
         with patch("json.load", return_value={"sample": {}}):
             payload = {
-                "SPEC001_9606": {
-                    "taxon_id": 9606,
-                    "specimen_id": "SPEC001",
-                    "lifestage": "adult",
-                },
-                "SPEC002_9606": {
-                    "taxon_id": 9606,
-                    "specimen_id": "SPEC002",
-                    "lifestage": "juvenile",
-                },
-                "SPEC003_9606": {
-                    "taxon_id": 9606,
-                    "specimen_id": "SPEC003",
-                    "lifestage": "larva",
+                "9606": {
+                    "SPEC001": {
+                        "lifestage": "adult",
+                    },
+                    "SPEC002": {
+                        "lifestage": "juvenile",
+                    },
+                    "SPEC003": {
+                        "lifestage": "larva",
+                    },
                 },
             }
 
@@ -705,3 +701,34 @@ def test_bulk_import_specimens_multiple_samples(monkeypatch):
     body = resp.json()
     assert body["created_count"] == 3
     assert body["skipped_count"] == 0
+
+
+def test_bulk_import_specimens_rejects_payload_key_mismatch():
+    """Test nested keys are treated as source of truth."""
+    client = TestClient(app)
+
+    fake_organism = SimpleNamespace(taxon_id=9606)
+    fake_session = FakeSession(organisms={"default": fake_organism}, samples={"default": None})
+
+    app.dependency_overrides[samples.get_current_active_user] = _override_user(["admin"])
+    app.dependency_overrides[samples.get_db] = _override_db(fake_session)
+
+    with patch("builtins.open", create=True):
+        with patch("json.load", return_value={"sample": {}}):
+            payload = {
+                "9606": {
+                    "SPEC001": {
+                        "taxon_id": 1234,
+                        "specimen_id": "DIFFERENT",
+                        "lifestage": "adult",
+                    }
+                }
+            }
+
+            resp = client.post("/api/v1/samples/bulk-import-specimens", json=payload)
+
+    assert resp.status_code == 200
+    body = resp.json()
+    assert body["created_count"] == 0
+    assert body["skipped_count"] == 1
+    assert any("taxon_id in payload does not match outer key" in err for err in body["errors"])

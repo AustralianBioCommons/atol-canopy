@@ -518,14 +518,14 @@ def _create_sample_with_submission(
 def bulk_import_specimen_samples(
     *,
     db: Session = Depends(get_db),
-    samples_data: Dict[str, Dict[str, Any]],
+    samples_data: Dict[str, Dict[str, Dict[str, Any]]],
     current_user: User = Depends(get_current_active_user),
 ) -> Any:
     """
     Bulk import specimen samples (kind='specimen').
 
-    Expected format: Dictionary keyed by sample_key (a concat of taxon_id and specimen_id).
-    Each sample must have taxon_id and specimen_id.
+    Expected format: Dictionary keyed by taxon_id, then specimen_id.
+    The nested keys supply taxon_id and specimen_id for each sample.
     Enforces uniqueness constraint: one specimen per (taxon_id, specimen_id).
     """
     # Load the ENA-ATOL mapping file
@@ -541,69 +541,97 @@ def bulk_import_specimen_samples(
     skipped_count = 0
     errors = []
 
-    for sample_key, sample_data in samples_data.items():
-        try:
-            # Get organism reference
-            taxon_id = sample_data.get("taxon_id")
-            if taxon_id is None:
-                errors.append(f"{sample_key}: Missing taxon_id")
-                skipped_count += 1
-                continue
-
-            organism = db.query(Organism).filter(Organism.taxon_id == int(taxon_id)).first()
-            if not organism:
-                errors.append(f"{sample_key}: Organism not found with taxon_id '{taxon_id}'")
-                skipped_count += 1
-                continue
-
-            organism_taxon_id = _organism_taxon_id(organism)
-
-            # Validate specimen_id is present
-            specimen_id = sample_data.get("specimen_id")
-            if not specimen_id:
-                errors.append(f"{sample_key}: specimen_id is required for specimen samples")
-                skipped_count += 1
-                continue
-
-            # Check for duplicate specimen
-            existing_specimen = (
-                db.query(Sample)
-                .filter(
-                    Sample.taxon_id == organism_taxon_id,
-                    Sample.specimen_id == specimen_id,
-                    Sample.kind == SampleKind.SPECIMEN,
-                )
-                .first()
-            )
-            if existing_specimen:
-                errors.append(
-                    f"{sample_key}: Specimen already exists for taxon_id '{organism_taxon_id}' "
-                    f"and specimen_id '{specimen_id}'"
-                )
-                skipped_count += 1
-                continue
-            sample_data["organism_part"] = "WHOLE ORGANISM"
-
-            # Create specimen sample (bpa_sample_id is optional for specimens)
-            sample, sample_submission = _create_sample_with_submission(
-                db=db,
-                bpa_sample_id=sample_data.get("bpa_sample_id"),  # Optional for specimens
-                sample_data=sample_data,
-                taxon_id=organism_taxon_id,
-                kind=SampleKind.SPECIMEN,
-                derived_from_sample_id=None,
-                ena_atol_map=ena_atol_map,
-            )
-
-            db.add(sample)
-            db.add(sample_submission)
-            db.commit()
-            created_count += 1
-
-        except Exception as e:
-            errors.append(f"{sample_key}: {str(e)}")
-            db.rollback()
+    for taxon_key, specimen_map in samples_data.items():
+        if not isinstance(specimen_map, dict):
+            errors.append(f"{taxon_key}: Expected an object keyed by specimen_id")
             skipped_count += 1
+            continue
+
+        try:
+            taxon_id = int(taxon_key)
+        except (TypeError, ValueError):
+            errors.append(f"{taxon_key}: Invalid taxon_id key")
+            skipped_count += len(specimen_map) or 1
+            continue
+
+        organism = db.query(Organism).filter(Organism.taxon_id == taxon_id).first()
+        if not organism:
+            errors.append(f"{taxon_key}: Organism not found with taxon_id '{taxon_id}'")
+            skipped_count += len(specimen_map) or 1
+            continue
+
+        organism_taxon_id = _organism_taxon_id(organism)
+
+        for specimen_key, raw_sample_data in specimen_map.items():
+            sample_key = f"{taxon_key}/{specimen_key}"
+            try:
+                if not isinstance(raw_sample_data, dict):
+                    errors.append(f"{sample_key}: Expected sample payload object")
+                    skipped_count += 1
+                    continue
+
+                sample_data = dict(raw_sample_data)
+                specimen_id = specimen_key
+                if not specimen_id:
+                    errors.append(f"{sample_key}: specimen_id key is required for specimen samples")
+                    skipped_count += 1
+                    continue
+
+                if sample_data.get("taxon_id") not in (None, organism_taxon_id):
+                    errors.append(
+                        f"{sample_key}: taxon_id in payload does not match outer key '{taxon_key}'"
+                    )
+                    skipped_count += 1
+                    continue
+
+                if sample_data.get("specimen_id") not in (None, specimen_id):
+                    errors.append(
+                        f"{sample_key}: specimen_id in payload does not match nested key '{specimen_id}'"
+                    )
+                    skipped_count += 1
+                    continue
+
+                sample_data["taxon_id"] = organism_taxon_id
+                sample_data["specimen_id"] = specimen_id
+
+                existing_specimen = (
+                    db.query(Sample)
+                    .filter(
+                        Sample.taxon_id == organism_taxon_id,
+                        Sample.specimen_id == specimen_id,
+                        Sample.kind == SampleKind.SPECIMEN,
+                    )
+                    .first()
+                )
+                if existing_specimen:
+                    errors.append(
+                        f"{sample_key}: Specimen already exists for taxon_id '{organism_taxon_id}' "
+                        f"and specimen_id '{specimen_id}'"
+                    )
+                    skipped_count += 1
+                    continue
+
+                sample_data["organism_part"] = "WHOLE ORGANISM"
+
+                sample, sample_submission = _create_sample_with_submission(
+                    db=db,
+                    bpa_sample_id=sample_data.get("bpa_sample_id"),
+                    sample_data=sample_data,
+                    taxon_id=organism_taxon_id,
+                    kind=SampleKind.SPECIMEN,
+                    derived_from_sample_id=None,
+                    ena_atol_map=ena_atol_map,
+                )
+
+                db.add(sample)
+                db.add(sample_submission)
+                db.commit()
+                created_count += 1
+
+            except Exception as e:
+                errors.append(f"{sample_key}: {str(e)}")
+                db.rollback()
+                skipped_count += 1
 
     message = f"Specimen import complete. Created: {created_count}, Skipped: {skipped_count}"
 
