@@ -1,6 +1,6 @@
 from datetime import datetime
 from enum import Enum
-from typing import Optional
+from typing import Any, Dict, Optional
 from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict, model_validator
@@ -15,8 +15,7 @@ class TolidRequestStatus(str, Enum):
 
 class TolidRequestBrokerView(BaseModel):
     sample_id: UUID
-    specimen_id: Optional[str] = None
-    tolid_external_id: str
+    specimen_id: str
     taxon_id: int
     scientific_name: Optional[str] = None
     status: TolidRequestStatus
@@ -24,6 +23,8 @@ class TolidRequestBrokerView(BaseModel):
     tolid: Optional[str] = None
     last_requested_at: Optional[datetime] = None
     error_message: Optional[str] = None
+    kind: str
+    sample_payload: Optional[Dict[str, Any]] = None
 
 
 class TolidRequestReport(BaseModel):

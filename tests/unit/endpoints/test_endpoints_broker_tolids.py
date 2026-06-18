@@ -54,51 +54,110 @@ class _Session:
         self.executed.append(stmt)
 
 
-def _make_tolid_row(*, status, taxon_id=1729, specimen_kind="specimen", specimen_id="SPEC-1"):
-    sample = Sample(id=uuid4(), taxon_id=taxon_id, kind=specimen_kind, specimen_id=specimen_id)
+def _make_tolid_row(*, status, accession, taxon_id=1729, specimen_kind="specimen"):
+    sample = Sample(id=uuid4(), taxon_id=taxon_id, kind=specimen_kind, specimen_id="CANOPY-SPEC-1")
+    organism = Organism(taxon_id=taxon_id, scientific_name=f"Species {taxon_id}")
+    sample.organism = organism
     row = TolidRequest(
         id=uuid4(),
         sample_id=sample.id,
-        tolid_external_id=f"SAMEA-{specimen_id}",
+        tolid_external_id=accession,
         taxon_id=taxon_id,
         scientific_name=f"Species {taxon_id}",
         status=status,
     )
     row.sample = sample
-    return row, sample
-
-
-def test_requestable_endpoint_only_returns_not_requested_rows_and_specimens():
-    requestable_row, _ = _make_tolid_row(status="not_requested", specimen_id="SPEC-1")
-    pending_row, _ = _make_tolid_row(status="pending", specimen_id="SPEC-2")
-    derived_row, _ = _make_tolid_row(
-        status="not_requested",
-        specimen_kind="derived",
-        specimen_id="SPEC-3",
+    submission = SampleSubmission(
+        id=uuid4(),
+        sample_id=sample.id,
+        status="accepted",
+        accession=accession,
+        authority="ENA",
+        prepared_payload={},
+        project_id=uuid4(),
     )
-    db = _Session({TolidRequest: [requestable_row, pending_row, derived_row]})
+    return row, sample, submission, organism
 
-    out = broker.get_requestable_tolids(
+
+def test_lookup_by_specimen_accession_returns_virtual_not_requested_state_without_row():
+    sample = Sample(id=uuid4(), taxon_id=1729, kind="specimen", specimen_id="CANOPY-SPEC-1")
+    organism = Organism(taxon_id=1729, scientific_name="Species 1729")
+    sample.organism = organism
+    submission = SampleSubmission(
+        id=uuid4(),
+        sample_id=sample.id,
+        status="accepted",
+        accession="ERS123456",
+        authority="ENA",
+        prepared_payload={},
+        project_id=uuid4(),
+    )
+    db = _Session({Sample: [sample], SampleSubmission: [submission], Organism: [organism]})
+
+    out = broker.get_tolid_by_specimen_accession(
+        specimen_id="ERS123456",
         db=db,
-        taxon_id=None,
-        sample_id=None,
-        sample_ids=None,
-        skip=0,
-        limit=100,
         current_user=_broker_user(),
     )
 
-    assert [row.sample_id for row in out] == [requestable_row.sample_id]
-    assert out[0].status == "not_requested"
+    assert out.sample_id == sample.id
+    assert out.specimen_id == "ERS123456"
+    assert out.status == "not_requested"
+    assert out.kind == "specimen"
+    assert out.sample_payload["specimen_id"] == "CANOPY-SPEC-1"
+
+
+def test_lookup_by_specimen_accession_returns_existing_tolid_state():
+    row, sample, submission, organism = _make_tolid_row(status="pending", accession="ERS123456")
+    row.request_id = "REQ-1"
+    row.error_message = "Still waiting"
+    db = _Session(
+        {
+            TolidRequest: [row],
+            Sample: [sample],
+            SampleSubmission: [submission],
+            Organism: [organism],
+        }
+    )
+
+    out = broker.get_tolid_by_specimen_accession(
+        specimen_id="ERS123456",
+        db=db,
+        current_user=_broker_user(),
+    )
+
+    assert out.sample_id == sample.id
+    assert out.specimen_id == "ERS123456"
+    assert out.request_id == "REQ-1"
+    assert out.error_message == "Still waiting"
 
 
 def test_pending_endpoint_only_returns_pending_rows_and_supports_taxon_filter():
-    first_pending, _ = _make_tolid_row(status="pending", taxon_id=1729, specimen_id="SPEC-1")
+    first_pending, sample_1, submission_1, organism_1 = _make_tolid_row(
+        status="pending",
+        accession="ERS123456",
+        taxon_id=1729,
+    )
     first_pending.last_requested_at = datetime(2024, 1, 1, tzinfo=timezone.utc)
-    second_pending, _ = _make_tolid_row(status="pending", taxon_id=9999, specimen_id="SPEC-2")
+    second_pending, sample_2, submission_2, organism_2 = _make_tolid_row(
+        status="pending",
+        accession="ERS999999",
+        taxon_id=9999,
+    )
     second_pending.last_requested_at = datetime(2024, 1, 3, tzinfo=timezone.utc)
-    requestable_row, _ = _make_tolid_row(status="not_requested", taxon_id=1729, specimen_id="SPEC-3")
-    db = _Session({TolidRequest: [first_pending, second_pending, requestable_row]})
+    assigned_row, sample_3, submission_3, organism_3 = _make_tolid_row(
+        status="assigned",
+        accession="ERS000000",
+        taxon_id=1729,
+    )
+    db = _Session(
+        {
+            TolidRequest: [first_pending, second_pending, assigned_row],
+            Sample: [sample_1, sample_2, sample_3],
+            SampleSubmission: [submission_1, submission_2, submission_3],
+            Organism: [organism_1, organism_2, organism_3],
+        }
+    )
 
     out = broker.get_pending_tolids(
         db=db,
@@ -113,13 +172,23 @@ def test_pending_endpoint_only_returns_pending_rows_and_supports_taxon_filter():
 
     assert [row.sample_id for row in out] == [first_pending.sample_id]
     assert out[0].status == "pending"
+    assert out[0].specimen_id == "ERS123456"
 
 
-def test_get_tolid_by_sample_returns_expected_row():
-    row, sample = _make_tolid_row(status="pending", specimen_id="SPEC-1")
-    row.request_id = "REQ-1"
-    row.error_message = "Still waiting"
-    db = _Session({TolidRequest: [row], Sample: [sample]})
+def test_get_tolid_by_sample_returns_virtual_state_using_accession():
+    sample = Sample(id=uuid4(), taxon_id=1729, kind="specimen", specimen_id="CANOPY-SPEC-1")
+    organism = Organism(taxon_id=1729, scientific_name="Species 1729")
+    sample.organism = organism
+    submission = SampleSubmission(
+        id=uuid4(),
+        sample_id=sample.id,
+        status="accepted",
+        accession="ERS123456",
+        authority="ENA",
+        prepared_payload={},
+        project_id=uuid4(),
+    )
+    db = _Session({Sample: [sample], SampleSubmission: [submission], Organism: [organism]})
 
     out = broker.get_tolid_by_sample(
         sample_id=sample.id,
@@ -128,23 +197,24 @@ def test_get_tolid_by_sample_returns_expected_row():
     )
 
     assert out.sample_id == sample.id
-    assert out.specimen_id == "SPEC-1"
-    assert out.request_id == "REQ-1"
-    assert out.error_message == "Still waiting"
+    assert out.specimen_id == "ERS123456"
+    assert out.status == "not_requested"
 
 
-def test_report_tolid_result_updates_pending_assigned_and_failed_states():
-    sample = Sample(id=uuid4(), taxon_id=1729, kind="specimen", specimen_id="SPEC-1")
-    row = TolidRequest(
+def test_report_tolid_result_creates_row_lazily_and_updates_states():
+    sample = Sample(id=uuid4(), taxon_id=1729, kind="specimen", specimen_id="CANOPY-SPEC-1")
+    organism = Organism(taxon_id=1729, scientific_name="Species 1729")
+    sample.organism = organism
+    submission = SampleSubmission(
         id=uuid4(),
         sample_id=sample.id,
-        tolid_external_id="SAMEA0001",
-        taxon_id=1729,
-        scientific_name="Species 1729",
-        status="not_requested",
+        status="accepted",
+        accession="ERS123456",
+        authority="ENA",
+        prepared_payload={},
+        project_id=uuid4(),
     )
-    row.sample = sample
-    db = _Session({Sample: [sample], TolidRequest: [row], SampleSubmission: []})
+    db = _Session({Sample: [sample], SampleSubmission: [submission], Organism: [organism]})
 
     pending = broker.report_tolid_result(
         sample_id=sample.id,
@@ -156,7 +226,9 @@ def test_report_tolid_result_updates_pending_assigned_and_failed_states():
         db=db,
         current_user=_broker_user(),
     )
+    row = db.data_map[TolidRequest][0]
     assert pending.status == "pending"
+    assert pending.specimen_id == "ERS123456"
     assert row.request_id == "REQ-1"
 
     assigned = broker.report_tolid_result(
@@ -190,9 +262,10 @@ def test_report_tolid_result_updates_pending_assigned_and_failed_states():
     assert db.committed is True
 
 
-def test_report_results_auto_creates_tolid_row_for_accepted_specimen_submission():
-    sample = Sample(id=uuid4(), taxon_id=1729, kind="specimen", specimen_id="SPEC-1")
+def test_report_results_does_not_auto_create_tolid_row_for_accepted_specimen_submission():
+    sample = Sample(id=uuid4(), taxon_id=1729, kind="specimen", specimen_id="CANOPY-SPEC-1")
     organism = Organism(taxon_id=1729, scientific_name="Species 1729")
+    sample.organism = organism
     submission = SampleSubmission(
         id=uuid4(),
         sample_id=sample.id,
@@ -212,7 +285,7 @@ def test_report_results_auto_creates_tolid_row_for_accepted_specimen_submission(
                 broker.ReportItem(
                     id=submission.id,
                     status="accepted",
-                    accession="SAMEA0001",
+                    accession="ERS123456",
                     submitted_at=datetime(2024, 1, 1, tzinfo=timezone.utc),
                 )
             ],
@@ -225,46 +298,4 @@ def test_report_results_auto_creates_tolid_row_for_accepted_specimen_submission(
     )
 
     assert result.updated_counts["samples"] == 1
-    rows = db.data_map[TolidRequest]
-    assert len(rows) == 1
-    assert rows[0].sample_id == sample.id
-    assert rows[0].tolid_external_id == "SAMEA0001"
-    assert rows[0].status == "not_requested"
-    assert rows[0].scientific_name == "Species 1729"
-
-
-def test_report_results_does_not_create_tolid_row_for_non_specimen_sample():
-    sample = Sample(id=uuid4(), taxon_id=1729, kind="derived", specimen_id="SPEC-1")
-    organism = Organism(taxon_id=1729, scientific_name="Species 1729")
-    submission = SampleSubmission(
-        id=uuid4(),
-        sample_id=sample.id,
-        status="submitting",
-        attempt_id=uuid4(),
-        authority="ENA",
-        prepared_payload={},
-        project_id=uuid4(),
-    )
-    db = _Session({SampleSubmission: [submission], Sample: [sample], Organism: [organism]})
-
-    broker.report_results(
-        attempt_id=submission.attempt_id,
-        payload=broker.ReportRequest(
-            attempt_id=submission.attempt_id,
-            samples=[
-                broker.ReportItem(
-                    id=submission.id,
-                    status="accepted",
-                    accession="SAMEA0001",
-                    submitted_at=datetime(2024, 1, 1, tzinfo=timezone.utc),
-                )
-            ],
-            experiments=[],
-            reads=[],
-            projects=[],
-        ),
-        db=db,
-        current_user=_broker_user(),
-    )
-
     assert TolidRequest not in db.data_map

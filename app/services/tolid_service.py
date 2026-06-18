@@ -1,7 +1,8 @@
 from datetime import datetime
-from typing import Iterable, List, Optional
+from typing import Dict, Iterable, List, Optional
 from uuid import UUID
 
+from fastapi.encoders import jsonable_encoder
 from fastapi import status
 from sqlalchemy.orm import Session
 
@@ -27,7 +28,7 @@ class TolidRequestService:
         return row.status.value if hasattr(row.status, "value") else row.status
 
     def _get_sample(self, db: Session, sample_id: UUID) -> Sample:
-        sample = db.query(Sample).filter(Sample.id == sample_id).first()
+        sample = next((row for row in db.query(Sample).all() if row.id == sample_id), None)
         if not sample:
             raise AppError(
                 status_code=status.HTTP_404_NOT_FOUND,
@@ -37,32 +38,72 @@ class TolidRequestService:
         return sample
 
     def _get_scientific_name(self, db: Session, taxon_id: int) -> Optional[str]:
-        organism = db.query(Organism).filter(Organism.taxon_id == taxon_id).first()
+        organism = next((row for row in db.query(Organism).all() if row.taxon_id == taxon_id), None)
         return organism.scientific_name if organism else None
 
     def _find_row(self, db: Session, sample_id: UUID) -> Optional[TolidRequest]:
-        return db.query(TolidRequest).filter(TolidRequest.sample_id == sample_id).first()
+        return next((row for row in db.query(TolidRequest).all() if row.sample_id == sample_id), None)
 
     def _fallback_external_id(self, db: Session, sample: Sample) -> Optional[str]:
-        submissions = db.query(SampleSubmission).filter(SampleSubmission.sample_id == sample.id).all()
+        submissions = db.query(SampleSubmission).all()
         for submission in submissions:
-            if submission.accession:
+            if submission.sample_id == sample.id and submission.accession:
                 return submission.accession
         return sample.biosample_accession
 
-    def _to_broker_view(self, row: TolidRequest) -> TolidRequestBrokerView:
-        specimen_id = row.sample.specimen_id if getattr(row, "sample", None) else None
+    def _find_sample_by_accession(self, db: Session, specimen_id: str) -> Optional[Sample]:
+        for submission in db.query(SampleSubmission).all():
+            if submission.accession != specimen_id or submission.sample_id is None:
+                continue
+            sample = next(
+                (row for row in db.query(Sample).all() if row.id == submission.sample_id),
+                None,
+            )
+            if sample is not None:
+                return sample
+
+        return next(
+            (row for row in db.query(Sample).all() if row.biosample_accession == specimen_id),
+            None,
+        )
+
+    def _sample_payload(self, sample: Sample) -> Dict:
+        return jsonable_encoder(
+            {column.name: getattr(sample, column.name) for column in sample.__table__.columns}
+        )
+
+    def _resolved_scientific_name(
+        self, *, db: Session, sample: Sample, row: Optional[TolidRequest]
+    ) -> Optional[str]:
+        if row is not None and row.scientific_name:
+            return row.scientific_name
+        organism = getattr(sample, "organism", None)
+        if organism is not None and organism.scientific_name:
+            return organism.scientific_name
+        return self._get_scientific_name(db, sample.taxon_id)
+
+    def _to_broker_view(
+        self,
+        *,
+        db: Session,
+        sample: Sample,
+        specimen_id: str,
+        row: Optional[TolidRequest],
+    ) -> TolidRequestBrokerView:
         return TolidRequestBrokerView(
-            sample_id=row.sample_id,
+            sample_id=sample.id,
             specimen_id=specimen_id,
-            tolid_external_id=row.tolid_external_id,
-            taxon_id=row.taxon_id,
-            scientific_name=row.scientific_name,
-            status=row.status,
-            request_id=row.request_id,
-            tolid=row.tolid,
-            last_requested_at=row.last_requested_at,
-            error_message=row.error_message,
+            taxon_id=sample.taxon_id,
+            scientific_name=self._resolved_scientific_name(db=db, sample=sample, row=row),
+            status=(
+                self._status_value(row) if row is not None else TolidRequestStatus.NOT_REQUESTED.value
+            ),
+            request_id=(row.request_id if row is not None else None),
+            tolid=(row.tolid if row is not None else None),
+            last_requested_at=(row.last_requested_at if row is not None else None),
+            error_message=(row.error_message if row is not None else None),
+            kind=sample.kind.value if hasattr(sample.kind, "value") else sample.kind,
+            sample_payload=self._sample_payload(sample),
         )
 
     def list_rows(
@@ -97,58 +138,52 @@ class TolidRequestService:
                     continue
             filtered.append(row)
 
-        return [self._to_broker_view(row) for row in filtered[skip : skip + limit]]
+        return [
+            self._to_broker_view(
+                db=db,
+                sample=row.sample,
+                specimen_id=row.tolid_external_id,
+                row=row,
+            )
+            for row in filtered[skip : skip + limit]
+        ]
 
     def get_row_for_sample(self, db: Session, sample_id: UUID) -> TolidRequestBrokerView:
-        row = self._find_row(db, sample_id)
-        if not row:
-            raise AppError(
-                status_code=status.HTTP_404_NOT_FOUND,
-                code="tolid_request_not_found",
-                message=f"ToLID request for sample {sample_id} not found",
-            )
-        if not self._is_specimen(getattr(row, "sample", None)):
-            raise AppError(
-                status_code=status.HTTP_404_NOT_FOUND,
-                code="tolid_request_not_found",
-                message=f"ToLID request for sample {sample_id} not found",
-            )
-        return self._to_broker_view(row)
-
-    def ensure_row_for_sample(
-        self,
-        db: Session,
-        *,
-        sample_id: UUID,
-        tolid_external_id: str,
-        scientific_name: Optional[str] = None,
-    ) -> Optional[TolidRequest]:
         sample = self._get_sample(db, sample_id)
         if not self._is_specimen(sample):
-            return None
+            raise AppError(
+                status_code=status.HTTP_404_NOT_FOUND,
+                code="tolid_request_not_found",
+                message=f"ToLID request for sample {sample_id} not found",
+            )
 
         row = self._find_row(db, sample_id)
-        if scientific_name is None:
-            scientific_name = self._get_scientific_name(db, sample.taxon_id)
+        specimen_id = row.tolid_external_id if row is not None else self._fallback_external_id(db, sample)
+        if not specimen_id:
+            raise AppError(
+                status_code=status.HTTP_404_NOT_FOUND,
+                code="tolid_request_not_found",
+                message=f"ToLID request for sample {sample_id} not found",
+            )
+        return self._to_broker_view(db=db, sample=sample, specimen_id=specimen_id, row=row)
 
-        if row:
-            row.tolid_external_id = tolid_external_id
-            row.taxon_id = sample.taxon_id
-            row.scientific_name = scientific_name
-            row.sample = sample
-            db.add(row)
-            return row
+    def get_by_specimen_accession(self, db: Session, specimen_id: str) -> TolidRequestBrokerView:
+        sample = self._find_sample_by_accession(db, specimen_id)
+        if sample is None:
+            raise AppError(
+                status_code=status.HTTP_404_NOT_FOUND,
+                code="sample_accession_not_found",
+                message=f"No sample found for specimen accession {specimen_id}",
+            )
+        if not self._is_specimen(sample):
+            raise AppError(
+                status_code=status.HTTP_409_CONFLICT,
+                code="tolid_not_specimen",
+                message="ToLID requests are only supported for specimen samples",
+            )
 
-        row = TolidRequest(
-            sample_id=sample.id,
-            tolid_external_id=tolid_external_id,
-            taxon_id=sample.taxon_id,
-            scientific_name=scientific_name,
-            status=TolidRequestStatus.NOT_REQUESTED.value,
-        )
-        row.sample = sample
-        db.add(row)
-        return row
+        row = self._find_row(db, sample.id)
+        return self._to_broker_view(db=db, sample=sample, specimen_id=specimen_id, row=row)
 
     def report_result(
         self,
@@ -174,19 +209,17 @@ class TolidRequestService:
                     code="tolid_external_id_missing",
                     message="Cannot create ToLID request row before an ENA sample accession is known",
                 )
-            row = self.ensure_row_for_sample(
-                db,
-                sample_id=sample_id,
+            row = TolidRequest(
+                sample_id=sample.id,
                 tolid_external_id=tolid_external_id,
+                taxon_id=sample.taxon_id,
+                scientific_name=self._get_scientific_name(db, sample.taxon_id),
             )
-            if row is None:
-                raise AppError(
-                    status_code=status.HTTP_409_CONFLICT,
-                    code="tolid_not_specimen",
-                    message="ToLID requests are only supported for specimen samples",
-                )
 
         row.sample = sample
+        row.tolid_external_id = self._fallback_external_id(db, sample) or row.tolid_external_id
+        row.taxon_id = sample.taxon_id
+        row.scientific_name = row.scientific_name or self._get_scientific_name(db, sample.taxon_id)
         row.status = report.status.value
         row.last_requested_at = report.last_requested_at
 
@@ -204,7 +237,8 @@ class TolidRequestService:
             row.error_message = report.error_message
 
         db.add(row)
-        return self._to_broker_view(row)
+        specimen_id = row.tolid_external_id or self._fallback_external_id(db, sample)
+        return self._to_broker_view(db=db, sample=sample, specimen_id=specimen_id, row=row)
 
 
 tolid_request_service = TolidRequestService()

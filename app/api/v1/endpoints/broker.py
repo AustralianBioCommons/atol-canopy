@@ -11,7 +11,6 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from app.core.dependencies import get_current_active_user, get_db, has_role
-from app.core.errors import AppError
 from app.core.policy import policy
 from app.models.accession_registry import AccessionRegistry
 from app.models.broker import SubmissionAttempt, SubmissionEvent
@@ -146,25 +145,6 @@ class ReportRequest(BaseModel):
 
 class ReportResult(BaseModel):
     updated_counts: Dict[str, int]
-
-
-def _sync_tolid_request_from_sample_submission(
-    db: Session, *, sample_submission: SampleSubmission, accession: Optional[str]
-) -> None:
-    if not accession or sample_submission.sample_id is None:
-        return
-
-    try:
-        tolid_request_service.ensure_row_for_sample(
-            db,
-            sample_id=sample_submission.sample_id,
-            tolid_external_id=accession,
-        )
-    except AppError:
-        logger.warning(
-            "Skipping ToLID sync for sample submission %s because sample metadata was unavailable",
-            sample_submission.id,
-        )
 
 
 def _normalise_tax_id_value(value: str | int) -> int:
@@ -2251,13 +2231,6 @@ def report_results(
             # On conflict by (authority, accession) or (authority, entity_type, entity_id), do nothing
             stmt = stmt.on_conflict_do_nothing(index_elements=[AccessionRegistry.accession])
             db.execute(stmt)
-            if item.status == "accepted":
-                _sync_tolid_request_from_sample_submission(
-                    db,
-                    sample_submission=sub,
-                    accession=item.accession,
-                )
-
         # Clear lease on finalise (anything other than submitting)
         if item.status != "submitting":
             sub.attempt_id = None
@@ -2532,28 +2505,16 @@ def report_results(
     )
 
 
-@router.get("/tolids/requestable", response_model=List[TolidRequestBrokerView])
+@router.get("/tolids/by-specimen-accession/{specimen_id}", response_model=TolidRequestBrokerView)
 @policy("broker:read")
-def get_requestable_tolids(
+def get_tolid_by_specimen_accession(
     *,
+    specimen_id: str,
     db: Session = Depends(get_db),
-    taxon_id: Optional[int] = Query(None, description="Filter by organism taxon_id"),
-    sample_id: Optional[UUID] = Query(None, description="Filter by sample_id"),
-    sample_ids: Optional[List[UUID]] = Query(None, description="Filter by sample_ids"),
-    skip: int = Query(0, ge=0),
-    limit: int = Query(100, ge=1, le=1000),
     current_user: User = Depends(get_current_active_user),
-) -> List[TolidRequestBrokerView]:
-    """Return specimen ToLID rows that have not yet been requested."""
-    return tolid_request_service.list_rows(
-        db,
-        row_status=TolidRequestStatus.NOT_REQUESTED,
-        taxon_id=taxon_id,
-        sample_id=sample_id,
-        sample_ids=sample_ids,
-        skip=skip,
-        limit=limit,
-    )
+) -> TolidRequestBrokerView:
+    """Resolve a specimen sample by ENA accession and return current or virtual ToLID state."""
+    return tolid_request_service.get_by_specimen_accession(db, specimen_id)
 
 
 @router.get("/tolids/pending", response_model=List[TolidRequestBrokerView])

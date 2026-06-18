@@ -17,7 +17,7 @@ depends_on = None
 
 
 def upgrade() -> None:
-    tolid_status = sa.Enum(
+    tolid_status = postgresql.ENUM(
         "not_requested",
         "pending",
         "assigned",
@@ -47,7 +47,14 @@ def upgrade() -> None:
         sa.Column("request_id", sa.Text(), nullable=True),
         sa.Column(
             "status",
-            tolid_status,
+            postgresql.ENUM(
+                "not_requested",
+                "pending",
+                "assigned",
+                "failed",
+                name="tolid_request_status",
+                create_type=False,
+            ),
             nullable=False,
             server_default="not_requested",
         ),
@@ -84,7 +91,7 @@ def downgrade() -> None:
     op.drop_index("uq_tolid_request_sample_id", table_name="tolid_request")
     op.drop_table("tolid_request")
 
-    tolid_status = sa.Enum(
+    tolid_status = postgresql.ENUM(
         "not_requested",
         "pending",
         "assigned",

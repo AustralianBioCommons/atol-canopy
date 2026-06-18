@@ -1,6 +1,7 @@
 from datetime import datetime, timezone
 from uuid import uuid4
 
+from app.models.organism import Organism
 from app.models.sample import Sample, SampleSubmission
 from app.models.tolid_request import TolidRequest
 from app.schemas.tolid import TolidRequestReport
@@ -48,71 +49,46 @@ def test_tolid_request_model_has_expected_indexes():
     assert "idx_tolid_request_request_id" in indexes
 
 
-def test_ensure_row_for_sample_updates_existing_row_instead_of_creating_duplicate():
+def test_get_by_specimen_accession_returns_virtual_not_requested_state_when_row_absent():
     sample_id = uuid4()
     sample = Sample(id=sample_id, taxon_id=1729, kind="specimen", specimen_id="SPEC-1")
-    existing = TolidRequest(
+    organism = Organism(taxon_id=1729, scientific_name="New name")
+    submission = SampleSubmission(
         id=uuid4(),
         sample_id=sample_id,
-        tolid_external_id="SAMEA0001",
-        taxon_id=1729,
-        scientific_name="Old name",
-        status="not_requested",
+        status="accepted",
+        accession="ERS123456",
+        authority="ENA",
+        prepared_payload={},
+        project_id=uuid4(),
     )
-    existing.sample = sample
-    db = _Session({Sample: [sample], TolidRequest: [existing]})
+    sample.organism = organism
+    db = _Session({Sample: [sample], SampleSubmission: [submission], Organism: [organism]})
 
-    out = tolid_request_service.ensure_row_for_sample(
-        db,
-        sample_id=sample_id,
-        tolid_external_id="SAMEA9999",
-        scientific_name="New name",
-    )
+    out = tolid_request_service.get_by_specimen_accession(db, "ERS123456")
 
-    assert out is existing
-    assert existing.tolid_external_id == "SAMEA9999"
-    assert existing.scientific_name == "New name"
-    assert len(db.data_map[TolidRequest]) == 1
+    assert out.sample_id == sample_id
+    assert out.specimen_id == "ERS123456"
+    assert out.status == "not_requested"
+    assert out.scientific_name == "New name"
+    assert out.kind == "specimen"
 
 
-def test_ensure_row_for_sample_skips_non_specimen_samples():
-    sample = Sample(id=uuid4(), taxon_id=1729, kind="derived", specimen_id="SPEC-1")
-    db = _Session({Sample: [sample]})
-
-    out = tolid_request_service.ensure_row_for_sample(
-        db,
-        sample_id=sample.id,
-        tolid_external_id="SAMEA0001",
-        scientific_name="Species name",
-    )
-
-    assert out is None
-    assert TolidRequest not in db.data_map
-
-
-def test_report_result_assigned_updates_sample_tolid():
+def test_report_result_creates_row_lazily_and_updates_sample_tolid():
     sample = Sample(id=uuid4(), taxon_id=1729, kind="specimen", specimen_id="SPEC-1")
+    organism = Organism(taxon_id=1729, scientific_name="Species name")
     submission = SampleSubmission(
         id=uuid4(),
         sample_id=sample.id,
         status="accepted",
-        accession="SAMEA0001",
+        accession="ERS123456",
         authority="ENA",
         prepared_payload={},
         project_id=uuid4(),
         submitted_at=datetime(2024, 1, 1, tzinfo=timezone.utc),
     )
-    row = TolidRequest(
-        id=uuid4(),
-        sample_id=sample.id,
-        tolid_external_id="SAMEA0001",
-        taxon_id=1729,
-        scientific_name="Species name",
-        status="pending",
-        request_id="REQ-1",
-    )
-    row.sample = sample
-    db = _Session({Sample: [sample], SampleSubmission: [submission], TolidRequest: [row]})
+    sample.organism = organism
+    db = _Session({Sample: [sample], SampleSubmission: [submission], Organism: [organism]})
 
     view = tolid_request_service.report_result(
         db,
@@ -125,7 +101,10 @@ def test_report_result_assigned_updates_sample_tolid():
         ),
     )
 
+    row = db.data_map[TolidRequest][0]
     assert row.status == "assigned"
     assert row.tolid == "tol123"
+    assert row.tolid_external_id == "ERS123456"
     assert sample.tolid == "tol123"
     assert view.tolid == "tol123"
+    assert view.specimen_id == "ERS123456"
