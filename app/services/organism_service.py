@@ -36,6 +36,83 @@ def sync_organism_scientific_name(
     )
 
 
+def organism_label_for_projects(organism: Organism) -> str:
+    return organism.scientific_name or organism.bpa_scientific_name or str(organism.taxon_id)
+
+
+def build_project_metadata(*, organism_label: str, project_type: str) -> Dict[str, str]:
+    if project_type == "root":
+        return {
+            "alias": f"{organism_label} genome assembly and related data",
+            "title": f"{organism_label}",
+            "description": (
+                f"Genome assemblies and related data for the organism {organism_label}, "
+                f"brokered on behalf of the Australian Tree of Life (AToL) project"
+            ),
+        }
+    if project_type == "genomic_data":
+        return {
+            "alias": f"Genomic data for {organism_label}",
+            "title": f"{organism_label} - genomic data",
+            "description": (
+                f"Genomic data for the organism {organism_label}, brokered on behalf of the "
+                f"Australian Tree of Life (AToL) project"
+            ),
+        }
+    return {}
+
+
+def sync_projects_for_organism(db: Session, organism: Organism) -> None:
+    """Refresh project labels and draft submission payloads after organism naming changes."""
+    organism_label = organism_label_for_projects(organism)
+    projects = db.query(Project).filter(Project.taxon_id == organism.taxon_id).all()
+    project_submissions = db.query(ProjectSubmission).all()
+
+    for project in projects:
+        metadata = build_project_metadata(
+            organism_label=organism_label,
+            project_type=project.project_type.value
+            if hasattr(project.project_type, "value")
+            else project.project_type,
+        )
+        if not metadata:
+            continue
+
+        project.alias = metadata["alias"]
+        project.title = metadata["title"]
+        project.description = metadata["description"]
+        db.add(project)
+
+        for submission in project_submissions:
+            if submission.project_id != project.id:
+                continue
+            submission_status = (
+                submission.status.value
+                if hasattr(submission.status, "value")
+                else submission.status
+            )
+            if submission_status not in {"draft", "ready"}:
+                continue
+
+            prepared_payload = dict(submission.prepared_payload or {})
+            prepared_payload.update(
+                {
+                    "taxon_id": project.taxon_id,
+                    "project_type": project.project_type.value
+                    if hasattr(project.project_type, "value")
+                    else project.project_type,
+                    "study_type": project.study_type,
+                    "alias": project.alias,
+                    "title": project.title,
+                    "description": project.description,
+                    "centre_name": project.centre_name,
+                    "study_attributes": project.study_attributes,
+                }
+            )
+            submission.prepared_payload = prepared_payload
+            db.add(submission)
+
+
 class OrganismService(BaseService[Organism, OrganismCreate, OrganismUpdate]):
     """Service for Organism operations."""
 
@@ -309,6 +386,7 @@ class OrganismService(BaseService[Organism, OrganismCreate, OrganismUpdate]):
             ),
         )
         db.add(organism)
+        sync_projects_for_organism(db, organism)
         db.commit()
         db.refresh(organism)
         return organism

@@ -27,6 +27,7 @@ CREATE TYPE assembly_file_type AS ENUM (
 CREATE TYPE entity_type AS ENUM ('organism', 'sample', 'experiment', 'read', 'assembly', 'project', 'qc_read');
 CREATE TYPE project_type AS ENUM ('root', 'genomic_data', 'assembly');
 CREATE TYPE sample_kind AS ENUM ('specimen', 'derived');
+CREATE TYPE tolid_request_status AS ENUM ('not_requested', 'pending', 'assigned', 'failed');
 -- ==========================================
 -- Users and Authentication
 -- ==========================================
@@ -335,6 +336,37 @@ CREATE INDEX IF NOT EXISTS idx_sample_organism_specimen_lookup
   WHERE specimen_id IS NOT NULL;
 
 -- UNIQUE (sample_id, authority) WHERE status = 'accepted' AND accession IS NOT NULL
+
+-- ==========================================
+-- ToLID request table
+-- ==========================================
+
+CREATE TABLE tolid_request (
+    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    sample_id UUID NOT NULL REFERENCES sample(id) ON DELETE CASCADE,
+    tolid_external_id TEXT NOT NULL,
+    taxon_id INT NOT NULL REFERENCES organism(taxon_id) ON DELETE CASCADE,
+    scientific_name TEXT,
+    tolid TEXT,
+    request_id TEXT,
+    status tolid_request_status NOT NULL DEFAULT 'not_requested',
+    last_requested_at TIMESTAMPTZ,
+    error_message TEXT,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+CREATE UNIQUE INDEX IF NOT EXISTS uq_tolid_request_sample_id
+  ON tolid_request (sample_id);
+
+CREATE INDEX IF NOT EXISTS idx_tolid_request_status
+  ON tolid_request (status);
+
+CREATE INDEX IF NOT EXISTS idx_tolid_request_status_last_requested_at
+  ON tolid_request (status, last_requested_at);
+
+CREATE INDEX IF NOT EXISTS idx_tolid_request_request_id
+  ON tolid_request (request_id);
 
 -- ==========================================
 -- Experiment tables

@@ -11,4 +11,5 @@ from app.models.read import Read
 from app.models.sample import Sample, SampleSubmission
 from app.models.taxonomy_info import TaxonomyInfo
 from app.models.token import RefreshToken
+from app.models.tolid_request import TolidRequest
 from app.models.user import User

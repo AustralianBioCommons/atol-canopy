@@ -84,6 +84,7 @@ class ProjectSubmission(Base):
     response_payload = Column(JSONB, nullable=True)
 
     accession = Column(Text, nullable=True)
+    submitted_at = Column(DateTime(timezone=True), nullable=True)
 
     created_at = Column(DateTime(timezone=True), nullable=False, server_default=func.now())
     updated_at = Column(

@@ -9,7 +9,10 @@ from app.models.taxonomy_info import TaxonomyInfo
 from app.schemas.bulk_import import BulkImportResponse
 from app.schemas.taxonomy_info import TaxonomyInfoCreate, TaxonomyInfoUpdate
 from app.services.ncbi_taxonomy_service import fetch_taxonomy_for_taxon_ids
-from app.services.organism_service import sync_organism_scientific_name
+from app.services.organism_service import (
+    sync_organism_scientific_name,
+    sync_projects_for_organism,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -69,6 +72,7 @@ class TaxonomyInfoService:
             organism,
             ncbi_scientific_name=getattr(ti, "ncbi_scientific_name", None),
         )
+        sync_projects_for_organism(db, organism)
         db.commit()
         db.refresh(ti)
         return ti
@@ -111,6 +115,7 @@ class TaxonomyInfoService:
             organism,
             ncbi_scientific_name=ti.ncbi_scientific_name,
         )
+        sync_projects_for_organism(db, organism)
         db.flush()
         logger.info(
             "NCBI taxonomy enrichment %s taxonomy_info for taxon_id=%s; applied_fields=%s",
@@ -139,6 +144,7 @@ class TaxonomyInfoService:
                 organism,
                 ncbi_scientific_name=ti.ncbi_scientific_name,
             )
+            sync_projects_for_organism(db, organism)
             db.add(organism)
         db.add(ti)
         db.commit()
@@ -152,6 +158,7 @@ class TaxonomyInfoService:
         organism = db.query(Organism).filter(Organism.taxon_id == taxon_id).first()
         if organism:
             sync_organism_scientific_name(organism, ncbi_scientific_name=None)
+            sync_projects_for_organism(db, organism)
             db.add(organism)
         db.delete(ti)
         db.commit()
@@ -231,6 +238,7 @@ class TaxonomyInfoService:
                     organism,
                     ncbi_scientific_name=ti.ncbi_scientific_name,
                 )
+                sync_projects_for_organism(db, organism)
                 db.add(organism)
                 db.commit()
 

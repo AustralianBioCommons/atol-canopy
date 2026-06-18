@@ -38,6 +38,8 @@ from app.schemas.broker_contract import (
     BrokerValidationRequest,
     BrokerValidationResponse,
 )
+from app.schemas.tolid import TolidRequestBrokerView, TolidRequestReport, TolidRequestStatus
+from app.services.tolid_service import tolid_request_service
 
 router = APIRouter()
 CLAIMABLE_SUBMISSION_STATES = ("draft", "ready")
@@ -2229,7 +2231,6 @@ def report_results(
             # On conflict by (authority, accession) or (authority, entity_type, entity_id), do nothing
             stmt = stmt.on_conflict_do_nothing(index_elements=[AccessionRegistry.accession])
             db.execute(stmt)
-
         # Clear lease on finalise (anything other than submitting)
         if item.status != "submitting":
             sub.attempt_id = None
@@ -2502,6 +2503,73 @@ def report_results(
             "projects": updated_projects,
         }
     )
+
+
+@router.get("/tolids/by-specimen-accession/{specimen_id}", response_model=TolidRequestBrokerView)
+@policy("broker:read")
+def get_tolid_by_specimen_accession(
+    *,
+    specimen_id: str,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_active_user),
+) -> TolidRequestBrokerView:
+    """Resolve a specimen sample by ENA accession and return current or virtual ToLID state."""
+    return tolid_request_service.get_by_specimen_accession(db, specimen_id)
+
+
+@router.get("/tolids/pending", response_model=List[TolidRequestBrokerView])
+@policy("broker:read")
+def get_pending_tolids(
+    *,
+    db: Session = Depends(get_db),
+    taxon_id: Optional[int] = Query(None, description="Filter by organism taxon_id"),
+    sample_id: Optional[UUID] = Query(None, description="Filter by sample_id"),
+    sample_ids: Optional[List[UUID]] = Query(None, description="Filter by sample_ids"),
+    requested_before: Optional[datetime] = Query(
+        None, description="Return only rows requested before this timestamp"
+    ),
+    skip: int = Query(0, ge=0),
+    limit: int = Query(100, ge=1, le=1000),
+    current_user: User = Depends(get_current_active_user),
+) -> List[TolidRequestBrokerView]:
+    """Return specimen ToLID rows still waiting on remote assignment."""
+    return tolid_request_service.list_rows(
+        db,
+        row_status=TolidRequestStatus.PENDING,
+        taxon_id=taxon_id,
+        sample_id=sample_id,
+        sample_ids=sample_ids,
+        requested_before=requested_before,
+        skip=skip,
+        limit=limit,
+    )
+
+
+@router.get("/tolids/{sample_id}", response_model=TolidRequestBrokerView)
+@policy("broker:read")
+def get_tolid_by_sample(
+    *,
+    sample_id: UUID,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_active_user),
+) -> TolidRequestBrokerView:
+    """Return the durable ToLID state for one specimen sample."""
+    return tolid_request_service.get_row_for_sample(db, sample_id)
+
+
+@router.post("/tolids/{sample_id}/report", response_model=TolidRequestBrokerView)
+@policy("broker:claim")
+def report_tolid_result(
+    *,
+    sample_id: UUID,
+    payload: TolidRequestReport = Body(...),
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_active_user),
+) -> TolidRequestBrokerView:
+    """Persist the broker-reported ToLID result for one specimen sample."""
+    row = tolid_request_service.report_result(db, sample_id=sample_id, report=payload)
+    db.commit()
+    return row
 
 
 # ---------- Dashboard Helpers ----------

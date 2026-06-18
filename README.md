@@ -20,6 +20,7 @@ A dedicated broker workflow enables integration with external submission pipelin
   - Claim drafts and obtain a lease: `/api/v1/broker/organisms/{taxon_id}/claim`
   - ENA broker contract endpoints: `/api/v1/broker/claims/ready`, `/api/v1/broker/claims/entity`, `/api/v1/broker/validation`, `/api/v1/broker/reports/{attempt_id}`
   - Renew lease, finalise, and report results: `/api/v1/broker/attempts/{attempt_id}/...`
+  - Lightweight ToLID persistence/reporting endpoints: `/api/v1/broker/tolids/...`
   - Attempt listing and summaries for dashboard views
 - Bulk import endpoints for organisms, samples, and experiments
 - XML export endpoints for downstream systems
@@ -238,6 +239,7 @@ pyproject.toml, uv.lock, docker-compose.yml, Dockerfile, schema.sql, scripts/, d
     ```
 
   For the flat ENA broker contract used by Canopy, see [docs/ena_broker_contract.md](docs/ena_broker_contract.md).
+  For the lightweight ToLID persistence/reporting flow, see [docs/tolid_broker_api.md](docs/tolid_broker_api.md).
   For a deeper overview of attempt leasing and statuses, see the `broker` endpoints in `app/api/v1/endpoints/broker.py` and the interactive docs.
 
   ## Bulk Import API
