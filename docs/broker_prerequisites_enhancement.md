@@ -1,3 +1,5 @@
+> **Status:** Partially current. The accession-resolution behavior matches `app/api/v1/endpoints/broker.py`, but this note is change-history oriented and does not fully describe the current broker contract.
+
 # Broker Prerequisites Enhancement
 
 ## Problem

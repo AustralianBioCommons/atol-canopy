@@ -1,3 +1,5 @@
+> **Status:** Verified current against `app/api/v1/endpoints/assemblies.py`, `app/services/assembly_service.py`, `app/services/assembly_helper.py`, and `tests/unit/endpoints/test_endpoints_assemblies.py`.
+
 # Assembly Reporting API
 
 This document describes how to use the assembly API to register a new assembly, then report pipeline results back to the database.
