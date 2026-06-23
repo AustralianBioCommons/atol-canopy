@@ -6,9 +6,8 @@
 2. What process promotes submission rows from `draft` to `ready`? I could not verify any code path in this repo that sets `status = "ready"` for project, sample, experiment, or QC-read submissions.
 3. Which payload shapes are treated as canonical for bulk organism, sample, and experiment imports outside the request validation implied by this repo?
 4. Is `POST /api/v1/assemblies/from-experiments/{taxon_id}` still an active workflow, or has the assembly intent flow replaced it operationally?
-5. Should stale historical documents under `data/docs/` remain in the repo, or should they be archived elsewhere to avoid confusing maintainers?
-6. What are the expected roles and minimum permissions for day-to-day maintainer accounts versus broker accounts versus genome-launcher accounts?
-7. Are there manual post-deploy checks, rollback steps, or data-backup requirements that happen outside the GitHub Actions workflows?
+5. What are the expected roles and minimum permissions for day-to-day maintainer accounts versus broker accounts versus genome-launcher accounts?
+6. Are there manual post-deploy checks, rollback steps, or data-backup requirements that happen outside the GitHub Actions workflows?
 
 ## High-Risk Tribal Knowledge Not Present In The Repo
 
