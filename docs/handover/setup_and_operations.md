@@ -1,7 +1,5 @@
 # Local Setup And Operations
 
-## Verified
-
 ### Container startup path
 
 - `docker-compose.yml` defines two services:
@@ -15,16 +13,14 @@
   4. starts `uvicorn`
   5. enables `--reload` only when `ENVIRONMENT=dev`
 
-### Local Docker workflow
+### Local Docker workflow (recommended for local development)
 
 1. Copy `.env.example` to `.env`.
 2. Set at least the JWT variables and Postgres variables needed by the app.
 3. Start the stack with `docker compose up --build`.
 4. API docs are served from `/api/v1/docs`, `/api/v1/redoc`, and `/api/v1/openapi.json`.
 
-### Non-Docker workflow
-
-The repo contains enough evidence for this local path:
+### Local non-Docker workflow
 
 1. Install dependencies with `uv sync --dev --frozen` (`Dockerfile`, `.github/workflows/lint.yml`).
 2. Export the required environment variables described in `app/core/settings.py`.
@@ -37,8 +33,9 @@ The repo contains enough evidence for this local path:
 - The script accepts either `--db-uri` or host/port/name/user/password fields.
 - The script sets `roles=[role]`.
 - The script sets `is_superuser=True` only when `--role superuser`.
+e.g.: (TODO)
 
-### Recurring maintainer tasks visible in the repo
+### Recurring maintainer tasks TODO
 
 | Task | Verified implementation |
 | --- | --- |
@@ -50,13 +47,13 @@ The repo contains enough evidence for this local path:
 | Check app version | `GET /version` |
 | Regenerate schema snapshot | Comment in `schema.sql` says to use `pg_dump --schema-only` after migrations |
 
-### Deployment automation evidenced in the repo
+### CI/CD related tasks (added by BioCloud team - don't change without assistance)
 
 - `.github/workflows/build-and-deploy-dev.yml` builds a container image, pushes it to ECR, and invokes a Lambda deployment function.
 - `.github/workflows/build-publish.yml` builds and pushes release-tagged images to ECR.
 - These workflows prove that the repo is wired to AWS-hosted automation, but they do not describe the runtime environment behind the deployment target.
 
-### Operational sharp edges visible in code
+### Some stuff to consider updating (TODO)
 
 - `scripts/entrypoint.sh` requires a literal `DATABASE_URI` shell variable even though `app/core/settings.py` can derive `DATABASE_URI` from `POSTGRES_*` values. This means `POSTGRES_*` values alone are enough for direct Python startup but not enough for the entrypoint script.
 - `scripts/create_user.py` appends a hard-coded repository path to `sys.path`. That makes the script repo-location-sensitive.
@@ -64,11 +61,6 @@ The repo contains enough evidence for this local path:
   - `app/services/broker_service.py`
   - `expire_stale_leases()` inside `app/api/v1/endpoints/broker.py`
 
-## Inferences
+## Notes
 
-- `schema.sql` is a maintained schema snapshot rather than the runtime bootstrap path, because container startup applies Alembic migrations and does not execute `schema.sql` directly.
-
-## Unknown From This Repo
-
-- The exact production release checklist after a successful GitHub Actions deployment.
-- Whether there are environment-specific manual steps around database backups, smoke tests, or rollback outside the repository.
+- `schema.sql` is a maintained schema snapshot used for documentation rather than the runtime bootstrap path. The actual initial database schema is in `0001_initial_schema.sql` which migrations are applied ontop of. When updating the database, we should always use and test Alembic migrations and *then* update `schema.sql` accordingly.

@@ -35,21 +35,3 @@ This pack is intentionally maintainer-oriented. It favors verified behavior and 
 | [config_reference.md](/Users/emilylm/Repositories/atol-database-v2/docs/handover/config_reference.md) | Environment variables and workflow-level config surfaced by the repo | Use this when wiring environments or checking startup failures |
 | [troubleshooting.md](/Users/emilylm/Repositories/atol-database-v2/docs/handover/troubleshooting.md) | Symptom-driven maintainer guide | Use this during incidents or confusing behavior |
 | [open_questions.md](/Users/emilylm/Repositories/atol-database-v2/docs/handover/open_questions.md) | Gaps that require human knowledge outside the repo | Use this when deciding what tribal knowledge still needs to be captured |
-
-## Relationship To The Top-Level README
-
-- [README.md](/Users/emilylm/Repositories/atol-database-v2/README.md) is the repository’s central high-level document.
-- This handover pack is the deeper maintainer set.
-- The two should stay consistent, but they serve different depths:
-  - `README.md`: complete high-level repo document
-  - `docs/handover/`: detailed maintainer and operator documentation
-
-## Highest-Risk Gaps Still Not Solved By Documentation Alone
-
-These are verified as unresolved from the repo itself:
-
-- which broker endpoint family is authoritative in production
-- which human or external process moves submission rows from `draft` to `ready`
-- what the production runtime topology is behind the GitHub Actions deployment workflows
-
-Those gaps are tracked in [open_questions.md](/Users/emilylm/Repositories/atol-database-v2/docs/handover/open_questions.md).
