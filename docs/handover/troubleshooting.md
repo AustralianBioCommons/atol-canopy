@@ -8,7 +8,7 @@
 | App import fails with a settings error | Missing JWT or DB settings | `app/core/settings.py` | Check `JWT_SECRET_KEY`, `JWT_ALGORITHM`, and either `DATABASE_URI` or all `POSTGRES_*`; in `prod`, confirm `BACKEND_CORS_ORIGINS` is not `["*"]` |
 | Login works but refresh fails with `401 Invalid or expired refresh token` | Refresh-token lookup or revocation | `app/api/v1/endpoints/auth.py`, `app/models/token.py` | Check whether the token hash exists in `refresh_token`, whether `expires_at` is still in the future, and whether `revoked` is already true |
 | Sample or experiment update is rejected while broker work is in progress | Submission lock state | `app/api/v1/endpoints/samples.py`, `app/services/experiment_service.py`, broker attempt routes | Check the latest submission row status; both code paths block edits when the latest submission is `submitting` |
-| Broker cannot claim work that maintainers expect to be available | Submission status, claim surface, or stale lease | `app/api/v1/endpoints/broker.py`, `scripts/expire_leases.py`, `POST /api/v1/admin/leases/expire`, `POST /api/v1/broker/leases/expire` | Check whether rows are still `draft` versus `ready`; flat broker claims accept `draft` and `ready`, legacy organism claim accepts only `draft`; check `lock_expires_at`; expire stale leases if needed |
+| Broker cannot claim work that maintainers expect to be available | Submission status or stale lease | `app/api/v1/endpoints/broker.py`, `scripts/expire_leases.py`, `POST /api/v1/admin/leases/expire`, `POST /api/v1/broker/leases/expire` | Check whether rows are in `draft` or `ready`; the routed broker claim contract accepts both; check `lock_expires_at`; expire stale leases if needed |
 | Broker report returns `409` mentioning integrity constraints | Accession registry conflict | `app/api/v1/endpoints/broker.py`, `app/models/accession_registry.py` | Inspect `accession_registry` for an existing row with the same accession bound to a different entity; inspect the affected submission row’s accession FK fields |
 | ToLID lookup by accession returns `404` | Sample accession resolution or sample kind | `app/services/tolid_service.py`, `app/models/tolid_request.py`, `GET /api/v1/broker/tolids/...` | Confirm there is an accepted `sample_submission.accession` or `sample.biosample_accession`; confirm the resolved sample has `kind = specimen` |
 | ToLID report cannot create a row | Missing accepted sample accession | `app/services/tolid_service.py` | Check whether `_fallback_external_id()` can find a sample submission accession or `sample.biosample_accession`; without one, reporting returns `tolid_external_id_missing` |
@@ -21,7 +21,7 @@
 ## Verified Sharp Edges And Technical Debt
 
 - There are two different lease-expiry implementations with overlapping responsibilities.
-- Broker APIs are duplicated across legacy and newer contract routes.
+- Legacy broker helper functions still exist in `app/api/v1/endpoints/broker.py` even though the older routes are no longer exposed.
 - Submission status `ready` is part of the API contract, but this repo does not show who sets it.
 - Several code comments and docstrings are stale. One example is the PacBio filtering note in `app/services/assembly_helper.py`, while tests in `tests/unit/services/test_assembly_helper.py` assert that all PacBio reads are currently included when they have `file_name`.
 - The sample endpoint contains several `print(...)` debugging paths instead of structured logging.

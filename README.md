@@ -50,14 +50,18 @@ This pattern is visible for:
 
 ### Broker-facing workflow
 
-The repo exposes broker endpoints under `/api/v1/broker/...` for claiming work, validating payload prerequisites, reporting outcomes, inspecting attempts, and managing ToLID request state.
+The repo exposes broker endpoints under `/api/v1/broker/...` for claiming work, validating payload prerequisites, reporting outcomes, finalising failed attempts, and managing ToLID request state.
 
-There are currently two broker API surfaces in the same router:
+The currently routed claim/report surface is:
 
-- a newer flat contract: `/broker/claims/*`, `/broker/validation`, `/broker/reports/{attempt_id}`
-- older claim/report endpoints that are still routed: `/broker/claim`, `/broker/organisms/{taxon_id}/claim`, `/broker/attempts/...`
+- `/broker/claims/ready`
+- `/broker/claims/entity`
+- `/broker/claims/batch`
+- `/broker/validation`
+- `/broker/reports/{attempt_id}`
+- `/broker/attempts/{attempt_id}/finalise`
 
-The repository proves both are active. It does not prove which one is authoritative in production.
+Detailed broker lifecycle notes are in [docs/handover/broker_and_submission_flows.md](docs/handover/broker_and_submission_flows.md).
 
 ### Assembly workflow
 

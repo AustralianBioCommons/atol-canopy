@@ -22,8 +22,9 @@ This pack is intentionally maintainer-oriented. It favors verified behavior and 
 2. [setup_and_operations.md](/Users/emilylm/Repositories/atol-database-v2/docs/handover/setup_and_operations.md)
 3. [broker_and_submission_flows.md](/Users/emilylm/Repositories/atol-database-v2/docs/handover/broker_and_submission_flows.md)
 4. [config_reference.md](/Users/emilylm/Repositories/atol-database-v2/docs/handover/config_reference.md)
-5. [troubleshooting.md](/Users/emilylm/Repositories/atol-database-v2/docs/handover/troubleshooting.md)
-6. [open_questions.md](/Users/emilylm/Repositories/atol-database-v2/docs/handover/open_questions.md)
+5. [known_issues.md](/Users/emilylm/Repositories/atol-database-v2/docs/handover/known_issues.md)
+6. [troubleshooting.md](/Users/emilylm/Repositories/atol-database-v2/docs/handover/troubleshooting.md)
+7. [open_questions.md](/Users/emilylm/Repositories/atol-database-v2/docs/handover/open_questions.md)
 
 ## Document Map
 
@@ -33,5 +34,6 @@ This pack is intentionally maintainer-oriented. It favors verified behavior and 
 | [setup_and_operations.md](/Users/emilylm/Repositories/atol-database-v2/docs/handover/setup_and_operations.md) | Docker startup path, local non-Docker workflow, migrations, scripts, and recurring operator actions | Use this for local setup and day-to-day maintenance |
 | [broker_and_submission_flows.md](/Users/emilylm/Repositories/atol-database-v2/docs/handover/broker_and_submission_flows.md) | Submission states, broker claim/report behavior, ToLID flow, and attempt leasing | Use this when debugging broker-facing workflows |
 | [config_reference.md](/Users/emilylm/Repositories/atol-database-v2/docs/handover/config_reference.md) | Environment variables and workflow-level config surfaced by the repo | Use this when wiring environments or checking startup failures |
+| [known_issues.md](/Users/emilylm/Repositories/atol-database-v2/docs/handover/known_issues.md) | Current code issues, operational gaps, and external dependencies | Use this when planning fixes, prioritising debt, or handing work to a new maintainer |
 | [troubleshooting.md](/Users/emilylm/Repositories/atol-database-v2/docs/handover/troubleshooting.md) | Symptom-driven maintainer guide | Use this during incidents or confusing behavior |
 | [open_questions.md](/Users/emilylm/Repositories/atol-database-v2/docs/handover/open_questions.md) | Gaps that require human knowledge outside the repo | Use this when deciding what tribal knowledge still needs to be captured |
