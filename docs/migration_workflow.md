@@ -1,5 +1,3 @@
-> **Status:** Verified current only for repository-local migration and schema maintenance steps. This file does not claim any production deployment procedure beyond what is visible in the repo.
-
 # Migration Workflow
 
 This document describes the migration workflow that is directly evidenced in the current repository.

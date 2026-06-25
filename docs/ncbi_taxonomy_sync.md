@@ -1,5 +1,3 @@
-> **Status:** Verified current against `app/services/organism_service.py`, `app/services/taxonomy_info_service.py`, `app/services/ncbi_taxonomy_service.py`, and `tests/unit/services/test_taxonomy_info_service.py`.
-
 ## NCBI taxonomy sync behavior
 
 This document describes the current application-level behavior for organism scientific names and NCBI taxonomy enrichment.

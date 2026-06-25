@@ -1,5 +1,3 @@
-> **Status:** Verified current against `app/api/v1/endpoints/broker.py`, `app/services/tolid_service.py`, `app/schemas/tolid.py`, and `tests/unit/endpoints/test_endpoints_broker_tolids.py`.
-
 # ToLID Broker API
 
 This document describes the simplified ToLID flow between Canopy and the external broker worker.

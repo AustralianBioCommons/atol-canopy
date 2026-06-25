@@ -1,5 +1,3 @@
-> **Status:** Verified current against `app/api/v1/endpoints/organisms.py`, `app/api/v1/endpoints/samples.py`, `app/api/v1/endpoints/experiments.py`, `app/services/organism_service.py`, `app/services/experiment_service.py`, and the bulk-import endpoint tests.
-
 # Bulk Import Workflows
 
 This document describes the bulk-import endpoints that are active in the current codebase.

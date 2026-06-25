@@ -1,5 +1,3 @@
-> **Status:** Verified current against `app/api/v1/endpoints/auth.py`, `app/core/security.py`, `app/core/dependencies.py`, `app/models/token.py`, and `tests/unit/endpoints/test_endpoints_auth.py`.
-
 # Authentication And Refresh Tokens
 
 This document describes the authentication behavior that is implemented in the current codebase.
