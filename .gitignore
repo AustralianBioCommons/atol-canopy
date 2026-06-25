@@ -15,5 +15,3 @@ postman/
 .coverage
 htmlcov/
 coverage.xml
-.claude/
-.windsurf/
