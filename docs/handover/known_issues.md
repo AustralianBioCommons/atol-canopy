@@ -1,53 +1,61 @@
 # Known Issues And Outstanding Work
 
-This page lists current codebase issues, operational gaps, and external dependencies that future maintainers should understand before changing behavior or planning follow-up work.
+## TO DO: Canopy & Broker
 
-## Current Code Issues
+- Persist broker logs and broker error responses so they can be reviewed later.
 
-- Broker and bulk-import observability is weak. The code logs some broker activity and returns per-record errors from bulk import endpoints, but there is no in-repo mechanism to persist broker run logs or bulk-import outcome logs for later audit. Some sample import and update paths still use `print(...)` instead of structured logging, especially in [samples.py](/Users/emilylm/Repositories/atol-database-v2/app/api/v1/endpoints/samples.py).
+- Persist BPA import logs, mapper outputs, and bulk-import failures. Bulk import endpoints return error lists, but import history is not stored. (side note, some sample import paths still use `print(...)` rather than structured logging e.g. in [samples.py](/Users/emilylm/Repositories/atol-database-v2/app/api/v1/endpoints/samples.py))
 
-- `POST /api/v1/assemblies/{assembly_id}/qc-reads/report` requires `bpa_package_id` in the request body. If the intended contract is to identify the package in the path instead, the API shape will need to change in [assemblies.py](/Users/emilylm/Repositories/atol-database-v2/app/api/v1/endpoints/assemblies.py) and [qc_read.py](/Users/emilylm/Repositories/atol-database-v2/app/schemas/qc_read.py).
+- Decide whether `bpa_package_id` should stay in the request body for `POST /api/v1/assemblies/{assembly_id}/qc-reads/report`. It is currently a required body field in [qc_read.py](/Users/emilylm/Repositories/atol-database-v2/app/schemas/qc_read.py) and is resolved in [assemblies.py](/Users/emilylm/Repositories/atol-database-v2/app/api/v1/endpoints/assemblies.py). From PO feedback, `bpa_package_id` should be moved to a path variable.
 
-- Assembly stage reporting is effectively one-shot per `(assembly_run_id, stage_name)`. A second `POST` for the same stage is rejected, and `PATCH` replaces the full file list rather than appending to it. The current behavior lives in [assembly_service.py](/Users/emilylm/Repositories/atol-database-v2/app/services/assembly_service.py).
+- Broker support for parent and child projects is missing. There is no project hierarchy model or broker payload support in [project.py](/Users/emilylm/Repositories/atol-database-v2/app/models/project.py) or [broker.py](/Users/emilylm/Repositories/atol-database-v2/app/api/v1/endpoints/broker.py). We were awaiting confirmation from ENA about how to register and confirm parent-child project relos. Need to confirm this and implement the heirarchy.
 
-- QC-read reporting always creates a new `QcRead`, new files, and a new draft submission row. There is no deduplication, merge, or reconciliation path in `POST /api/v1/assemblies/{assembly_id}/qc-reads/report`, so repeated reporting can accumulate duplicate or overlapping QC-read records. See [assemblies.py](/Users/emilylm/Repositories/atol-database-v2/app/api/v1/endpoints/assemblies.py).
+- Assembly stage reporting is one-shot per `(assembly_run_id, stage_name)`. A second `POST` for the same stage returns a conflict. `PATCH` replaces the file list; it does not append. See [assembly_service.py](/Users/emilylm/Repositories/atol-database-v2/app/services/assembly_service.py). This is likely undesirable - may want to update so that we can add more result files and/or metadata for an assembly stage we have already reported results for.
 
-- ToLID external-id selection is likely wrong for the intended workflow. The ToLID service currently prefers the primary sample submission accession and only falls back to `sample.biosample_accession`. If the desired identifier is the BioSample or external accession such as `SAMEA...`, this needs changing in [tolid_service.py](/Users/emilylm/Repositories/atol-database-v2/app/services/tolid_service.py).
+- `POST /api/v1/assemblies/{assembly_id}/qc-reads/report` always creates a new `QcRead`, new files, and a new draft `QcReadSubmission`. There is no deduplication, uniqueness check, or delete path inside that workflow. See [assemblies.py](/Users/emilylm/Repositories/atol-database-v2/app/api/v1/endpoints/assemblies.py). May need to change this behaviour if we want more control.
 
-- Project parent/child relationships are not represented in the current schema or broker contract. There is no project hierarchy model, join table, or broker payload support for those relationships in [project.py](/Users/emilylm/Repositories/atol-database-v2/app/models/project.py) or [broker.py](/Users/emilylm/Repositories/atol-database-v2/app/api/v1/endpoints/broker.py). If ENA requires that structure, Canopy cannot currently enforce it.
+- ToLID external-id selection should be reviewed. [tolid_service.py](/Users/emilylm/Repositories/atol-database-v2/app/services/tolid_service.py) currently uses `SampleSubmission.accession` and only falls back to `sample.biosample_accession`. We actually want to use the external / BioSample accession as the `external_id` for the ToLIDs we register -> so we need to change this (may require changes to the broker)
 
-- API authorization policy coverage is incomplete. Many endpoints require authentication but do not have an explicit `@policy(...)` decorator. This is especially noticeable across read endpoints in [assemblies.py](/Users/emilylm/Repositories/atol-database-v2/app/api/v1/endpoints/assemblies.py), [qc_reads.py](/Users/emilylm/Repositories/atol-database-v2/app/api/v1/endpoints/qc_reads.py), [reads.py](/Users/emilylm/Repositories/atol-database-v2/app/api/v1/endpoints/reads.py), [projects.py](/Users/emilylm/Repositories/atol-database-v2/app/api/v1/endpoints/projects.py), [organisms.py](/Users/emilylm/Repositories/atol-database-v2/app/api/v1/endpoints/organisms.py), and others.
+- Project titles are not validated against any ENA minimum length in Canopy. Recent submission attempts (using the broker) have revealed that ENA requires titles of at least 20 characters. That check should be added in [project.py](/Users/emilylm/Repositories/atol-database-v2/app/schemas/project.py) or before broker submission. May need to pad `title` field when char length is too short.
 
-- Annotations are not implemented in this codebase. Genome notes do exist as a lightweight CRUD and publish/unpublish feature, but there is no annotation model or annotation API surface. Relevant files are [genome_note.py](/Users/emilylm/Repositories/atol-database-v2/app/models/genome_note.py) and [genome_notes.py](/Users/emilylm/Repositories/atol-database-v2/app/api/v1/endpoints/genome_notes.py).
+- The current `qc-reads/report` payload is inconsistent with the genome launcher. The current Canopy request shape is defined in [qc_read.py](/Users/emilylm/Repositories/atol-database-v2/app/schemas/qc_read.py). The genome launcher has different fields for qc_read files. Need to change fields in Canopy, or in the genome launcher - or a shim could be added.
 
-- Project titles are not validated against any ENA-specific minimum length in Canopy. If ENA rejects short titles, that failure will happen downstream rather than being prevented locally. See [project.py](/Users/emilylm/Repositories/atol-database-v2/app/models/project.py) and [project.py](/Users/emilylm/Repositories/atol-database-v2/app/schemas/project.py).
+- Annotationa are not implemented.
 
-- `scripts/create_user.py` is not portable because it contains a hard-coded repository path in `sys.path`. That should be removed or made relative. See [create_user.py](/Users/emilylm/Repositories/atol-database-v2/scripts/create_user.py).
+- Genome notes are largely not implemented. There exists separate CRUD and rudimentary publish/unpublish feature in [genome_notes.py](/Users/emilylm/Repositories/atol-database-v2/app/api/v1/endpoints/genome_notes.py) and [genome_note.py](/Users/emilylm/Repositories/atol-database-v2/app/models/genome_note.py), but this hasn't been tested or properly implemented. We need to implement endpoints that 1) return the metadata required for a genome note and 2) allow reporting/storing of a published genome note back into the db (might be the actual genome note data or just a DOI/link).
 
-## Operational Gaps
+- Ensure all API endpoints have explicit `@policy(...)` protection. Several authenticated endpoints still rely only on authentication and have no policy decorator.
 
-- There is no in-repo scheduler or automation for recurring BPA imports. The code exposes bulk-import APIs, but nothing in this repo schedules or triggers them automatically.
+- Remove the hard-coded repository path from [create_user.py](/Users/emilylm/Repositories/atol-database-v2/scripts/create_user.py). All script sin `scripts/` folder can probably be removed and managed elsewhere.
 
-- There is no in-repo scheduler or automation for retrying `pending` ToLID requests. The code exposes `/broker/tolids/pending` and report endpoints, but retry timing is left to an external broker process.
+## TODO: Operations
 
-- Experiment `bioplatforms_base_url` backfill remains a data remediation task. The field exists and is used by assembly helper logic, but the repo cannot tell us which rows in a live database are missing it.
+- Set up a scheduler to import data from BPA data portal.
 
-- Manual ToLID backfill is possible through existing endpoints or sample updates, but the repo cannot tell us which real datasets still need patching.
+- Set up a scheduler for retrying or polling `pending` ToLID requests. =
 
-- Backup and snapshot procedures are not documented in the repository. Regular dumps and environment refreshes may be advisable, but the implementation details sit outside this codebase.
+- Define log collection and log retention for deployed environments. Logs are available in AWS CloudWatch.
 
-## Open Questions And External Dependencies
+- Set up scheduled database backup, dump, and restore procedures.
 
-- Whether the `qc-reads/report` request shape matches genome launcher cannot be confirmed from this repo alone.
+- When prod environment created, dev db should be refreshed from prod db snapshots regularly.. Something to discuss with BioCloud team (will need to decide on & implement a DR protocol)
 
-- How ENA expects parent and child project relationships to be represented still needs external confirmation.
+## Data And Access Management
 
-- Current hosted log-retention settings cannot be determined from the application code.
+- Backfill `experiment.bioplatforms_base_url` where it is missing in existing environments (missing in dev AWS environment currently - because it is read from BPA data which had already been imported).
 
-- The actual user and role setup in dev or prod databases cannot be inferred from the repo, only the supported role names in [policy.py](/Users/emilylm/Repositories/atol-database-v2/app/core/policy.py).
+- Patch manually assigned ToLIDs for the benchmarking datasets if those records must exist in Canopy. (can use the `/tolid/report` endpoint)
 
-- Whether dev should be regularly refreshed from prod snapshots is an environment-management decision, not something the codebase answers.
+- New roles should be created for 1) each service user (genome launcher and broker) and 2) admin and/or curator users for AToL team members who need to interact with the database. Credentials should be kept confidential. Supported roles in code include `admin`, `curator`, `broker`, `genome_launcher`, and `superuser`.
 
-## No Longer An Active Code Issue
+## Open Questions
 
-- Duplicate `assembly_run` registration is already handled. Creating the same `(assembly_id, github_repo, git_commit)` combination returns `409` through [assemblies.py](/Users/emilylm/Repositories/atol-database-v2/app/api/v1/endpoints/assemblies.py) and [assembly_service.py](/Users/emilylm/Repositories/atol-database-v2/app/services/assembly_service.py). If failures still occur here, they are a different case than duplicate registration.
+- How can ENA parent and child project relationships be verified for private / unreleased projects?
+
+- How long are deployed Canopy logs retained in AWS?
+
+- Does the dev environment still need `bioplatforms_base_url` backfill and manual ToLID backfill?
+
+## Resolved since docs creted
+
+- Duplicate `assembly_run` registration is now handled. Creating the same `(assembly_id, github_repo, git_commit)` combination returns `409` through [assemblies.py](/Users/emilylm/Repositories/atol-database-v2/app/api/v1/endpoints/assemblies.py) and [assembly_service.py](/Users/emilylm/Repositories/atol-database-v2/app/services/assembly_service.py).
