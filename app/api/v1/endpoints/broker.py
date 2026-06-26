@@ -1107,11 +1107,11 @@ def report_submission_outcomes(
 
 
 # ---------- Endpoints ----------
-# NOTE: More specific routes must come before parameterized routes in FastAPI
-# Otherwise /claim would match /organisms/{taxon_id}/claim with taxon_id="claim"
+# NOTE: More specific routes must come before parameterized routes in FastAPI.
+# Legacy broker handlers are retained below for reference/unit coverage, but only
+# the currently supported routes keep @router decorators.
 
 
-@router.post("/claim", response_model=ClaimByEntityResponse)
 @policy("broker:claim")
 def claim_by_entity_ids(
     *,
@@ -1548,7 +1548,6 @@ def claim_by_entity_ids(
     )
 
 
-@router.post("/organisms/{taxon_id}/claim", response_model=ClaimResponse)
 @policy("broker:claim")
 def claim_drafts_for_organism(
     *,
@@ -1999,7 +1998,6 @@ def expire_leases(
     }
 
 
-@router.post("/attempts/{attempt_id}/lease/renew")
 @policy("broker:claim")
 def renew_attempt_lease(
     *,
@@ -2162,7 +2160,6 @@ def finalise_attempt(
     return {"attempt_id": str(attempt_id), "released": released, "status": attempt.status}
 
 
-@router.post("/attempts/{attempt_id}/report", response_model=ReportResult)
 @policy("broker:claim")
 def report_results(
     *,
@@ -3045,7 +3042,6 @@ def _get_attempt_items_with_relationships(
     }
 
 
-@router.get("/attempts")
 @policy("broker:read")
 def list_attempts(
     *,
@@ -3085,7 +3081,6 @@ def list_attempts(
     return {"items": results, "page": page, "page_size": page_size, "total": total}
 
 
-@router.get("/attempts/{attempt_id}")
 @policy("broker:read")
 def get_attempt(
     *,
@@ -3116,7 +3111,6 @@ def get_attempt(
     return result
 
 
-@router.get("/attempts/{attempt_id}/items")
 @policy("broker:read")
 def get_attempt_items(
     *,
@@ -3128,7 +3122,6 @@ def get_attempt_items(
     return {k: [e.model_dump() for e in v] for k, v in items.items()}
 
 
-@router.get("/organisms/{taxon_id}/summary")
 @policy("broker:read")
 def organism_summary(
     *,

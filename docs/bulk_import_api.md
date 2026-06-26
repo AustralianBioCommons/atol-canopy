@@ -1,159 +1,117 @@
-# Bulk Import API Documentation
+# Bulk Import Workflows
 
-This document describes how to use the bulk import API endpoints to import organisms, samples, and experiments into the database.
+This document describes the bulk-import endpoints that are active in the current codebase.
 
-## Authentication
+## Verified
 
-All bulk import endpoints require authentication and the user must have either the 'curator' or 'admin' role.
+### Active bulk-import endpoints
 
-## Endpoints Overview
+| Method | Endpoint | Expected top-level payload shape | Notes |
+| --- | --- | --- | --- |
+| `POST` | `/api/v1/organisms/bulk-import` | raw dictionary keyed by `taxon_id` | No wrapper key such as `organisms` |
+| `POST` | `/api/v1/samples/bulk-import` | raw dictionary keyed by `bpa_sample_id` | Mixed sample import path; defaults to specimen unless `kind` supplied |
+| `POST` | `/api/v1/samples/bulk-import-specimens` | raw dictionary keyed by `taxon_id`, then `specimen_id` | Explicit specimen-only import |
+| `POST` | `/api/v1/samples/bulk-import-derived` | raw dictionary keyed by sample key | Explicit derived-only import |
+| `POST` | `/api/v1/experiments/bulk-import` | raw dictionary keyed by package ID | Can also create `read` rows from nested `runs` lists |
+| `POST` | `/api/v1/taxonomy-info/bulk-import` | raw dictionary keyed by `taxon_id` | Insert-oriented, with NCBI enrichment |
+| `POST` | `/api/v1/taxonomy-info/bulk-upsert` | raw dictionary keyed by `taxon_id` | Insert or update, with NCBI enrichment |
+| `POST` | `/api/v1/taxonomy-info/bulk-ncbi-refresh` | object with `taxon_ids` list | Refresh existing taxonomy-info rows only |
 
-| Endpoint | Method | Description |
-|----------|--------|-------------|
-| `/api/v1/organisms/bulk-import` | POST | Bulk import organisms |
-| `/api/v1/samples/bulk-import` | POST | Bulk import samples |
-| `/api/v1/experiments/bulk-import` | POST | Bulk import experiments |
+### Authentication and roles
 
-## Request Format
+- Organism bulk import requires `organisms:bulk_import`.
+- Sample bulk import endpoints require `samples:bulk_import`.
+- Experiment bulk import requires `experiments:bulk_import`.
+- Taxonomy bulk actions require the matching taxonomy policies defined in `app/core/policy.py`.
 
-### Bulk Import Organisms
+### Recommended import order
 
-**Endpoint:** `/api/v1/organisms/bulk-import`
+1. Organisms
+2. Specimen samples
+3. Derived samples
+4. Experiments
+5. Assembly intents or broker-driven submission workflows
+6. Taxonomy-info import or refresh when NCBI enrichment is needed
 
-**Request Body:**
+This ordering is verified from the code-level dependencies:
+
+- samples require existing organisms
+- experiments require existing samples and the organism’s `genomic_data` project
+- taxonomy info requires existing organisms
+
+## Endpoint-specific behavior
+
+### `POST /api/v1/organisms/bulk-import`
+
+- Creates new `organism` rows.
+- Also creates the paired `root` and `genomic_data` `project` rows plus draft `project_submission` rows for each organism.
+- Skips rows when the organism already exists.
+- Accepts both current `bpa_*` fields and legacy unprefixed fields for several organism attributes.
+
+Example payload:
+
 ```json
 {
-  "organisms": {
-    "123456": {
-      "taxon_id": 123456,
-      "scientific_name": "Organism scientific name",
-      "other_field": "value",
-      ...
-    },
-    "789012": {
-      ...
+  "172942": {
+    "taxon_id": 172942,
+    "bpa_scientific_name": "Example species"
+  }
+}
+```
+
+### `POST /api/v1/samples/bulk-import-specimens`
+
+- Expects nested keys: outer `taxon_id`, inner `specimen_id`.
+- Enforces one specimen sample per `(taxon_id, specimen_id)`.
+- Forces `organism_part` to `"WHOLE ORGANISM"` in this explicit specimen import path.
+
+Example payload:
+
+```json
+{
+  "172942": {
+    "SPEC-001": {
+      "bpa_sample_id": "BPA-SPEC-001",
+      "lifestage": "adult"
     }
   }
 }
 ```
 
-The request body should match the format of the JSON file in `data/unique_organisms.json`. Each organism is keyed by `taxon_id` and must contain at least `taxon_id` and `scientific_name`.
+### `POST /api/v1/samples/bulk-import-derived`
 
-**Response:**
-```json
-{
-  "created_count": 10,
-  "skipped_count": 2,
-  "message": "Organism import complete. Created: 10, Skipped: 2"
-}
-```
+- Requires `bpa_sample_id`.
+- Requires `taxon_id`.
+- Requires `specimen_id` so the code can find the parent specimen sample.
+- Parent lookup is by `(taxon_id, specimen_id)` with `kind = specimen`.
 
-### Bulk Import Samples
+### `POST /api/v1/samples/bulk-import`
 
-**Endpoint:** `/api/v1/samples/bulk-import`
+- Accepts a flatter legacy/importer-friendly path keyed by `bpa_sample_id`.
+- Defaults missing required text fields such as `lifestage`, `sex`, and `habitat` to `"unknown"` in code.
+- Defaults sample kind to `specimen` unless `kind` is supplied.
 
-**Request Body:**
-```json
-{
-  "samples": {
-    "bpa_sample_id_1": {
-      "taxon_id": 123456,
-      "other_field": "value",
-      ...
-    },
-    "bpa_sample_id_2": {
-      ...
-    }
-  }
-}
-```
+### `POST /api/v1/experiments/bulk-import`
 
-The request body should match the format of the JSON file in `data/unique_samples.json`. Each sample is identified by its `bpa_sample_id` and can include `taxon_id` to link it to an organism.
+- Requires `bpa_sample_id` in each experiment payload so the sample can be resolved.
+- Requires `bpa_library_id`.
+- Creates `experiment` and `experiment_submission` rows.
+- If a `runs` list exists, the importer also creates `read` rows.
+- If the experiment already exists, the importer still attempts to create any missing reads from the nested `runs` list.
 
-**Response:**
-```json
-{
-  "created_count": 15,
-  "skipped_count": 3,
-  "message": "Sample import complete. Created samples: 15, Created submission records: 15, Skipped: 3"
-}
-```
+### Taxonomy bulk operations
 
-### Bulk Import Experiments
+- `bulk-import` skips already-fully-synced rows and only creates new rows when NCBI enrichment returns mapped data.
+- `bulk-upsert` can insert or update rows and re-fetches NCBI data for all supplied taxon IDs.
+- `bulk-ncbi-refresh` updates only existing `taxonomy_info` rows.
 
-**Endpoint:** `/api/v1/experiments/bulk-import`
+## Important constraints and sharp edges
 
-**Request Body:**
-```json
-{
-  "experiments": {
-    "bpa_package_id_1": {
-      "bpa_sample_id": "bpa_sample_id_1",
-      "other_field": "value",
-      ...
-    },
-    "bpa_package_id_2": {
-      ...
-    }
-  }
-}
-```
+- The organism, sample, and experiment bulk endpoints do not share one uniform payload shape.
+- Several bulk paths still contain compatibility logic for older field names or older caller behavior.
+- Some bulk paths emit partial diagnostics through response `errors`; some older code paths also still use `print(...)` for local debugging.
 
-The request body should match the format of the JSON file in `data/experiments.json`. Each experiment is identified by its `bpa_package_id` and must contain a `bpa_sample_id` to link it to a sample.
+## Unknown From This Repo
 
-**Response:**
-```json
-{
-  "created_count": 20,
-  "skipped_count": 5,
-  "message": "Experiment import complete. Created experiments: 20, Created submission records: 20, Skipped: 5"
-}
-```
-
-## Import Order
-
-When importing data, follow this order to ensure proper relationships:
-
-1. Import organisms first
-2. Import samples second (they may reference organisms)
-3. Import experiments last (they reference samples)
-
-## Error Handling
-
-- If an entity already exists (by its unique key), it will be skipped
-- If required fields are missing, the entity will be skipped
-- If referenced entities don't exist (e.g., a sample references a non-existent organism), the entity will still be created but without the relationship
-
-## Example Usage with curl
-
-### Import Organisms
-```bash
-curl -X POST "http://localhost:8000/api/v1/organisms/bulk-import" \
-  -H "Content-Type: application/json" \
-  -H "Authorization: Bearer YOUR_TOKEN" \
-  -d @data/unique_organisms.json
-```
-
-### Import Samples
-```bash
-curl -X POST "http://localhost:8000/api/v1/samples/bulk-import" \
-  -H "Content-Type: application/json" \
-  -H "Authorization: Bearer YOUR_TOKEN" \
-  -d @data/unique_samples.json
-```
-
-### Import Experiments
-```bash
-curl -X POST "http://localhost:8000/api/v1/experiments/bulk-import" \
-  -H "Content-Type: application/json" \
-  -H "Authorization: Bearer YOUR_TOKEN" \
-  -d @data/experiments.json
-```
-
-## Converting Standalone Script Data to API Format
-
-If you have data in a different format, you may need to transform it to match the expected format for these endpoints. The format should match the JSON files used by the standalone import script:
-
-- `data/unique_organisms.json`
-- `data/unique_samples.json`
-- `data/experiments.json`
+- There are no canonical example input files in the tracked repository proving the exact upstream export format for every current caller.
+- The repo does not document who owns the promotion from imported `draft` submission rows to `ready`.
