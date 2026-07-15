@@ -27,11 +27,16 @@ This document describes the bulk-import endpoints that are active in the current
 ### Recommended import order
 
 1. Organisms
-2. Specimen samples
-3. Derived samples
-4. Experiments
-5. Assembly intents or broker-driven submission workflows
-6. Taxonomy-info import or refresh when NCBI enrichment is needed
+   -  `transform_data/unique_organisms.jsonl.gz` -> `/api/v1/organisms/bulk-import`
+   -  `organism_info/organism_reference_data.json` -> `/api/v1/taxonomy-info/bulk-upsert`
+3. Specimen samples
+   - `transform_data/specimens_output.json.gz` -> `/api/v1/samples/bulk-import-specimens`
+5. Derived samples
+   - `transformed.jsonl.gz` -> `/api/v1/samples/bulk-import-derived`
+7. Experiments
+   - `transform_data/experiments_output.json.gz` -> `/api/v1/experiments/bulk-import`
+9. Assembly intents or broker-driven submission workflows
+10. Taxonomy-info import or refresh when NCBI enrichment is needed
 
 This ordering is verified from the code-level dependencies:
 
