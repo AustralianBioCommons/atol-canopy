@@ -28,6 +28,8 @@
 
 - Remove the hard-coded repository path from [create_user.py](/Users/emilylm/Repositories/atol-database-v2/scripts/create_user.py). All script sin `scripts/` folder can probably be removed and managed elsewhere.
 
+- Sometimes the `/api/v1/taxonomy-info/bulk-upsert` times out looking up remote tax info on NCBI. The full lineage doesn't get populated properly.
+
 ## TODO: Operations
 
 - Set up a scheduler to import data from BPA data portal.
