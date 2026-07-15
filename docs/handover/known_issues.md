@@ -17,6 +17,16 @@
 - ToLID external-id selection should be reviewed. [tolid_service.py](/Users/emilylm/Repositories/atol-database-v2/app/services/tolid_service.py) currently uses `SampleSubmission.accession` and only falls back to `sample.biosample_accession`. We actually want to use the external / BioSample accession as the `external_id` for the ToLIDs we register -> so we need to change this (may require changes to the broker)
 
 - Project titles are not validated against any ENA minimum length in Canopy. Recent submission attempts (using the broker) have revealed that ENA requires titles of at least 20 characters. That check should be added in [project.py](/Users/emilylm/Repositories/atol-database-v2/app/schemas/project.py) or before broker submission. May need to pad `title` field when char length is too short.
+  - hot fix for overriding this during submission at https://github.com/emilylm/atol-data-broker-cli/blob/128aca144a96474212342f8bbc543c2b58ac2f05/src/broker/services/transform_service.py#L108:
+    ```
+        project_title=data.get("title", "")
+        while len(data.get("title", "")) < 20:
+            data["title"] = f"{project_title} {data.get("tax_id", "")}"
+    ```
+  - TODO: work out where the fix belongs
+
+  
+
 
 - The current `qc-reads/report` payload is inconsistent with the genome launcher. The current Canopy request shape is defined in [qc_read.py](/Users/emilylm/Repositories/atol-database-v2/app/schemas/qc_read.py). The genome launcher has different fields for qc_read files. Need to change fields in Canopy, or in the genome launcher - or a shim could be added.
 
