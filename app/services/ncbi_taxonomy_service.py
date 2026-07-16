@@ -6,6 +6,8 @@ from typing import Any, Optional
 
 import requests
 
+from app.core.settings import settings
+
 logger = logging.getLogger(__name__)
 
 # Adapted from:
@@ -60,7 +62,7 @@ def fetch_reports(
     for attempt in range(1, max_retries + 1):
         try:
             with _ncbi_semaphore:
-                response = requests.get(url, timeout=timeout_seconds)
+                response = requests.get(url, timeout=timeout_seconds, params={'api_key': settings.NCBI_KEY})
             response.raise_for_status()
             payload = response.json()
             reports = payload.get("reports", [])
