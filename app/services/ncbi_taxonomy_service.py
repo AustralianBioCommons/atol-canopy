@@ -59,7 +59,7 @@ def fetch_reports(
     url = build_taxonomy_url(tax_ids, endpoint)
     logger.info("Fetching NCBI %s reports for tax_ids=%s", endpoint, tax_ids)
     if settings.NCBI_API_KEY:
-        api_params = {'api_key': settings.NCBI_API_KEY}
+        api_params = {"api_key": settings.NCBI_API_KEY}
     else:
         api_params = None
 
