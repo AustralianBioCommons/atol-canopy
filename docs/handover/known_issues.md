@@ -25,9 +25,6 @@
     ```
   - TODO: work out where the fix belongs
 
-  
-
-
 - The current `qc-reads/report` payload is inconsistent with the genome launcher. The current Canopy request shape is defined in [qc_read.py](/Users/emilylm/Repositories/atol-database-v2/app/schemas/qc_read.py). The genome launcher has different fields for qc_read files. Need to change fields in Canopy, or in the genome launcher - or a shim could be added.
 
 - Annotationa are not implemented.
