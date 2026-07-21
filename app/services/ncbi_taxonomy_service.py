@@ -62,7 +62,7 @@ def fetch_reports(
     for attempt in range(1, max_retries + 1):
         try:
             with _ncbi_semaphore:
-                response = requests.get(url, timeout=timeout_seconds, params={'api_key': settings.NCBI_KEY})
+                response = requests.get(url, timeout=timeout_seconds, params={'api_key': settings.NCBI_API_KEY})
             response.raise_for_status()
             payload = response.json()
             reports = payload.get("reports", [])
