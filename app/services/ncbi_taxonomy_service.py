@@ -58,11 +58,15 @@ def fetch_reports(
     """Fetch taxonomy report dicts for a batch of tax_ids."""
     url = build_taxonomy_url(tax_ids, endpoint)
     logger.info("Fetching NCBI %s reports for tax_ids=%s", endpoint, tax_ids)
+    if settings.NCBI_API_KEY:
+        api_params = {'api_key': settings.NCBI_API_KEY}
+    else:
+        api_params = None
 
     for attempt in range(1, max_retries + 1):
         try:
             with _ncbi_semaphore:
-                response = requests.get(url, timeout=timeout_seconds, params={'api_key': settings.NCBI_API_KEY})
+                response = requests.get(url, timeout=timeout_seconds, params=api_params)
             response.raise_for_status()
             payload = response.json()
             reports = payload.get("reports", [])
