@@ -37,6 +37,9 @@ class Settings(BaseSettings):
     ENVIRONMENT: Optional[str] = None  # Options: "dev", "prod"
     APP_VERSION: str = "dev"
 
+    # NCBI api key
+    NCBI_API_KEY: Optional[str] = None
+
     # Model config
     model_config = SettingsConfigDict(
         env_file=".env",
