@@ -312,7 +312,7 @@ def generate_assembly_manifest_json(
         "taxon_id": organism.taxon_id,
         "dataset_id": tol_id,
         "assembly_id": assembly_id,
-        "version": version,
+        "assembly_version": version,
         "busco_odb10_dataset_name": getattr(taxonomy_info, "busco_odb10_dataset_name", None),
         "busco_odb12_dataset_name": getattr(taxonomy_info, "busco_odb12_dataset_name", None),
         "find_plastid": getattr(taxonomy_info, "find_plastid", None),
