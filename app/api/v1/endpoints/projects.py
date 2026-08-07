@@ -7,7 +7,7 @@ from sqlalchemy.orm import Session
 from app.core.dependencies import get_current_active_user, get_db
 from app.core.pagination import Pagination, apply_pagination, pagination_params
 from app.core.policy import policy
-from app.models.project import Project
+from app.models.project import Project, ProjectSubmission
 from app.models.user import User
 from app.schemas.project import (
     Project as ProjectSchema,
@@ -47,6 +47,22 @@ def create_project(
     """
     project = Project(**project_in.model_dump(exclude_none=True))
     db.add(project)
+    db.flush() # Ensure project IDs
+    try:
+        prepared_payload = {
+            "taxon_id": project.taxon_id,
+            "project_type": project.project_type,
+            "study_type": project.study_type,
+            "alias": project.alias,
+            "title": project.title,
+            "description": project.description,
+            "centre_name": project.centre_name,
+            "study_attributes": project.study_attributes
+            }
+        db.add(ProjectSubmission(project_id=project.id, prepared_payload=prepared_payload))
+    except Exception:
+        db.rollback()
+        raise
     db.commit()
     db.refresh(project)
     return project
