@@ -19,9 +19,11 @@ from app.schemas.project import (
 
 router = APIRouter()
 
+
 def _get_project_accession(project_submission: ProjectSubmission) -> str:
     if hasattr(project_submission, "accession"):
         return project_submission.accession
+
 
 @router.get("/", response_model=List[ProjectSchema])
 def read_projects(
@@ -50,7 +52,7 @@ def create_project(
     """
     project = Project(**project_in.model_dump(exclude_none=True))
     db.add(project)
-    db.flush() # Ensure project IDs
+    db.flush()  # Ensure project IDs
     try:
         prepared_payload = {
             "taxon_id": project.taxon_id,
@@ -60,8 +62,8 @@ def create_project(
             "title": project.title,
             "description": project.description,
             "centre_name": project.centre_name,
-            "study_attributes": project.study_attributes
-            }
+            "study_attributes": project.study_attributes,
+        }
         db.add(ProjectSubmission(project_id=project.id, prepared_payload=prepared_payload))
     except Exception:
         db.rollback()
@@ -88,7 +90,9 @@ def read_project(
 
     # If no project accession in the project table, injects accession from project_submission table into the endpoint response (does not change db content)
     if not project.project_accession:
-        project_submission = db.query(ProjectSubmission).filter(ProjectSubmission.project_id == project_id).first()
+        project_submission = (
+            db.query(ProjectSubmission).filter(ProjectSubmission.project_id == project_id).first()
+        )
         if not project_submission:
             raise HTTPException(status_code=404, detail="Project submission record not found")
         else:
