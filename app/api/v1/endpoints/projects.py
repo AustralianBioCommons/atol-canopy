@@ -7,7 +7,7 @@ from sqlalchemy.orm import Session
 from app.core.dependencies import get_current_active_user, get_db
 from app.core.pagination import Pagination, apply_pagination, pagination_params
 from app.core.policy import policy
-from app.models.project import Project
+from app.models.project import Project, ProjectSubmission
 from app.models.user import User
 from app.schemas.project import (
     Project as ProjectSchema,
@@ -18,6 +18,11 @@ from app.schemas.project import (
 )
 
 router = APIRouter()
+
+
+def _get_project_accession(project_submission: ProjectSubmission) -> str:
+    if hasattr(project_submission, "accession"):
+        return project_submission.accession
 
 
 @router.get("/", response_model=List[ProjectSchema])
@@ -47,6 +52,22 @@ def create_project(
     """
     project = Project(**project_in.model_dump(exclude_none=True))
     db.add(project)
+    db.flush()  # Ensure project IDs
+    try:
+        prepared_payload = {
+            "taxon_id": project.taxon_id,
+            "project_type": project.project_type,
+            "study_type": project.study_type,
+            "alias": project.alias,
+            "title": project.title,
+            "description": project.description,
+            "centre_name": project.centre_name,
+            "study_attributes": project.study_attributes,
+        }
+        db.add(ProjectSubmission(project_id=project.id, prepared_payload=prepared_payload))
+    except Exception:
+        db.rollback()
+        raise
     db.commit()
     db.refresh(project)
     return project
@@ -66,6 +87,18 @@ def read_project(
     project = db.query(Project).filter(Project.id == project_id).first()
     if not project:
         raise HTTPException(status_code=404, detail="Project not found")
+
+    # If no project accession in the project table, injects accession from project_submission table into the endpoint response (does not change db content)
+    if not project.project_accession:
+        project_submission = (
+            db.query(ProjectSubmission).filter(ProjectSubmission.project_id == project_id).first()
+        )
+        if not project_submission:
+            raise HTTPException(status_code=404, detail="Project submission record not found")
+        else:
+            accession = _get_project_accession(project_submission)
+            project.project_accession = accession
+
     return project
 
 

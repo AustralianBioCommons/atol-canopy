@@ -62,7 +62,7 @@ def fetch_reports(
         request_params["api_key"] = settings.NCBI_API_KEY
 
     logger.info("Fetching NCBI %s reports for tax_ids=%s", endpoint, tax_ids)
-    
+
     for attempt in range(1, max_retries + 1):
         try:
             with _ncbi_semaphore:
