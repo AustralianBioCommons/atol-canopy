@@ -29,13 +29,23 @@ def _get_project_accession(project_submission: ProjectSubmission) -> str:
 def read_projects(
     db: Session = Depends(get_db),
     pagination: Pagination = Depends(pagination_params),
+    taxon_id: Optional[int] = Query(None, description="Filter by organism taxon ID"),
+    project_type: Optional[str] = Query(None, description="Filter by project type"),
     current_user: User = Depends(get_current_active_user),
 ) -> Any:
     """
     Retrieve projects.
     """
     # All users can read projects
-    projects = apply_pagination(db.query(Project), pagination).all()
+    query = db.query(Project)
+    if taxon_id:
+        query = query.filter(Project.taxon_id == taxon_id)
+    if project_type:
+        query = query.filter(Project.project_type == project_type)
+
+    projects = apply_pagination(query, pagination).all()
+    if not projects:
+        raise HTTPException(status_code=404, detail="Projects not found")
     return projects
 
 
