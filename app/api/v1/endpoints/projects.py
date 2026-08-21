@@ -38,11 +38,9 @@ def read_projects(
     """
     # All users can read projects
     query = db.query(Project)
-    if taxon_id and project_type:
-        query = query.filter(Project.taxon_id == taxon_id, Project.project_type == project_type)
-    elif taxon_id and not project_type:
+    if taxon_id:
         query = query.filter(Project.taxon_id == taxon_id)
-    elif not taxon_id and project_type:
+   if project_type:
         query = query.filter(Project.project_type == project_type)
 
     projects = apply_pagination(query, pagination).all()
