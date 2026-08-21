@@ -40,7 +40,7 @@ def read_projects(
     query = db.query(Project)
     if taxon_id:
         query = query.filter(Project.taxon_id == taxon_id)
-   if project_type:
+    if project_type:
         query = query.filter(Project.project_type == project_type)
 
     projects = apply_pagination(query, pagination).all()
