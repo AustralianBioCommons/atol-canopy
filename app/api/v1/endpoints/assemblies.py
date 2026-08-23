@@ -394,13 +394,12 @@ def get_all_assembly_manifests(
                 assembly.id,
                 taxon_id,
             )
-        else:
-            assembly_manifest = {
-                "assembly_id": str(assembly.id),
-                "version": assembly.version,
-                "manifest": assembly.manifest_json or {},
-            }
-            all_manifests.append(assembly_manifest)
+        assembly_manifest = {
+            "assembly_id": str(assembly.id),
+            "version": assembly.version,
+            "manifest": assembly.manifest_json or {},
+        }
+        all_manifests.append(assembly_manifest)
 
     return JSONResponse(all_manifests)
 
