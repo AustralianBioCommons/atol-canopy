@@ -51,13 +51,16 @@ def read_projects(
     for project in projects:
         if not project.project_accession:
             project_submission = (
-                db.query(ProjectSubmission).filter(ProjectSubmission.project_id == project.id).first()
+                db.query(ProjectSubmission)
+                .filter(ProjectSubmission.project_id == project.id)
+                .first()
             )
             if not project_submission:
                 raise HTTPException(status_code=404, detail="Project submission record not found")
             else:
                 accession = _get_project_accession(project_submission)
                 project.project_accession = accession
+
     return projects
 
 
