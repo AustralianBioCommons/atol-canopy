@@ -52,14 +52,14 @@ def read_projects(
         if not project.project_accession:
             project_submission = (
                 db.query(ProjectSubmission)
-                .filter(ProjectSubmission.project_id == project.id)
+                .filter(
+                    ProjectSubmission.project_id == project.id,
+                    ProjectSubmission.status == "accepted",
+                )
                 .first()
             )
-            if not project_submission:
-                raise HTTPException(status_code=404, detail="Project submission record not found")
-            else:
-                accession = _get_project_accession(project_submission)
-                project.project_accession = accession
+            accession = _get_project_accession(project_submission)
+            project.project_accession = accession
 
     return projects
 
@@ -116,13 +116,15 @@ def read_project(
     # If no project accession in the project table, injects accession from project_submission table into the endpoint response (does not change db content)
     if not project.project_accession:
         project_submission = (
-            db.query(ProjectSubmission).filter(ProjectSubmission.project_id == project_id).first()
+            db.query(ProjectSubmission)
+            .filter(
+                ProjectSubmission.project_id == project.id,
+                ProjectSubmission.status == "accepted",
+            )
+            .first()
         )
-        if not project_submission:
-            raise HTTPException(status_code=404, detail="Project submission record not found")
-        else:
-            accession = _get_project_accession(project_submission)
-            project.project_accession = accession
+        accession = _get_project_accession(project_submission)
+        project.project_accession = accession
 
     return project
 

@@ -802,7 +802,12 @@ def read_sample(
     
     if not sample.biosample_accession:
         sample_submission = (
-            db.query(SampleSubmission).filter(SampleSubmission.sample_id == sample_id, SampleSubmission.status == "accepted").first() # filtering by 'accepted' in case multiple sample_submission records exists for one sample
+            db.query(SampleSubmission)
+            .filter(
+                SampleSubmission.sample_id == sample_id,
+                SampleSubmission.status == "accepted",
+            )
+            .first() 
         )
         if sample_submission:
             accession = _get_sample_accession(sample_submission)
