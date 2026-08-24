@@ -101,7 +101,7 @@ def _get_genomic_data_project_id(db: Session, taxon_id: int) -> UUID:
 
 
 def _get_sample_accession(sample_submission: SampleSubmission) -> str:
-    if hasattr(sample_submission, "accession"): # returning ERS
+    if hasattr(sample_submission, "accession"):  # returning ERS
         return sample_submission.accession
 
 
@@ -799,7 +799,7 @@ def read_sample(
     sample = db.query(Sample).filter(Sample.id == sample_id).first()
     if not sample:
         raise HTTPException(status_code=404, detail="Sample not found")
-    
+
     if not sample.biosample_accession:
         sample_submission = (
             db.query(SampleSubmission)
@@ -807,7 +807,7 @@ def read_sample(
                 SampleSubmission.sample_id == sample_id,
                 SampleSubmission.status == "accepted",
             )
-            .first() 
+            .first()
         )
         if sample_submission:
             accession = _get_sample_accession(sample_submission)
