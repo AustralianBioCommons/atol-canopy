@@ -58,8 +58,9 @@ def read_projects(
                 )
                 .first()
             )
-            accession = _get_project_accession(project_submission)
-            project.project_accession = accession
+            if project_submission:
+                accession = _get_project_accession(project_submission)
+                project.project_accession = accession
 
     return projects
 
@@ -123,8 +124,9 @@ def read_project(
             )
             .first()
         )
-        accession = _get_project_accession(project_submission)
-        project.project_accession = accession
+        if project_submission:
+            accession = _get_project_accession(project_submission)
+            project.project_accession = accession
 
     return project
 
