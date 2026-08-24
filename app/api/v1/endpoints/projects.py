@@ -46,6 +46,21 @@ def read_projects(
     projects = apply_pagination(query, pagination).all()
     if not projects:
         raise HTTPException(status_code=404, detail="Projects not found")
+
+    # If no project accession in the project table, injects accession from project_submission table into the endpoint response (does not change db content)
+    for project in projects:
+        if not project.project_accession:
+            project_submission = (
+                db.query(ProjectSubmission)
+                .filter(ProjectSubmission.project_id == project.id)
+                .first()
+            )
+            if not project_submission:
+                raise HTTPException(status_code=404, detail="Project submission record not found")
+            else:
+                accession = _get_project_accession(project_submission)
+                project.project_accession = accession
+
     return projects
 
 
