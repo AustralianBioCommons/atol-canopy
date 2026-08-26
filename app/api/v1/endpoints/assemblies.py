@@ -364,46 +364,6 @@ def get_assembly_manifest(
     )
 
 
-@router.get("/all-manifests/{taxon_id}")
-def get_all_assembly_manifests(
-    *,
-    db: Session = Depends(get_db),
-    taxon_id: int,
-    current_user: User = Depends(get_current_active_user),
-) -> Any:
-    """Retrieve all stored assembly manifests for a taxon."""
-    organism = db.query(Organism).filter(Organism.taxon_id == taxon_id).first()
-    if not organism:
-        raise HTTPException(status_code=404, detail=f"Organism with taxon_id {taxon_id} not found")
-
-    assembly_query = (
-        db.query(Assembly)
-        .filter(Assembly.taxon_id == _organism_taxon_id(organism))
-        .order_by(Assembly.created_at.desc())
-    )
-    assemblies = assembly_query.all()
-    if not assemblies:
-        raise HTTPException(status_code=404, detail="No assembly manifest found")
-
-    all_manifests = []
-
-    for assembly in assemblies:
-        if assembly.manifest_json is None:
-            logger.error(
-                "Assembly %s for taxon_id %s has no manifest_json; returning empty manifest",
-                assembly.id,
-                taxon_id,
-            )
-        assembly_manifest = {
-            "assembly_id": str(assembly.id),
-            "version": assembly.version,
-            "manifest": assembly.manifest_json or {},
-        }
-        all_manifests.append(assembly_manifest)
-
-    return JSONResponse(all_manifests)
-
-
 @router.post("/intent/{taxon_id}")
 @policy("assemblies:write")
 def create_assembly_intent(
