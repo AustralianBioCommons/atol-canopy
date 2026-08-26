@@ -100,6 +100,11 @@ def _get_genomic_data_project_id(db: Session, taxon_id: int) -> UUID:
     return project.id
 
 
+def _get_sample_accession(sample_submission: SampleSubmission) -> str:
+    if hasattr(sample_submission, "accession"):  # returning ERS
+        return sample_submission.accession
+
+
 def _load_sample_mapping() -> Dict[str, Any]:
     with open(_SAMPLE_MAPPING_PATH, "r") as f:
         return json.load(f)
@@ -794,6 +799,20 @@ def read_sample(
     sample = db.query(Sample).filter(Sample.id == sample_id).first()
     if not sample:
         raise HTTPException(status_code=404, detail="Sample not found")
+
+    if not sample.biosample_accession:
+        sample_submission = (
+            db.query(SampleSubmission)
+            .filter(
+                SampleSubmission.sample_id == sample_id,
+                SampleSubmission.status == "accepted",
+            )
+            .first()
+        )
+        if sample_submission:
+            accession = _get_sample_accession(sample_submission)
+            sample.biosample_accession = accession
+
     return sample
 
 
