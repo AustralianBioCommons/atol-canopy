@@ -181,6 +181,20 @@ def _lookup_scientific_name(db: Session, *, taxon_id: str | int) -> Optional[str
     return db.query(Organism.scientific_name).filter(Organism.taxon_id == tax_id_int).scalar()
 
 
+def _lookup_project_id(db: Session, *, entity_id: UUID) -> Optional[UUID]:
+    project_id = (db.query(Experiment.project_id).filter(Experiment.id == entity_id).scalar())
+    if not project_id:
+        return None
+    return project_id
+
+
+def _lookup_sample_id(db: Session, *, entity_id: UUID) -> Optional[UUID|None]:
+    sample_id = (db.query(Experiment.sample_id).filter(Experiment.id == entity_id).scalar())
+    if not sample_id:
+        return None
+    return sample_id
+
+
 def _create_new_draft_submission_after_rejection(
     db: Session,
     *,
@@ -384,6 +398,13 @@ def _build_contract_entity(
     files = _extract_run_files(prepared_payload) if entity_type == BrokerEntityType.RUN else None
     scientific_name = _lookup_scientific_name(db, taxon_id=taxon_id)
 
+    if entity_type == BrokerEntityType.EXPERIMENT:
+        project_id = _lookup_project_id(db, entity_id=entity_id)
+        sample_id = _lookup_sample_id(db, entity_id=entity_id)
+    else:
+        project_id = None
+        sample_id = None
+
     if entity_type in (BrokerEntityType.EXPERIMENT, BrokerEntityType.SAMPLE):
         title = _derive_claim_title(
             db, entity_type=entity_type, entity_id=entity_id, taxon_id=taxon_id
@@ -396,6 +417,8 @@ def _build_contract_entity(
         id=entity_id,
         taxon_id=str(taxon_id),
         scientific_name=scientific_name,
+        project_id=project_id,
+        sample_id=sample_id,
         payload=prepared_payload or None,
         prerequisites=prerequisites if _prerequisites_to_dict(prerequisites) else None,
         files=files,
