@@ -317,15 +317,26 @@ def _get_accession_for_entity(
     """Lookup accession from accession_registry for a given entity."""
     if not entity_id:
         return None
-    return (
-        db.query(AccessionRegistry.accession)
-        .filter(
-            AccessionRegistry.entity_type == entity_type,
-            AccessionRegistry.entity_id == entity_id,
-            AccessionRegistry.authority == authority,
+    if entity_type == "sample":
+        return (
+            db.query(AccessionRegistry.secondary_accession)
+            .filter(
+                AccessionRegistry.entity_type == entity_type,
+                AccessionRegistry.entity_id == entity_id,
+                AccessionRegistry.authority == authority,
+            )
+            .scalar()
         )
-        .scalar()
-    )
+    else:
+        return (
+            db.query(AccessionRegistry.accession)
+            .filter(
+                AccessionRegistry.entity_type == entity_type,
+                AccessionRegistry.entity_id == entity_id,
+                AccessionRegistry.authority == authority,
+            )
+            .scalar()
+        )
 
 
 def _extract_broker_prerequisites(
