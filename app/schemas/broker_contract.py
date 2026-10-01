@@ -36,6 +36,8 @@ class BrokerClaimEntity(BaseModel):
     id: UUID
     taxon_id: str
     scientific_name: Optional[str] = None
+    project_id: Optional[UUID] = None
+    sample_id: Optional[UUID] = None
     payload: Optional[Dict[str, Any]] = None
     prerequisites: Optional[BrokerPrerequisites] = None
     files: Optional[List[BrokerFileMetadata]] = None
