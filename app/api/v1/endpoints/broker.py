@@ -182,14 +182,14 @@ def _lookup_scientific_name(db: Session, *, taxon_id: str | int) -> Optional[str
 
 
 def _lookup_project_id(db: Session, *, entity_id: UUID) -> Optional[UUID]:
-    project_id = (db.query(Experiment.project_id).filter(Experiment.id == entity_id).scalar())
+    project_id = db.query(Experiment.project_id).filter(Experiment.id == entity_id).scalar()
     if not project_id:
         return None
     return project_id
 
 
-def _lookup_sample_id(db: Session, *, entity_id: UUID) -> Optional[UUID|None]:
-    sample_id = (db.query(Experiment.sample_id).filter(Experiment.id == entity_id).scalar())
+def _lookup_sample_id(db: Session, *, entity_id: UUID) -> Optional[UUID]:
+    sample_id = db.query(Experiment.sample_id).filter(Experiment.id == entity_id).scalar()
     if not sample_id:
         return None
     return sample_id
